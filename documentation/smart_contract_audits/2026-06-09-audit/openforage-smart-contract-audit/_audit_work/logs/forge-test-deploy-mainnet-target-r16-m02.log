@@ -1,0 +1,12 @@
+No files changed, compilation skipped
+
+Ran 6 tests for test/DeployMainnet.target.t.sol:DeployMainnetTargetTest
+[PASS] test_finalizeDelayIsProductionOnMainnet() (gas: 75913)
+[PASS] test_mainnetDryRunHandsOwnershipAndTimelockRolesToGovernance() (gas: 58878454)
+[PASS] test_mainnetDryRunRejectsNonMainnetChain() (gas: 9332)
+[PASS] test_mainnetDryRunSucceedsWithProductionGovernance() (gas: 58811178)
+[PASS] test_mainnetRunWithConfigUsesConfiguredCustodyRoute() (gas: 58908440)
+[PASS] test_productionConstantsUseMainnetProfile() (gas: 13831)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 6.23ms (8.71ms CPU time)
+
+Ran 1 test suite in 6.91ms (6.23ms CPU time): 6 tests passed, 0 failed, 0 skipped (6 total tests)

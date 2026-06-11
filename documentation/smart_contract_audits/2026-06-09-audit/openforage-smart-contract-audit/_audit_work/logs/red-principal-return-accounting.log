@@ -1,0 +1,8 @@
+Compiler run failed:
+Error (9582): Member "PrincipalReturnsUseVault" not found or not visible after argument-dependent lookup in type(contract USDCTreasury).
+   --> test/USDCTreasury.target.t.sol:180:25:
+    |
+180 |         vm.expectRevert(USDCTreasury.PrincipalReturnsUseVault.selector);
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error: Compilation failed

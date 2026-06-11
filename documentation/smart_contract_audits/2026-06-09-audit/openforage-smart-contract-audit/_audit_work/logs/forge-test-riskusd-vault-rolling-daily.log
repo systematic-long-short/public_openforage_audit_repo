@@ -1,0 +1,13 @@
+No files changed, compilation skipped
+
+Ran 7 tests for test/RISKUSDVault.rollingDailyRedeem.t.sol:RISKUSDVault_RollingDailyRedeemCap
+[PASS] test_TSCGB_A24_targetInitializerSetsGenesisCustodianAndKeepsRotationDelayed() (gas: 6433243)
+[PASS] test_TSCGB_A8_dailyRedemptionCapBlocksCumulativeDrainInsideWindow() (gas: 394381)
+[PASS] test_TSCGB_A8_dailyRedemptionCapUsesSupplyBeforeBurn() (gas: 358177)
+[PASS] test_TSCGB_A8_dailyRedemptionWindowResetsAfterTwentyFourHours() (gas: 440851)
+[PASS] test_TSCGB_A8_weeklyCapStillBlocksWhenDailyCapAllows() (gas: 403117)
+[PASS] test_TSCGB_A9_staleCustodianNAVBlocksFurtherDeploymentAgainstUnreturnedCash() (gas: 228064)
+[PASS] test_TSCGB_A9_staleCustodianNAVBlocksRedemptionAgainstUnreturnedCash() (gas: 259958)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 2.28ms (1.43ms CPU time)
+
+Ran 1 test suite in 5.79ms (2.28ms CPU time): 7 tests passed, 0 failed, 0 skipped (7 total tests)

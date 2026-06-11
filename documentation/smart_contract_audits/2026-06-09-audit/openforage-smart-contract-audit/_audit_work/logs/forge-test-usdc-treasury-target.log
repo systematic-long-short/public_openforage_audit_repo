@@ -1,0 +1,28 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.75s
+Compiler run successful with warnings:
+Warning (2018): Function state mutability can be restricted to view
+   --> src/atRISKUSD.sol:911:5:
+    |
+911 |     function renounceOwnership() public override onlyOwner {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 14 tests for test/USDCTreasury.target.t.sol:USDCTreasury_TargetAccounting
+[PASS] test_TSCGB_A2_lossMarksAllTiersDownEquallyBeforeRetainedBufferAndMovesNoCash() (gas: 167589)
+[PASS] test_TSCGB_A2_minSignedLossMagnitudeDoesNotOverflow() (gas: 137900)
+[PASS] test_TSCGB_A2_profitRecognitionIsAccountingOnly() (gas: 252392)
+[PASS] test_TSCGB_A3_directPrincipalTransferPathFailsLoudAndRecordIsAccountingOnly() (gas: 161406)
+[PASS] test_TSCGB_A3_repeatedPnLReturnsCannotFundSameRecognizedClaimTwice() (gas: 387389)
+[PASS] test_TSCGB_A3_returnedPnLFundsRecognizedClaimWithoutDoubleCountingTierMarkup() (gas: 361384)
+[PASS] test_TSCGB_A4_returnPnLBooksFoundationAsFifteenPercentOfProfit() (gas: 192512)
+[PASS] test_TSCGB_A5_agentPayPerPaymentDailyCapAndBatchLimit() (gas: 560260)
+[PASS] test_TSCGB_A5_disburseEnforcesPurposeEarmarkAndFoundationRollingCap() (gas: 275593)
+[PASS] test_TSCGB_A5_vaultTopUpPaysOnlyVaultAndProtocolRetainedHasDailyCap() (gas: 517346)
+[PASS] test_TSCGB_A6_blockedPrimaryFailsOverWithoutHaltingOtherEarmarks() (gas: 397475)
+[PASS] test_TSCGB_A6_missingBlocklistFailsLoudBeforeDisbursement() (gas: 2766370)
+[PASS] test_TSCGB_A6_revertingBlocklistFailsLoudBeforeDisbursement() (gas: 133023)
+[PASS] test_TSCGB_A7_walletRotationIsTwoStepAndTimeDelayed() (gas: 61075)
+Suite result: ok. 14 passed; 0 failed; 0 skipped; finished in 13.64ms (12.08ms CPU time)
+
+Ran 1 test suite in 14.33ms (13.64ms CPU time): 14 tests passed, 0 failed, 0 skipped (14 total tests)

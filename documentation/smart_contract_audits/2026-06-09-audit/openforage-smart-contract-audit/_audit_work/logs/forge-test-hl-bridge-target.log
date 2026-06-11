@@ -1,0 +1,23 @@
+Compiling 2 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.61s
+Compiler run successful!
+
+Ran 15 tests for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[PASS] test_TSCGB_A14_keeperNAVIsClampedAndStaleReportsRevert() (gas: 233165)
+[PASS] test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() (gas: 863648)
+[PASS] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 922224)
+[PASS] test_TSCGB_A17_bridgeAndRegistryReturnCapsAreTenPercentPerCallAndPerDay() (gas: 505251)
+[PASS] test_TSCGB_A18_executorFundedReturnsRequireReconciledArrival() (gas: 442087)
+[PASS] test_TSCGB_A18_newIntentBlockedWhilePriorArrivalIsUnreconciled() (gas: 683294)
+[PASS] test_TSCGB_A18_overlappingWithdrawalIntentsReconcileAfterPriorLiquidityIsReturned() (gas: 804557)
+[PASS] test_TSCGB_A18_unsolicitedDustDoesNotBlockWithdrawalIntent() (gas: 702742)
+[PASS] test_TSCGB_A18_withdrawalIntentConsumesOnlyAfterArrivalReconciliation() (gas: 569370)
+[PASS] test_TSCGB_A18_withdrawalIntentIsCappedAndPinnedToCustodianRoute() (gas: 386428)
+[PASS] test_TSCGB_A19_directionalFreezeBlocksDeploysButAllowsPrincipalReturns() (gas: 663019)
+[PASS] test_TSCGB_A19_guardianEmergencyBridgePortsAreTightenOnly() (gas: 75802)
+[PASS] test_TSCGB_A19_missingBridgeBlocklistFailsLoudBeforeCustodyActions() (gas: 3371077)
+[PASS] test_TSCGB_A19_revertingBridgeBlocklistFailsLoudBeforeCustodyActions() (gas: 137581)
+[PASS] test_TSCGB_A25_bridgeExposesTierShareSettlementHookForAtRiskusd() (gas: 30579)
+Suite result: ok. 15 passed; 0 failed; 0 skipped; finished in 3.85ms (3.45ms CPU time)
+
+Ran 1 test suite in 4.42ms (3.85ms CPU time): 15 tests passed, 0 failed, 0 skipped (15 total tests)

@@ -1,0 +1,42 @@
+## OPENFORAGE_AUDIT_GATE_SEMGREP_R37
+## OpenForage-specific smart-contract audit rules. These rules are intentionally
+## narrow and pair with the source-level I-15 lint plus Slither zero-warning gate.
+rules:
+  - id: openforage-no-bare-call-with-value
+    severity: ERROR
+    languages: [generic]
+    message: "OpenForage: do not use bare call{value: ...}; value-forwarding calls need an explicit reviewed helper."
+    patterns:
+      - pattern-regex: '\.call\s*\{\s*value\s*:'
+
+  - id: openforage-no-onlyOwner-on-trust-sensitive-setter
+    severity: ERROR
+    languages: [generic]
+    message: "OpenForage I-15: trust-sensitive owner setters must route through propose/finalize and FINALIZE_DELAY."
+    paths:
+      include:
+        - "**/src/**/*.sol"
+    patterns:
+      - pattern-regex: '(?s)function\s+set[A-Za-z0-9_]*(Custodian|LossReporter|Depositor|Distributor|Executor|Guardian|Governor|Peer|Oracle|Minter|VaultRegistry|RISKUSDVault|YieldSource|StakingQueue)[A-Za-z0-9_]*\s*\([^)]*(address|bytes32)[^)]*\)[^{;]*onlyOwner[^{]*\{(?:(?!\n\s*function\s).)*\n\s*_(custodian|lossReporter|depositor|distributor|executor|guardian|governor|forageGovernor|minter|vaultRegistry|riskusdVault|yieldSource|stakingQueue|oracle|peer)[A-Za-z0-9_]*\s*=\s*[A-Za-z][A-Za-z0-9_]*_;'
+
+  - id: openforage-no-uint256-max-cap-init
+    severity: ERROR
+    languages: [generic]
+    message: "OpenForage: launch caps must be bounded; do not initialize cap state to type(uint256).max."
+    paths:
+      include:
+        - "**/src/**/*.sol"
+    patterns:
+      - pattern-regex: '(cap|Cap|limit|Limit)[A-Za-z0-9_]*\s*=\s*type\s*\(\s*uint256\s*\)\s*\.\s*max'
+
+  - id: openforage-no-skip-of-assert-solvency
+    severity: ERROR
+    languages: [generic]
+    message: "OpenForage I-1: value-moving vault paths must keep _assertSolvency() unless explicitly documented."
+    paths:
+      include:
+        - "**/src/RISKUSDVault.sol"
+    pattern-either:
+      - pattern-regex: '(?s)function\s+deposit\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+redeem\s*\('
+      - pattern-regex: '(?s)function\s+redeem\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+deployCapital\s*\('
+      - pattern-regex: '(?s)function\s+deployCapital\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+returnCapital\s*\('

@@ -1,0 +1,10 @@
+No files changed, compilation skipped
+
+Ran 4 tests for test/EchidnaCrownInvariantsCompile.t.sol:EchidnaCrownInvariantsCompileTest
+[PASS] test_echidnaHarnessExposesCurrentInvariantProperties() (gas: 8758294)
+[PASS] test_echidnaHarnessI1PropertyDetectsForcedInsolvency() (gas: 8757835)
+[PASS] test_echidnaHarnessI2PropertyDetectsOutflowBeforeBurn() (gas: 8743065)
+[PASS] test_echidnaHarnessI4PropertyDetectsBackingPerShareDecrease() (gas: 8759097)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 1.14ms (2.00ms CPU time)
+
+Ran 1 test suite in 4.52ms (1.14ms CPU time): 4 tests passed, 0 failed, 0 skipped (4 total tests)

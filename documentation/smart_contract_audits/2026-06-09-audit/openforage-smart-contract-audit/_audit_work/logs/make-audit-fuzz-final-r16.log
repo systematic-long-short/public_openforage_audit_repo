@@ -1,0 +1,46 @@
+env PATH=openforage_smart_contracts/.venv/bin:<user-nvm-path>:<user-codex-path>:<user-nvm-path>:<user-gcloud-sdk-bin>:<user-local-bin>:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:<user-foundry-bin>:<user-foundry-bin> .venv/bin/echidna test/echidna/EchidnaCrownInvariants.sol --contract EchidnaCrownInvariants --config echidna.yaml --test-limit 50000
+[2026-06-10 16:29:55.52] Compiling `test/echidna/EchidnaCrownInvariants.sol`... Done! (1.125278188s)
+Analyzing contract: openforage_smart_contracts/test/echidna/EchidnaCrownInvariants.sol:EchidnaCrownInvariants
+[2026-06-10 16:29:56.82] Running slither on `test/echidna/EchidnaCrownInvariants.sol`... Done! (1.047283872s)
+Loaded 1 transaction sequences from echidna-corpus/reproducers
+Loaded 10 transaction sequences from echidna-corpus/coverage
+[2026-06-10 16:29:57.98] [Worker 1] New coverage: 9439 instr, 5 contracts, 1 seqs in corpus
+[2026-06-10 16:29:57.98] [Worker 0] New coverage: 9439 instr, 5 contracts, 1 seqs in corpus
+[2026-06-10 16:29:57.98] [Worker 0] Sequence replayed from corpus file 6137147249463079113.txt (1/3)
+[2026-06-10 16:29:57.98] [Worker 1] Sequence replayed from corpus file 6137147249463079113.txt (1/3)
+[2026-06-10 16:29:58.18] [Worker 2] New coverage: 9812 instr, 5 contracts, 2 seqs in corpus
+[2026-06-10 16:29:58.18] [Worker 2] Sequence replayed from corpus file 3816254674905543717.txt (1/3)
+[2026-06-10 16:29:58.19] [Worker 3] New coverage: 9812 instr, 5 contracts, 3 seqs in corpus
+[2026-06-10 16:29:58.19] [Worker 3] Sequence replayed from corpus file 4726357880428759211.txt (1/2)
+[2026-06-10 16:29:58.21] [Worker 0] New coverage: 9894 instr, 5 contracts, 4 seqs in corpus
+[2026-06-10 16:29:58.21] [Worker 1] New coverage: 9894 instr, 5 contracts, 5 seqs in corpus
+[2026-06-10 16:29:58.21] [Worker 0] Sequence replayed from corpus file 4780830398029404724.txt (2/3)
+[2026-06-10 16:29:58.21] [Worker 1] Sequence replayed from corpus file 1210325265859882197.txt (2/3)
+[2026-06-10 16:29:58.31] [Worker 2] New coverage: 9894 instr, 5 contracts, 6 seqs in corpus
+[2026-06-10 16:29:58.31] [Worker 2] Sequence replayed from corpus file 2349178022917470593.txt (2/3)
+[2026-06-10 16:29:58.32] [Worker 3] Sequence replayed from corpus file 2397489761223984855.txt (2/2)
+[2026-06-10 16:29:58.33] [Worker 0] Sequence replayed from corpus file 2180119680789322195.txt (3/3)
+[2026-06-10 16:29:58.34] [Worker 1] Sequence replayed from corpus file 8413210792195220673.txt (3/3)
+[2026-06-10 16:29:58.47] [Worker 2] Sequence replayed from corpus file 7415762941369919523.txt (3/3)
+[2026-06-10 16:30:00.92] [status] tests: 0/3, fuzzing: 15893/50000, values: [], cov: 9894, corpus: 6, gas/s: 1246925303
+[2026-06-10 16:30:03.92] [status] tests: 0/3, fuzzing: 31566/50000, values: [], cov: 9894, corpus: 6, gas/s: 1239546121
+[2026-06-10 16:30:06.93] [status] tests: 0/3, fuzzing: 47540/50000, values: [], cov: 9894, corpus: 6, gas/s: 1264148547
+[2026-06-10 16:30:07.30] [Worker 0] Test limit reached. Stopping.
+[2026-06-10 16:30:07.31] [Worker 1] Test limit reached. Stopping.
+[2026-06-10 16:30:07.42] [Worker 2] Test limit reached. Stopping.
+[2026-06-10 16:30:07.45] [Worker 3] Test limit reached. Stopping.
+[2026-06-10 16:30:07.45] [status] tests: 0/3, fuzzing: 50400/50000, values: [], cov: 9894, corpus: 6, gas/s: 664612778
+echidna_I2_burnBeforeWithdraw: passing
+echidna_I1_solvency: passing
+echidna_I4_backingPerShare_monotonic: passing
+
+Unique instructions: 9894
+Unique codehashes: 5
+Corpus size: 6
+Seed: 5673645567835280035
+Total calls: 50400
+
+[2026-06-10 16:30:07.45] Saving test reproducers... Done! (0.00000067s)
+[2026-06-10 16:30:07.45] Saving corpus... Done! (0.000198425s)
+[2026-06-10 16:30:07.45] Saving foundry reproducers... Done! (0.000004939s)
+[2026-06-10 16:30:07.45] Saving coverage... Done! (0.18645148s)

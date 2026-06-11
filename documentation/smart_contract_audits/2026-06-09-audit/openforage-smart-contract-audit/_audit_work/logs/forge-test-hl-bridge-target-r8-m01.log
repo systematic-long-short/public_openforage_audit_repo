@@ -1,0 +1,23 @@
+No files changed, compilation skipped
+
+Ran 17 tests for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[PASS] test_R8_M01_deployRequiresRegistryRouteToThisBridge() (gas: 405166)
+[PASS] test_R8_M01_deployRequiresUnpausedRegistryDestination() (gas: 171136)
+[PASS] test_TSCGB_A14_keeperNAVIsClampedAndStaleReportsRevert() (gas: 233165)
+[PASS] test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() (gas: 1072247)
+[PASS] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 1063419)
+[PASS] test_TSCGB_A17_bridgeAndRegistryReturnCapsAreTenPercentPerCallAndPerDay() (gas: 276159)
+[PASS] test_TSCGB_A18_executorFundedReturnsRequireReconciledArrival() (gas: 583282)
+[PASS] test_TSCGB_A18_newIntentBlockedWhilePriorArrivalIsUnreconciled() (gas: 824424)
+[PASS] test_TSCGB_A18_overlappingWithdrawalIntentsReconcileAfterPriorLiquidityIsReturned() (gas: 945752)
+[PASS] test_TSCGB_A18_unsolicitedDustDoesNotBlockWithdrawalIntent() (gas: 843959)
+[PASS] test_TSCGB_A18_withdrawalIntentConsumesOnlyAfterArrivalReconciliation() (gas: 710565)
+[PASS] test_TSCGB_A18_withdrawalIntentIsCappedAndPinnedToCustodianRoute() (gas: 527645)
+[PASS] test_TSCGB_A19_directionalFreezeBlocksDeploysButAllowsPrincipalReturns() (gas: 804236)
+[PASS] test_TSCGB_A19_guardianEmergencyBridgePortsAreTightenOnly() (gas: 75824)
+[PASS] test_TSCGB_A19_missingBridgeBlocklistFailsLoudBeforeCustodyActions() (gas: 3414020)
+[PASS] test_TSCGB_A19_revertingBridgeBlocklistFailsLoudBeforeCustodyActions() (gas: 137581)
+[PASS] test_TSCGB_A25_bridgeExposesTierShareSettlementHookForAtRiskusd() (gas: 30601)
+Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 3.86ms (3.71ms CPU time)
+
+Ran 1 test suite in 4.54ms (3.86ms CPU time): 17 tests passed, 0 failed, 0 skipped (17 total tests)

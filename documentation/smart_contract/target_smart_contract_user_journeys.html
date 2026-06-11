@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Target Smart Contract — User-Journey Coverage Map — OpenForage</title>
+  <style>
+    :root {
+      --bg: #0f1211;
+      --panel: #151917;
+      --panel-2: #1b211e;
+      --ink: #e8ece8;
+      --muted: #a7b2aa;
+      --soft: #8b958e;
+      --line: #2a332e;
+      --line-2: #3a4740;
+      --sage: #7fb39a;
+      --sage-2: #9ecab3;
+      --gold: #d2b36c;
+      --red: #d07a74;
+      --blue: #7ca8c9;
+      --violet: #b09ad5;
+      --code: #101412;
+      --shadow: rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      line-height: 1.55;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(180deg, rgba(127, 179, 154, 0.07), transparent 340px),
+        radial-gradient(circle at 8% 0%, rgba(124, 168, 201, 0.08), transparent 280px),
+        var(--bg);
+    }
+
+    a {
+      color: var(--sage-2);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(127, 179, 154, 0.45);
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 34px 22px 72px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+      gap: 28px;
+      align-items: end;
+      padding: 34px 0 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: clamp(32px, 5.2vw, 66px);
+      line-height: 1.0;
+    }
+
+    h2 {
+      font-size: clamp(21px, 2.6vw, 32px);
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    h3 {
+      font-size: 16px;
+      line-height: 1.25;
+      color: var(--sage-2);
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+    }
+
+    strong { color: var(--ink); font-weight: 600; }
+
+    .lede {
+      margin-top: 22px;
+      max-width: 860px;
+      font-size: clamp(15px, 1.5vw, 18px);
+      color: #d5ddd6;
+    }
+
+    .meta-grid {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: rgba(21, 25, 23, 0.78);
+      box-shadow: 0 12px 30px var(--shadow);
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .meta-row strong { color: var(--ink); font-weight: 600; }
+
+    .section {
+      padding: 40px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .section-num {
+      flex: none;
+      color: var(--sage);
+      font-size: clamp(21px, 2.6vw, 32px);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .section-sub {
+      margin: -2px 0 0;
+      color: var(--soft);
+      font-size: 13px;
+    }
+
+    .card {
+      min-height: 100%;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+
+    .card p:last-child,
+    .note p:last-child,
+    .callout p:last-child { margin-bottom: 0; }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      padding: 2px 8px;
+      margin-bottom: 12px;
+      border: 1px solid var(--line-2);
+      color: var(--sage-2);
+      background: rgba(127, 179, 154, 0.07);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border: 1px solid var(--line-2);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.02);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .tag.good { color: var(--sage-2); border-color: rgba(127, 179, 154, 0.52); }
+    .tag.warn { color: var(--gold); border-color: rgba(210, 179, 108, 0.5); }
+    .tag.risk { color: var(--red); border-color: rgba(208, 122, 116, 0.5); }
+    .tag.info { color: var(--blue); border-color: rgba(124, 168, 201, 0.5); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: rgba(16, 20, 18, 0.76);
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      color: var(--ink);
+      background: rgba(127, 179, 154, 0.08);
+      font-weight: 650;
+      text-align: left;
+    }
+
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+
+    code, .mono {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #dfe7e1;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 1px 4px;
+      overflow-wrap: anywhere;
+    }
+
+    .callout {
+      padding: 16px;
+      border: 1px solid rgba(127, 179, 154, 0.5);
+      background: rgba(127, 179, 154, 0.08);
+    }
+
+    .callout.danger { border-color: rgba(208, 122, 116, 0.55); background: rgba(208, 122, 116, 0.08); }
+    .callout.warning { border-color: rgba(210, 179, 108, 0.55); background: rgba(210, 179, 108, 0.08); }
+    .callout.info { border-color: rgba(124, 168, 201, 0.5); background: rgba(124, 168, 201, 0.08); }
+
+    .note {
+      padding: 14px;
+      border-left: 2px solid var(--sage);
+      background: rgba(127, 179, 154, 0.06);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    ul { margin: 0; padding-left: 18px; }
+    li { margin-bottom: 8px; color: var(--muted); }
+
+    .small { font-size: 12px; color: var(--muted); }
+
+    /* Contract mini-card */
+    .ccard {
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--sage);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    .ccard.hl { border-left-color: var(--blue); }
+    .ccard h3 { color: var(--ink); font-size: 15.5px; margin-bottom: 4px; }
+    .ccard .sol { color: var(--soft); font-size: 11.5px; margin-bottom: 10px; }
+    .ccard p { font-size: 13px; margin-bottom: 8px; }
+    .ccard .tags { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .why-line { color: var(--soft); font-size: 12.5px; }
+    .why-line .glabel { color: var(--sage-2); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 8px; font-size: 11px; }
+
+    .grouplabel {
+      margin: 26px 0 12px;
+      color: var(--sage-2);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+    }
+
+    /* Journey matrix */
+    table.jm { font-size: 11.5px; }
+    table.jm th { font-size: 11px; }
+    table.jm td:first-child { color: var(--ink); }
+    table.jm .jid { color: var(--sage-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    table.jm .ev { color: var(--soft); font-size: 11px; }
+    .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+
+    /* Scoreboard */
+    .score {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 4px 0 6px;
+    }
+    .score .cell {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--line-2);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    .score .cell.full { border-top-color: var(--sage); }
+    .score .cell.partial { border-top-color: var(--gold); }
+    .score .cell.none { border-top-color: var(--red); }
+    .score .cell.total { border-top-color: var(--blue); }
+    .score .n { font-size: 30px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .score .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); }
+
+    .colophon {
+      padding-top: 28px;
+      color: var(--soft);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      main { padding: 24px 16px 56px; }
+      .hero, .two-col { grid-template-columns: 1fr; }
+      .meta-row { grid-template-columns: 96px minmax(0, 1fr); }
+      .score { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media print {
+      body { background: #fff; color: #111; }
+      main { max-width: none; }
+      .card, .callout, .note, .ccard, table, .meta-grid {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+
+  <section class="hero">
+    <div>
+      <div class="kicker">OpenForage · Smart Contracts · USER-JOURNEY COVERAGE</div>
+      <h1>Can the contracts do everything the protocol needs?</h1>
+      <p class="lede">
+        Every user journey the OpenForage protocol must fulfil to actually function — across depositors,
+        the Vault, governance, guardians, the keeper and custody desk, the treasuries and the Foundation,
+        vesting, compliance, strategy-vault lifecycle, the OpenForage Library, and the system as a whole —
+        scored against the <strong>implemented target</strong> smart-contract design. For each journey:
+        does the design cover it, is it implemented, which contract delivers it, and what gap remains.
+      </p>
+    </div>
+    <aside class="meta-grid" aria-label="document metadata">
+      <div class="meta-row"><strong>Drafted</strong><span>2026-06-07</span></div>
+      <div class="meta-row"><strong>Audience</strong><span>Executive / internal</span></div>
+      <div class="meta-row"><strong>Scope</strong><span>77 on-chain journeys + 6 Library (off-chain) · 11 actor domains</span></div>
+      <div class="meta-row"><strong>Derived from</strong><span>target_smart_contract_architecture.html (the source of truth)</span></div>
+      <div class="meta-row"><strong>Lens</strong><span>Coverage of the implemented TARGET — repo + Sepolia; mainnet pending</span></div>
+    </aside>
+  </section>
+
+  <!-- P42 anti-drift banner -->
+  <section class="section" id="banner" style="padding-top:26px">
+    <div class="callout warning">
+      <h3 style="color:var(--ink);margin-bottom:10px">Read this first — this page introduces no new authority</h3>
+      <p>This is a <strong>derived coverage map</strong> of
+        <code>documentation/smart_contract/target_smart_contract_architecture.html</code> (cited throughout
+        as <code>TSC:&lt;line&gt;</code>). It restates that document's design to score journey coverage; it
+        is <strong>not</strong> a second source of truth and defines no new parameters. Where this page,
+        the target architecture, and merged implementation code disagree, <strong>the merged code and
+        live chain state win for current behaviour</strong>. Every economic number here is cited back to
+        the target doc or implemented contract, never asserted as this page's own value.</p>
+    </div>
+  </section>
+
+  <!-- Executive box -->
+  <section class="section" id="exec">
+    <div class="callout info">
+      <h3 style="color:var(--ink);margin-bottom:10px">What you most need to know — in 60 seconds</h3>
+      <ul>
+        <li><strong>The headline.</strong> Of <strong>77 on-chain journeys</strong> the protocol needs, the
+          implemented target now <strong>fully covers 75</strong>, with <strong>1 accepted PARTIAL</strong> (X-2,
+          off-chain trading auditability) and <strong>1 deliberate NONE</strong> (K-7, the removed per-instruction
+          trading gate). Every design gap was solved on 2026-06-08, and the former build gaps were
+          closed in the June 2026 target-gap buildout: <code>USDCTreasury</code>, <code>FORAGETreasury</code>,
+          the slimmed <code>HLTradingBridge</code>, the 4-of-7 guardian machinery, the successor registry,
+          and directional freeze are now implemented and proven on Arbitrum Sepolia.</li>
+        <li><strong>Two separate axes, never conflated.</strong> <em>Design coverage</em> asks "does the
+          target design specify a path?" (FULL / PARTIAL / NONE). <em>Build status</em> asks "does the code
+          exist?" (live / implemented · off-chain · gap). The <strong>verdict scores the design</strong>;
+          implementation evidence is shown separately in the build-status column.</li>
+        <li><strong>The Library has no on-chain journey.</strong> Contributors register, submit signals, and
+          are scored <strong>entirely off-chain</strong>. The on-chain boundary is the protocol's own
+          server crediting an agent's <em>address</em> — the contributor never signs an on-chain
+          transaction. The target SC design contains no "contributor / attribution" concept (§11).</li>
+        <li><strong>Three facts shape every row.</strong> (1) The target consolidations and guardian
+          extensions are now committed code and deployed on Arbitrum Sepolia. (2) The Library is off-chain.
+          (3) The target deliberately diverged from the historical deployed-code baseline on economics and
+          safety (§15), and that divergence is now the implemented target.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- §1 how to read -->
+  <section class="section" id="legend">
+    <div class="section-head">
+      <span class="section-num">§1</span>
+      <div>
+        <h2>How to read this map</h2>
+        <p class="section-sub">Two axes, six columns, one citation per row.</p>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <h3>Design coverage — does the target design specify a path?</h3>
+        <p class="small"><span class="tag good">FULL</span> &nbsp;the design fully specifies the journey.</p>
+        <p class="small"><span class="tag warn">PARTIAL</span> &nbsp;intent exists, but an API, eligibility, or control path is missing, inconsistent, or under-specified.</p>
+        <p class="small"><span class="tag risk">NONE</span> &nbsp;no on-chain journey in the target design (by omission or by deliberate removal).</p>
+      </div>
+      <div class="card">
+        <h3>Build status — does the code exist?</h3>
+        <p class="small"><span class="tag good">🟢 live</span> &nbsp;exists in committed Solidity and is part of the target implementation.</p>
+        <p class="small"><span class="tag good">🟢 implemented</span> &nbsp;was formerly target-only and now exists in committed Solidity.</p>
+        <p class="small"><span class="tag info">⚪ off-chain</span> &nbsp;not a smart-contract journey by design.</p>
+        <p class="small"><span class="tag risk">🔴 gap</span> &nbsp;the design names the need but specifies no contract/API.</p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:14px">
+      <p class="small">The six columns are: <strong>Journey</strong> · <strong>Design coverage</strong> ·
+        <strong>Build status</strong> · <strong>Fulfilled by</strong> (the contract/function) ·
+        <strong>Gap / owner decision</strong> · <strong>Evidence</strong>. Evidence tagged
+        <code>TSC:&lt;line&gt;</code> is the target architecture doc; <code>(code)</code> is committed
+        Solidity in <code>openforage_smart_contracts/src/</code>; <code>(ext)</code> is an off-chain source
+        (the Library or the signal service). A dual build chip (e.g. 🟢/⚪) means the on-chain settlement
+        surface exists but part of the journey remains deliberately off-chain.</p>
+    </div>
+  </section>
+
+  <!-- §2 scoreboard -->
+  <section class="section" id="scoreboard">
+    <div class="section-head">
+      <span class="section-num">§2</span>
+      <div>
+        <h2>Coverage scoreboard</h2>
+        <p class="section-sub">On-chain journeys only. The OpenForage Library (off-chain) is counted separately below.</p>
+      </div>
+    </div>
+    <div class="score">
+      <div class="cell full"><div class="n">75</div><div class="lbl">FULL — design covers it</div></div>
+      <div class="cell partial"><div class="n">1</div><div class="lbl">PARTIAL — accepted residual</div></div>
+      <div class="cell none"><div class="n">1</div><div class="lbl">NONE — deliberately removed</div></div>
+      <div class="cell total"><div class="n">77</div><div class="lbl">on-chain journeys</div></div>
+    </div>
+    <p class="small" style="margin-top:14px"><strong>Resolved 2026-06-08.</strong> The 16 PARTIAL and 2 NONE rows
+      were driven to closure: 15 PARTIAL + 1 NONE (D-9) flipped to <strong>FULL</strong> by porting the guardian
+      defence-in-depth design into the target (4-of-7 quorum, the named <code>preCommittedSuccessors[role]</code>
+      registry, the directional freeze), reconciling the depositor-mechanics rows to the code, and giving
+      the custody control an honest design plus a Bridge2-only bridge. The 2026-06-09 target-gap buildout
+      then implemented and Sepolia-proved the target machinery (USDCTreasury / FORAGETreasury / slimmed
+      bridge / the 4-of-7 guardian); see §14. The only rows still short of FULL are <strong>one accepted PARTIAL</strong> (X-2 —
+      trading auditability is off-chain by design) and <strong>one deliberate NONE</strong> (K-7 — the removed
+      on-chain per-instruction trading gate); both are accepted owner decisions, not open gaps.</p>
+    <p class="small">Separately, the <strong>OpenForage Library / contributor</strong> block (§11) is
+      <strong>off-chain adjacent</strong> — <strong>excluded from the 77 above</strong>: 6 rows, of which 2
+      are server-mediated PARTIAL (an agent's <em>address</em> is paid on-chain) and 4 are NONE (off-chain by
+      design). Plus one risk-acceptance note (X-4, §12) that is not itself a journey.</p>
+  </section>
+
+  <!-- §3 Depositor / Vault -->
+  <section class="section" id="depositor">
+    <div class="section-head">
+      <span class="section-num">§3</span>
+      <div>
+        <h2>Depositor / Vault</h2>
+        <p class="section-sub">The dollar in, the receipt, the tier, the profit, the loss, the exit — the core product.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">D-1</span> Deposit USDC and receive RISKUSD 1:1</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>RISKUSDVault</code> deposit → <code>RISKUSD</code> Vault-only mint; mint caps 20%/blk · 20%/day · 200%/wk · $10M/blk</td><td>—</td><td class="ev"><code>TSC:706-707, 1716-1738</code></td></tr>
+        <tr><td><span class="jid">D-2</span> Stake RISKUSD into a chosen tier (0–3)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>StakingQueue.joinQueue</code> → operator <code>processQueue</code> → <code>atRISKUSD</code> (ERC-4626)</td><td>—</td><td class="ev"><code>TSC:1885-1961</code></td></tr>
+        <tr><td><span class="jid">D-3</span> Use the priority lane by locking FORAGE</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>StakingQueue</code> dual-mode FORAGE price sizes the lock; <code>ForageToken.lock/unlock</code> — a refundable escrow released on process / cancel</td><td>Resolved — the FORAGE escrow-lock lifecycle (refundable, never burned/fee'd, released on process/cancel, retryable) is now documented</td><td class="ev"><code>TSC:1924-1958</code></td></tr>
+        <tr><td><span class="jid">D-4</span> Move up a tier while still queued</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>StakingQueue</code> in-queue tier upgrade</td><td>—</td><td class="ev"><code>TSC:1936-1961</code></td></tr>
+        <tr><td><span class="jid">D-5</span> Earn profit as the tier-share value rises</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>USDCTreasury</code> crystallises profit → <code>atRISKUSD</code> marked up (never down on profit)</td><td>—</td><td class="ev"><code>TSC:1767-1772</code></td></tr>
+        <tr><td><span class="jid">D-6</span> Bear losses pro-rata — same % from every tier</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>USDCTreasury</code> loss → <code>atRISKUSD.absorbLoss</code> pro-rata → retained buffer</td><td>—</td><td class="ev"><code>TSC:786-791, 1815-1830</code></td></tr>
+        <tr><td><span class="jid">D-7</span> Withdraw from a tier after lock-up + cooldown, within the weekly cap</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>atRISKUSD</code> release: 0/90/180/360-day locks, 7-day cooldown, 5%/wk cap, snapshot-at-request payout, exit-lock while a loss settles</td><td>—</td><td class="ev"><code>TSC:1630-1659</code></td></tr>
+        <tr><td><span class="jid">D-8</span> Redeem RISKUSD for USDC within the caps</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span> <span class="tag good">🟢 implemented</span></td><td><code>RISKUSDVault.redeem</code>: 5%/wk (live) + ~2%/rolling-24h (target); <code>min(book, NAV)</code> backing</td><td>The 24-hour cap is a target setting</td><td class="ev"><code>TSC:738-740, 1718-1730</code></td></tr>
+        <tr><td><span class="jid">D-9</span> Auto-renew / tier reversion at lock-up expiry</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>atRISKUSD</code> auto-renew (default ON) → <code>renewLockup</code>, or <code>redeemForReversion</code> → Tier 0; permissionless <code>StakingQueue.processExpiredLockups</code> + depositor <code>selfRevert</code></td><td>Resolved — the deployed behaviour (auto-renew default-ON; opt-out reverts to Tier 0) is now documented (was mislabelled NONE vs the code, P38)</td><td class="ev"><code>TSC:1617-1640, 1942-1955</code></td></tr>
+        <tr><td><span class="jid">D-10a</span> Transfer RISKUSD between holders</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>RISKUSD.transfer</code>; pause exempts protocol contracts; blocklist-gated</td><td>—</td><td class="ev"><code>TSC:1579-1586</code></td></tr>
+        <tr><td><span class="jid">D-10b</span> Transfer tier shares (atRISKUSD)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>ERC-4626 share, transfer-gated in <code>_update</code>: blocked during lock-up &amp; for blocked addresses; the lock is per-address and does not travel with the token</td><td>Resolved — the tier-share transfer / lock rules are now documented from the code</td><td class="ev"><code>TSC:1617-1655</code></td></tr>
+        <tr><td><span class="jid">D-11</span> Solvency guaranteed on every deposit/redeem/deploy</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>vaultUSDC + min(book, NAV) ≥ total RISKUSD</code> — unconditional</td><td>—</td><td class="ev"><code>TSC:1054-1062, 1738</code></td></tr>
+        <tr><td><span class="jid">D-12</span> Large depositor enters/exits a big position without breaking caps</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Hard caps revert an oversized deposit / redeem (depositor self-splits across blocks/days/weeks); an oversized stake is FIFO-waitlisted in the queue (cancellable)</td><td>Resolved — the large-position model (hard-revert + self-split; queue waitlist) is documented; partial-fill / capacity-reservation is a stated non-goal</td><td class="ev"><code>TSC:1741-1748</code></td></tr>
+        <tr><td><span class="jid">D-13</span> Depositor claims a FORAGE airdrop</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>FORAGETreasury</code> depositor Merkle round (10M), claim by proof</td><td>—</td><td class="ev"><code>TSC:1850-1880</code></td></tr>
+        <tr><td><span class="jid">D-14</span> Incident fairness — no stale-price exit</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Loss-pending exit lock + conservative <code>min(book, NAV)</code></td><td>—</td><td class="ev"><code>TSC:971-986, 1157</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §4 Governance -->
+  <section class="section" id="governance">
+    <div class="section-head">
+      <span class="section-num">§4</span>
+      <div>
+        <h2>FORAGE holder / governance</h2>
+        <p class="section-sub">Propose, vote, wait 8 days, enact — and configure everything else.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">G-1</span> Hold FORAGE (fixed 100M) and delegate</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>ForageToken</code> — ERC20Votes, timestamp clock</td><td>—</td><td class="ev"><code>TSC:1668-1695</code></td></tr>
+        <tr><td><span class="jid">G-2</span> Delegate voting power</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>ForageToken.delegate</code></td><td>—</td><td class="ev"><code>TSC:1677</code></td></tr>
+        <tr><td><span class="jid">G-3</span> Locked FORAGE still votes</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Lock-while-voting; vesting/treasury delegate</td><td>—</td><td class="ev"><code>TSC:1671-1679</code></td></tr>
+        <tr><td><span class="jid">G-4</span> Propose a change (≥1% threshold)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>ForageGovernor.propose</code> (or a guardian with the propose bit)</td><td>—</td><td class="ev"><code>TSC:2011-2038</code></td></tr>
+        <tr><td><span class="jid">G-5</span> Vote (4% quorum, 5-day period)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>ForageGovernor</code> vote</td><td>—</td><td class="ev"><code>TSC:2022-2045</code></td></tr>
+        <tr><td><span class="jid">G-6</span> Queue + execute after the 8-day timelock</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>ForageGovernor</code> + <code>TimelockController</code></td><td>—</td><td class="ev"><code>TSC:811-822</code></td></tr>
+        <tr><td><span class="jid">G-7</span> Change params / caps / wallets / upgrade via vote</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Lane 3 + UUPS upgrades, all behind the timelock</td><td>—</td><td class="ev"><code>TSC:824-858, 1026-1032</code></td></tr>
+        <tr><td><span class="jid">G-8</span> Adjust governance thresholds within the ≤50% ceiling</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>setQuorumBps</code> / <code>setProposalThresholdBps</code></td><td>—</td><td class="ev"><code>TSC:2028-2038</code></td></tr>
+        <tr><td><span class="jid">G-9</span> Routine custody-account rotation via vote + timelock</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Lane-3 path to a pre-committed successor; successor registry now lives as <code>preCommittedSuccessor[slot][current]</code> on <code>GuardianModule</code></td><td>Resolved and implemented — the successor registry is homed and the rotation machinery is committed code</td><td class="ev"><code>TSC:863-869, 889-927, 2063-2096</code></td></tr>
+        <tr><td><span class="jid">G-10</span> Maintain the pre-committed successor list</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>preCommittedSuccessor[slot][current]</code> on <code>GuardianModule</code> — governance-maintained (Lane 3, 8-day, never accelerable)</td><td>Resolved and implemented — the registry has a named home + a Lane-3 maintenance rule</td><td class="ev"><code>TSC:863-869, 2063-2096</code></td></tr>
+        <tr><td><span class="jid">G-11</span> Launch with production governance from genesis (1d/5d/8d on mainnet)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>DeployMainnet.s.sol</code> no-broadcast dry-run reuses the shared <code>Deploy.s.sol</code> core with production timings</td><td>Resolved — mainnet production settings are proven by the separate no-broadcast dry-run, while <code>Deploy.s.sol</code> remains target/testnet-only</td><td class="ev"><code>TSC:2008-2042</code></td></tr>
+        <tr><td><span class="jid">G-12</span> Configure the staking queue (FORAGE price mode/oracle/freshness, per-tier caps, pause)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>StakingQueue</code> governance setters (two-step mode switch)</td><td>—</td><td class="ev"><code>TSC:1889, 1922, 1958</code></td></tr>
+        <tr><td><span class="jid">G-13</span> Authorize FORAGE burners, lockers, and the blocklist</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>ForageToken</code> owner/governance admin setters</td><td>—</td><td class="ev"><code>TSC:1675, 1692</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §5 Guardian -->
+  <section class="section" id="guardian">
+    <div class="section-head">
+      <span class="section-num">§5</span>
+      <div>
+        <h2>Guardian / emergency</h2>
+        <p class="section-sub">A brake that can only tighten — plus the recovery lane the target adds.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">E-1</span> A single guardian pauses a whitelisted contract</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>GuardianModule.guardianPause</code> (whitelist)</td><td>—</td><td class="ev"><code>TSC:2050-2102</code></td></tr>
+        <tr><td><span class="jid">E-2</span> Asymmetric freeze — deploys frozen, verified returns stay open</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Directional freeze on the Arbitrum bridge: deploys + positive NAV movement frozen, verified returns + loss-absorption stay open (full flow table, §6)</td><td>Resolved and implemented in <code>HLTradingBridge</code>; the A25 tail ended with directional freeze set</td><td class="ev"><code>TSC:929-991</code></td></tr>
+        <tr><td><span class="jid">E-3</span> Tighten caps — shrink-only, never loosen</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>shrink*</code> across Vault / atRISKUSD / StakingQueue / treasury / bridge</td><td>—</td><td class="ev"><code>TSC:1064-1074</code></td></tr>
+        <tr><td><span class="jid">E-4</span> Block a malicious / sanctioned address instantly</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>Blocklist</code> one-step block (365 days)</td><td>—</td><td class="ev"><code>TSC:2111-2135</code></td></tr>
+        <tr><td><span class="jid">E-5</span> Cancel a malicious proposal</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>GuardianModule.guardianCancel</code> (never one that strips guardian powers)</td><td>—</td><td class="ev"><code>TSC:2054-2086</code></td></tr>
+        <tr><td><span class="jid">E-6</span> 4-of-7 accelerate a vote-approved custody rotation to a 10-min floor</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Lane-2 4-of-7 quorum accelerates a governance-originated rotation to a pre-committed successor; Tier-2 surface implemented on <code>GuardianModule</code></td><td>Resolved and implemented — the 4-of-7 quorum + 10-minute acceleration floor are committed code</td><td class="ev"><code>TSC:850-886, 2063-2096</code></td></tr>
+        <tr><td><span class="jid">E-7</span> 4-of-7 rotate a compromised guardian seat / captured delegation to a successor</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Lane-2 Tier-2 primitives: rotate a guardian seat / a captured delegation, each only to its <code>preCommittedSuccessor</code> entry</td><td>Resolved and implemented — both Tier-2 rotation primitives are code paths on <code>GuardianModule</code></td><td class="ev"><code>TSC:850-869, 2063-2096</code></td></tr>
+        <tr><td><span class="jid">E-8</span> Owner delayed unblock / cancel a pending unblock</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>Blocklist</code> propose / finalize / cancel</td><td>—</td><td class="ev"><code>TSC:2117-2135</code></td></tr>
+        <tr><td><span class="jid">E-9</span> Governance full Vault pause (every user flow stops)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Governor relay pause + Vault pause</td><td>—</td><td class="ev"><code>TSC:987-990, 2027</code></td></tr>
+        <tr><td><span class="jid">E-10</span> Guardian administration — appoint guardians, grant/revoke bits, manage the pause whitelist</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>GuardianModule</code> owner (governance) setters</td><td>—</td><td class="ev"><code>TSC:2083, 2099-2102</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §6 Keeper / custody -->
+  <section class="section" id="custody">
+    <div class="section-head">
+      <span class="section-num">§6</span>
+      <div>
+        <h2>Keeper / executor / custody</h2>
+        <p class="section-sub">Value in, capital out, and back again — the off-chain desk and its on-chain leash.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">K-1</span> Keeper posts a bounded NAV so PnL can crystallise</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>HLTradingBridge</code> NAV record → <code>USDCTreasury</code> accounting; ≤10% up, loss uncapped, stale &gt;24h rejected</td><td>—</td><td class="ev"><code>TSC:993-999, 2231-2266</code></td></tr>
+        <tr><td><span class="jid">K-2</span> Executor deploys capital to the cold account within caps</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>HLTradingBridge</code> deploy: $1M/blk, $5M/day; gated by <code>CustodianRegistry</code></td><td>—</td><td class="ev"><code>TSC:2240-2264</code></td></tr>
+        <tr><td><span class="jid">K-3</span> Return principal → Vault and profit → USDCTreasury, separately</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code></td><td>—</td><td class="ev"><code>TSC:730-737, 2244</code></td></tr>
+        <tr><td><span class="jid">K-4</span> Capital crosses Arbitrum → HyperLiquid safely</td><td><span class="tag good">FULL</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Native Bridge2, single cold account credited on both chains; the Bridge2 address is pinned at integration; a shortfall surfaces as a loss, not hidden</td><td>Resolved — design complete; that the chain can't force the off-chain hop is the accepted residual (X-4)</td><td class="ev"><code>TSC:2271-2347</code></td></tr>
+        <tr><td><span class="jid">K-5</span> Keeper signs only withdrawal intents whose recipient is the Vault custodian</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag info">⚪ off-chain</span></td><td>Layered control: a capped, destination-pinned on-chain intent record on the slimmed bridge the keeper validates against, + real-balance-delta arrival reconciliation + monitoring</td><td>Resolved honestly — the chain CANNOT enforce the off-chain <code>withdraw3</code> signature (consume = status flip, no fund move); the control is keeper-policy + on-chain detection. Irreducible residual = X-4</td><td class="ev"><code>TSC:2245-2260, 2326-2342</code></td></tr>
+        <tr><td><span class="jid">K-6</span> The hot trading key trades but cannot withdraw</td><td><span class="tag good">FULL</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Fund-less off-chain "agent" key — the model the target deliberately adopts</td><td>Residual risk accepted — see X-4</td><td class="ev"><code>TSC:719-722, 1370-1379, 2275-2284</code></td></tr>
+        <tr><td><span class="jid">K-7</span> On-chain per-instruction trading allow-list</td><td><span class="tag risk">NONE</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Intentionally removed — exposure caps + custody separation replace it</td><td>Accepted non-goal (owner 2026-06-08) — the deliberate off-chain-pivot trade-off, documented in full in §7; residual accepted (X-4)</td><td class="ev"><code>TSC:1095-1128</code></td></tr>
+        <tr><td><span class="jid">K-8</span> Rotate the cold custody account</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Three paths: routine Lane-3 vote+timelock, emergency Lane-1 freeze, Lane-2 4-of-7 acceleration — always to a pre-committed successor</td><td>Resolved and implemented — the A25 tail proved keeper rotation through propose/finalize before freeze</td><td class="ev"><code>TSC:889-927, 2063-2096</code></td></tr>
+        <tr><td><span class="jid">K-9</span> Wire the Vault's custodian and loss-reporter (two-step handoff)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>RISKUSDVault</code> propose/accept custodian + loss-reporter</td><td>—</td><td class="ev"><code>TSC:1750-1753; (code) RISKUSDVault.sol:767,775,798,806</code></td></tr>
+        <tr><td><span class="jid">K-10</span> Wire the bridge's executor and keeper</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Two-step propose / accept handoff on the slimmed bridge — the same delayed pattern the Vault uses for its custodian</td><td>Resolved and implemented — Sepolia uses the 600-second testnet finalize profile</td><td class="ev"><code>TSC:2245-2261</code></td></tr>
+        <tr><td><span class="jid">K-11</span> Register / update / pause approved custodians</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>CustodianRegistry</code></td><td>—</td><td class="ev"><code>TSC:2140-2182</code></td></tr>
+        <tr><td><span class="jid">K-12</span> Bridge route stays swappable if Bridge2 is ever retired</td><td><span class="tag good">FULL</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Bridge2 is the bridge; the destination is governance-swappable (<code>CustodianRegistry</code> abstracts it) as a contingency</td><td>Resolved (owner 2026-06-08) — no CCTP migration is planned; the design keeps the route swappable as a defensive fallback only, with no migration API</td><td class="ev"><code>TSC:2298, 2312-2325</code></td></tr>
+        <tr><td><span class="jid">K-13</span> Consistent custodian return caps</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span> <span class="tag good">🟢 implemented</span></td><td>The bridge and registry both enforce aligned 10%/10% principal-return caps; registry accounting also restores deployed exposure and capacity</td><td>Resolved — registry return caps are live on principal returns through <code>recordReturn</code> / <code>recordEmergencyReturn</code>, not dead config</td><td class="ev"><code>TSC:2167-2179, 2256</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §7 Treasury / economics -->
+  <section class="section" id="treasury">
+    <div class="section-head">
+      <span class="section-num">§7</span>
+      <div>
+        <h2>Treasury recipient / economics</h2>
+        <p class="section-sub">Who gets paid, who takes the hit, and the caps on every cash exit.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">T-1</span> Foundation receives its cut — 50% of the protocol share (15% of profit) under a ~10%/24h cap</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>USDCTreasury</code> Foundation earmark + <code>disburse</code>; ≤50% hard cap; allow-list + failover</td><td>—</td><td class="ev"><code>TSC:1780-1835</code></td></tr>
+        <tr><td><span class="jid">T-2</span> Protocol-retained USDC withdrawn under ≤$1M/day</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>1-day cooldown (max 30) + 10-minute Sepolia / 2-day production finalize</td><td>—</td><td class="ev"><code>TSC:1824-1833</code></td></tr>
+        <tr><td><span class="jid">T-3</span> Agent receives USDC pay for work</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag info">⚪ off-chain</span></td><td><code>USDCTreasury</code> agent <code>disburse</code> — 10%/payment + 24h, batch ≤100; the registered agent <em>address</em> is paid</td><td>Resolved — the on-chain payment path is fully designed; eligibility / attribution is computed off-chain by design (accepted boundary, owner 2026-06-08)</td><td class="ev"><code>TSC:1780-1807; (ext) attribution.pyx:944</code></td></tr>
+        <tr><td><span class="jid">T-4</span> Returned profit funds the marked-up depositor claim, with no double-count</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td>Accounting <em>defines</em> the claim; the Vault top-up <em>funds</em> it</td><td>—</td><td class="ev"><code>TSC:1152-1162, 1786-1789</code></td></tr>
+        <tr><td><span class="jid">T-5</span> A blocked recipient never blocks settlement for everyone else</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>USDCTreasury</code> blocked-recipient resilience (skip + retain)</td><td>—</td><td class="ev"><code>TSC:1242-1247, 1815</code></td></tr>
+        <tr><td><span class="jid">T-6</span> Failover when a protocol/Foundation wallet is blocked or unavailable; rotate primary/backup under timelock</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>USDCTreasury</code> allow-listed primary + pre-set failover backup</td><td>—</td><td class="ev"><code>TSC:1780-1785, 1817-1839</code></td></tr>
+        <tr><td><span class="jid">T-7</span> Partnership FORAGE distributed to a partner's vesting wallet</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>FORAGETreasury</code> partnership distribution → <code>DelegatingVestingWallet</code></td><td>—</td><td class="ev"><code>TSC:1851-1880</code></td></tr>
+        <tr><td><span class="jid">T-8</span> FORAGETreasury admin — publish Merkle rounds, sweep expired, delegate treasury votes</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span></td><td><code>FORAGETreasury</code> owner/governance operations</td><td>—</td><td class="ev"><code>TSC:1858-1880</code></td></tr>
+        <tr><td><span class="jid">T-9</span> Adjust economic splits/caps (Foundation ≤50%, tier/agent splits, loss-rate cap)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>USDCTreasury</code> governance setters (some immediate, wallet wiring timelocked)</td><td>—</td><td class="ev"><code>TSC:1838-1839</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §8 Vesting -->
+  <section class="section" id="vesting">
+    <div class="section-head">
+      <span class="section-num">§8</span>
+      <div>
+        <h2>Vesting beneficiary</h2>
+        <p class="section-sub">Team and partners — a schedule no one can rewrite.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">V-1</span> Release vested FORAGE after the cliff</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>DelegatingVestingWallet.release</code> — 1-year cliff, 4-year linear</td><td>—</td><td class="ev"><code>TSC:1970-1999</code></td></tr>
+        <tr><td><span class="jid">V-2</span> Locked / vesting FORAGE still votes</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>delegateVotingPower</code> (default = beneficiary)</td><td>—</td><td class="ev"><code>TSC:1970-1983</code></td></tr>
+        <tr><td><span class="jid">V-3</span> The vesting schedule is immutable</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Non-upgradeable; fixed beneficiary/start/duration/cliff; no FORAGE rescue</td><td>—</td><td class="ev"><code>TSC:1970-1999</code></td></tr>
+        <tr><td><span class="jid">V-4</span> Owner rescues mistakenly-sent non-FORAGE tokens</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>rescueToken</code> (non-FORAGE only)</td><td>—</td><td class="ev"><code>TSC:1979-1983</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §9 Compliance -->
+  <section class="section" id="compliance">
+    <div class="section-head">
+      <span class="section-num">§9</span>
+      <div>
+        <h2>Compliance / blocklist</h2>
+        <p class="section-sub">Fast to stop a threat, slow and accountable to reverse.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">C-1</span> Block an address quickly</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>Blocklist</code> guardian one-step</td><td>—</td><td class="ev"><code>TSC:2111-2135</code></td></tr>
+        <tr><td><span class="jid">C-2</span> A blocked address can't transfer / deposit / claim / vote</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>Shared blocklist read by tokens, vaults, and treasury</td><td>—</td><td class="ev"><code>TSC:2111-2122</code></td></tr>
+        <tr><td><span class="jid">C-3</span> Delayed, cancellable unblock</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>Blocklist</code> propose / finalize / cancel</td><td>—</td><td class="ev"><code>TSC:2117-2135</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §10 Strategy-vault lifecycle -->
+  <section class="section" id="vaultlifecycle">
+    <div class="section-head">
+      <span class="section-num">§10</span>
+      <div>
+        <h2>Strategy-vault lifecycle (governance)</h2>
+        <p class="section-sub">The append-only directory of which vaults exist and how each is set up.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">S-1</span> List a new strategy vault</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>VaultRegistry</code> register (append-only)</td><td>—</td><td class="ev"><code>TSC:2187-2219</code></td></tr>
+        <tr><td><span class="jid">S-2</span> Pause / resume a vault</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>VaultRegistry</code></td><td>—</td><td class="ev"><code>TSC:2201</code></td></tr>
+        <tr><td><span class="jid">S-3</span> Wind down a vault — blocked while a loss is pending</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>VaultRegistry</code> wind-down guard</td><td>—</td><td class="ev"><code>TSC:2202, 2213</code></td></tr>
+        <tr><td><span class="jid">S-4</span> Update a vault's capacity / yield split (two-step)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>VaultRegistry</code></td><td>—</td><td class="ev"><code>TSC:2203</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §11 Library -->
+  <section class="section" id="library">
+    <div class="section-head">
+      <span class="section-num">§11</span>
+      <div>
+        <h2>OpenForage Library / contributor</h2>
+        <p class="section-sub">Off-chain adjacent — not part of the target smart-contract design.</p>
+      </div>
+    </div>
+    <div class="callout warning" style="margin-bottom:16px">
+      <p><strong>This block is off-chain adjacent and is excluded from the on-chain coverage counts (§2).</strong>
+        The target smart-contract design contains <strong>no contributor, Library, or attribution journey at
+        all</strong>: a contributor never signs an on-chain transaction, never earns FORAGE through the
+        library, never stakes, and never pays gas. The on-chain boundary is the protocol's own
+        <strong>server-side distributor crediting an agent's <em>address</em></strong> — the contributor's
+        machine is not in that transaction. Rows below cite the off-chain sources <code>(ext)</code> for the
+        facts the SC design does not carry, so the SC architecture stays the sole on-chain source of truth.
+        This off-chain boundary is a <strong>deliberate, owner-ratified decision (2026-06-08)</strong>: these rows
+        are accepted non-goals for the on-chain design, not open gaps.</p>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">L-1</span> Contributor registers an identity</td><td><span class="tag risk">NONE</span></td><td><span class="tag info">⚪ off-chain</span></td><td>An off-chain auth identity (a keypair → signed challenge → API token); not an on-chain actor</td><td>Not a smart-contract journey by design</td><td class="ev"><code>External library documentation; not included in this snapshot</code></td></tr>
+        <tr><td><span class="jid">L-2</span> Contributor submits a signal</td><td><span class="tag risk">NONE</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Library submit — free, no gas, no on-chain transaction</td><td>Off-chain by design</td><td class="ev"><code>(ext) README.md:765-766</code></td></tr>
+        <tr><td><span class="jid">L-3</span> Signal evaluated / attributed → payout computed</td><td><span class="tag risk">NONE</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Server-side <code>signal_service</code> attribution computes agent payouts</td><td>Off-chain by design</td><td class="ev"><code>(ext) attribution.pyx:901,944</code></td></tr>
+        <tr><td><span class="jid">L-4</span> Contributor (agent) receives USDC compensation on-chain</td><td><span class="tag warn">PARTIAL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag info">⚪ off-chain</span></td><td>The target supports agent-wallet disbursement through <code>USDCTreasury.disburse</code>; the agent's registered <em>address</em> is credited — it does not sign</td><td>On-chain has no notion of a "contributor"; eligibility + server mediation are off-chain</td><td class="ev"><code>TSC:1780-1835; (ext) attribution.pyx:944</code></td></tr>
+        <tr><td><span class="jid">L-5</span> Contributor (agent) claims a quarterly FORAGE airdrop</td><td><span class="tag warn">PARTIAL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag info">⚪ off-chain</span></td><td>Agent Merkle claim is supported (<code>FORAGETreasury</code>, 30M)</td><td>The contributor→agent mapping and claim UX are not in the SC design</td><td class="ev"><code>TSC:1850-1880</code></td></tr>
+        <tr><td><span class="jid">L-6</span> On-chain source of truth for contributor/agent eligibility</td><td><span class="tag risk">NONE</span></td><td><span class="tag info">⚪ off-chain</span></td><td>Only Merkle roots published by governance from off-chain attribution</td><td>Accepted off-chain by design (owner 2026-06-08) — no on-chain Library/attribution journey, by deliberate decision (not an open gap)</td><td class="ev"><code>TSC:1850-1880</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §12 Cross-cutting -->
+  <section class="section" id="crosscutting">
+    <div class="section-head">
+      <span class="section-num">§12</span>
+      <div>
+        <h2>Cross-cutting / system</h2>
+        <p class="section-sub">Properties of the whole, not of one contract.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">X-1</span> Upgrade a contract only via vote + timelock; core invariants immutable</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td>UUPS (Lane 3); 1:1 backing, four tiers, and vesting are fixed</td><td>—</td><td class="ev"><code>TSC:1026-1032</code></td></tr>
+        <tr><td><span class="jid">X-2</span> Anyone audits all actions on-chain</td><td><span class="tag warn">PARTIAL</span></td><td><span class="tag good">🟢 live</span> <span class="tag info">⚪ off-chain</span></td><td>On-chain actions are public + event-logged; trading auditability is off-chain via telemetry (P34)</td><td>Accepted (owner 2026-06-08) — trading/custody are off-chain by design (K-7), so full on-chain auditability is necessarily partial; the off-chain audit trail is telemetry</td><td class="ev"><code>TSC:460-463, 1095-1128</code></td></tr>
+        <tr><td><span class="jid">X-3</span> Solvency holds under the accounting-ahead-of-cash window</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td>5%/wk cap fixed at week-start + conservative <code>min(book, NAV)</code></td><td>—</td><td class="ev"><code>TSC:1152-1162</code></td></tr>
+        <tr><td><span class="jid">X-4</span> <em>Risk acceptance (not a journey):</em> the cold account is a trusted custody root</td><td>—</td><td><span class="tag info">⚪ off-chain</span></td><td>A compromised cold key can move deployed funds; contained by the ≥5% buffer, deploy caps, pro-rata loss, guardian freeze, and accelerated rotation</td><td>The residual the off-chain model explicitly accepts</td><td class="ev"><code>TSC:1109-1118, 2325-2346</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §13 Deployment / ops -->
+  <section class="section" id="deployment">
+    <div class="section-head">
+      <span class="section-num">§13</span>
+      <div>
+        <h2>Deployment / operations / maturity</h2>
+        <p class="section-sub">Getting from "design" to a proven, live system.</p>
+      </div>
+    </div>
+    <table class="jm">
+      <thead><tr>
+        <th style="width:23%">Journey</th><th style="width:8%">Design</th><th style="width:11%">Build</th>
+        <th style="width:20%">Fulfilled by</th><th style="width:21%">Gap / owner decision</th><th style="width:17%">Evidence</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="jid">O-1</span> Launch mint allocation — 100M FORAGE, 80M → FORAGETreasury + 20M → team vesting</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 implemented</span> <span class="tag good">🟢 live</span></td><td><code>ForageToken</code> mint; target re-points 80M to the single treasury</td><td>—</td><td class="ev"><code>TSC:1208-1214, 1668-1695</code></td></tr>
+        <tr><td><span class="jid">O-2</span> Admin role handoff — RISKUSD minter/governor (two-step)</td><td><span class="tag good">FULL</span></td><td><span class="tag good">🟢 live</span></td><td><code>RISKUSD</code> propose/finalize minter + governor; 10-minute Sepolia / 2-day production finalizer profile</td><td>—</td><td class="ev"><code>TSC:1579-1599</code></td></tr>
+        <tr><td><span class="jid">O-3</span> Build the target consolidations and re-prove the full flow before mainnet</td><td><span class="tag good">FULL</span> <span class="small">(intent)</span></td><td><span class="tag good">🟢 implemented</span></td><td>Implemented <code>USDCTreasury</code> / <code>FORAGETreasury</code> / slimmed <code>HLTradingBridge</code>; redeployed to Arbitrum Sepolia; re-proved deposit → deploy → trade boundary → NAV → settle → return → rotate → freeze</td><td>Completed on testnet; external audit sign-off and mainnet deployment remain separate later steps</td><td class="ev"><code>TSC:1432-1456</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §14 Gaps -->
+  <section class="section" id="gaps">
+    <div class="section-head">
+      <span class="section-num">§14</span>
+      <div>
+        <h2>What was resolved, and what remains</h2>
+        <p class="section-sub">The 16 PARTIAL + 2 NONE rows, driven to closure on 2026-06-08 — followed by the 2026-06-09 target implementation and Sepolia proof.</p>
+      </div>
+    </div>
+    <p class="small"><strong>Design gaps — all closed.</strong> Each former gap was resolved by one of four moves;
+      none is an open design question any more:</p>
+    <ol style="padding-left:20px">
+      <li><strong>Guardian defence-in-depth folded into the target (E-2, E-6, E-7, G-9, G-10, K-8).</strong> The
+        4-of-7 Tier-2 quorum, the named <code>preCommittedSuccessors[role]</code> registry on the
+        <code>GuardianModule</code>, and the directional (asymmetric) freeze were specified in §6 and §13, ported
+        from the protocol's defence-in-depth work, and are now implemented.
+        <code>TSC:824-927, 2050-2102</code></li>
+      <li><strong>Depositor mechanics reconciled to the deployed code (D-3, D-9, D-10b, D-12).</strong> The FORAGE
+        priority-lane escrow lifecycle, auto-renew / Tier-0-reversion at lock-up maturity (D-9 was mislabelled
+        NONE), the tier-share transfer rules, and the large-position model (hard-revert + queue waitlist) are now
+        documented from the code (P38). <strong>🟢 live</strong>. <code>TSC:1617-1655, 1741-1748, 1924-1961</code></li>
+      <li><strong>Custody &amp; bridge given an honest design (K-4, K-5, K-10, K-13, K-12).</strong> The
+        withdrawal-intent control is stated honestly — the chain <em>cannot</em> enforce the off-chain
+        <code>withdraw3</code> signature, so it is keeper-policy + an on-chain intent record + arrival reconciliation
+        + monitoring (residual in X-4). Two-step executor/keeper wiring, the Bridge2 pin, the registry↔bridge cap
+        reconciliation (10%/10%), and a Bridge2-only bridge (no CCTP migration planned) are all settled.
+        <code>TSC:2227-2347</code></li>
+      <li><strong>Agent eligibility kept off-chain by owner decision (T-3, L-4, L-5, L-6).</strong> On-chain
+        disbursement is fully designed; who-earned-what is computed off-chain (Merkle roots / disburse list) — a
+        deliberate, accepted boundary. <code>TSC:1780-1807</code></li>
+    </ol>
+    <p class="small"><strong>What remains is production readiness, not target buildout.</strong> The three target contracts —
+      <code>USDCTreasury</code>, <code>FORAGETreasury</code>, and the slimmed <code>HLTradingBridge</code> — plus the
+      4-of-7 guardian machinery and the successor registry are now committed code. Arbitrum Sepolia A25 re-proved
+      the flow and ended with the deployment post-tail frozen; external audit sign-off and mainnet deployment are
+      the remaining maturity steps. <code>TSC:383-398, 1432-1456</code></p>
+    <p class="small"><strong>Two accepted non-goals, not gaps.</strong> The on-chain per-instruction trading gate
+      (K-7, NONE) stays deliberately removed for the off-chain-custody pivot, and full on-chain auditability of
+      trading (X-2, PARTIAL) is necessarily off-chain — telemetry (P34) is the audit trail. Both are owner-ratified
+      (2026-06-08); the residual that the cold account is a trusted custody root is accepted in X-4.</p>
+  </section>
+
+  <!-- §15 divergences -->
+  <section class="section" id="divergences">
+    <div class="section-head">
+      <span class="section-num">§15</span>
+      <div>
+        <h2>Historical baseline ↔ implemented target divergences</h2>
+        <p class="section-sub">Context for why the target intentionally replaced the earlier code shape.</p>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th style="width:22%">Area</th><th style="width:39%">Historical baseline</th><th>Implemented target</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Foundation cut</strong></td><td>30% off the top — default <em>and</em> hard cap in the removed <code>ProtocolTreasury</code> model</td><td>50% of the protocol share = 15% of profit; 50% is the hard cap (<code>TSC:759, 1795-1797</code>)</td></tr>
+        <tr><td><strong>Guardian model</strong></td><td>Individual permission bitmask only, no several-of threshold</td><td>Three lanes + 4-of-7 recovery quorum + pre-committed successor list (<code>TSC:824-869</code>)</td></tr>
+        <tr><td><strong>Trading</strong></td><td>On-chain HyperLiquid stack — 8 contracts + CCIP (<code>TSC:1349-1350</code>)</td><td>Off-chain custody + fund-less key + one slimmed bridge (<code>TSC:1331-1350</code>)</td></tr>
+        <tr><td><strong>Treasuries</strong></td><td>ProtocolTreasury + FundingTreasury; RewardPool + DepositorPool + Partnerships (5)</td><td>USDCTreasury (merges 2) + FORAGETreasury (merges 3) (<code>TSC:395-398</code>)</td></tr>
+        <tr><td><strong>PnL recognition</strong></td><td>Coupled with cash in <code>depositPnL</code> (<code>TSC:1841</code>)</td><td>Accounting separated from cash: <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code> + purpose-keyed <code>disburse</code> (<code>TSC:1773-1789</code>)</td></tr>
+        <tr><td><strong>Token naming</strong></td><td>Code: <code>RISKUSD</code> / <code>atRISKUSD</code></td><td>Docs/UI: <code>RISKUSDC</code> / <code>atRISKUSDC</code> — cosmetic; same contracts</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="colophon">
+    <p>OpenForage · Target Smart Contract — User-Journey Coverage Map · drafted 2026-06-07 · for executive /
+    internal understanding. Self-contained — no external stylesheets, scripts, fonts, or network calls. This
+    is a derived projection of <code>documentation/smart_contract/target_smart_contract_architecture.html</code>,
+    which is the source of truth; where the two disagree, the target architecture wins until reviewed,
+    merged implementation code supersedes it.</p>
+  </div>
+
+</main>
+</body>
+</html>

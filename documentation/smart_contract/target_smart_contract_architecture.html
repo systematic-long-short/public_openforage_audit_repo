@@ -1,0 +1,2359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Target Smart Contract Architecture — OpenForage</title>
+  <style>
+    :root {
+      --bg: #0f1211;
+      --panel: #151917;
+      --panel-2: #1b211e;
+      --ink: #e8ece8;
+      --muted: #a7b2aa;
+      --soft: #8b958e;
+      --line: #2a332e;
+      --line-2: #3a4740;
+      --sage: #7fb39a;
+      --sage-2: #9ecab3;
+      --gold: #d2b36c;
+      --red: #d07a74;
+      --blue: #7ca8c9;
+      --violet: #b09ad5;
+      --code: #101412;
+      --shadow: rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      line-height: 1.55;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(180deg, rgba(127, 179, 154, 0.07), transparent 340px),
+        radial-gradient(circle at 8% 0%, rgba(124, 168, 201, 0.08), transparent 280px),
+        var(--bg);
+    }
+
+    a {
+      color: var(--sage-2);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(127, 179, 154, 0.45);
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 34px 22px 72px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+      gap: 28px;
+      align-items: end;
+      padding: 34px 0 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: clamp(32px, 5.2vw, 66px);
+      line-height: 1.0;
+    }
+
+    h2 {
+      font-size: clamp(21px, 2.6vw, 32px);
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    h3 {
+      font-size: 16px;
+      line-height: 1.25;
+      color: var(--sage-2);
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+    }
+
+    strong { color: var(--ink); font-weight: 600; }
+
+    .lede {
+      margin-top: 22px;
+      max-width: 860px;
+      font-size: clamp(15px, 1.5vw, 18px);
+      color: #d5ddd6;
+    }
+
+    .meta-grid {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: rgba(21, 25, 23, 0.78);
+      box-shadow: 0 12px 30px var(--shadow);
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .meta-row strong { color: var(--ink); font-weight: 600; }
+
+    .section {
+      padding: 40px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .section-num {
+      flex: none;
+      color: var(--sage);
+      font-size: clamp(21px, 2.6vw, 32px);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .section-sub {
+      margin: -2px 0 0;
+      color: var(--soft);
+      font-size: 13px;
+    }
+
+    .card {
+      min-height: 100%;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+
+    .card p:last-child,
+    .note p:last-child,
+    .callout p:last-child { margin-bottom: 0; }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      padding: 2px 8px;
+      margin-bottom: 12px;
+      border: 1px solid var(--line-2);
+      color: var(--sage-2);
+      background: rgba(127, 179, 154, 0.07);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border: 1px solid var(--line-2);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.02);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .tag.good { color: var(--sage-2); border-color: rgba(127, 179, 154, 0.52); }
+    .tag.warn { color: var(--gold); border-color: rgba(210, 179, 108, 0.5); }
+    .tag.risk { color: var(--red); border-color: rgba(208, 122, 116, 0.5); }
+    .tag.info { color: var(--blue); border-color: rgba(124, 168, 201, 0.5); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: rgba(16, 20, 18, 0.76);
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      color: var(--ink);
+      background: rgba(127, 179, 154, 0.08);
+      font-weight: 650;
+      text-align: left;
+    }
+
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+
+    code, .mono {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #dfe7e1;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 1px 4px;
+      overflow-wrap: anywhere;
+    }
+
+    .callout {
+      padding: 16px;
+      border: 1px solid rgba(127, 179, 154, 0.5);
+      background: rgba(127, 179, 154, 0.08);
+    }
+
+    .callout.danger { border-color: rgba(208, 122, 116, 0.55); background: rgba(208, 122, 116, 0.08); }
+    .callout.warning { border-color: rgba(210, 179, 108, 0.55); background: rgba(210, 179, 108, 0.08); }
+    .callout.info { border-color: rgba(124, 168, 201, 0.5); background: rgba(124, 168, 201, 0.08); }
+
+    .note {
+      padding: 14px;
+      border-left: 2px solid var(--sage);
+      background: rgba(127, 179, 154, 0.06);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    ul { margin: 0; padding-left: 18px; }
+    li { margin-bottom: 8px; color: var(--muted); }
+
+    .small { font-size: 12px; color: var(--muted); }
+
+    /* Contract mini-card */
+    .ccard {
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--sage);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    .ccard.hl { border-left-color: var(--blue); }
+    .ccard h3 { color: var(--ink); font-size: 15.5px; margin-bottom: 4px; }
+    .ccard .sol { color: var(--soft); font-size: 11.5px; margin-bottom: 10px; }
+    .ccard p { font-size: 13px; margin-bottom: 8px; }
+    .ccard .tags { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .why-line { color: var(--soft); font-size: 12.5px; }
+    .why-line .glabel { color: var(--sage-2); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 8px; font-size: 11px; }
+
+    /* Full per-contract page (§13) — one printed page each */
+    .contract-page {
+      padding: 22px 24px;
+      margin: 0 0 18px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--sage);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    .contract-page.hl { border-left-color: var(--blue); }
+    .contract-page > h3 { color: var(--ink); font-size: 19px; margin-bottom: 3px; }
+    .contract-page .sol { color: var(--soft); font-size: 12px; margin-bottom: 14px; }
+    .contract-page .role { color: #d5ddd6; font-size: 14px; margin-bottom: 4px; }
+    .contract-page h4 {
+      margin: 18px 0 9px;
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--sage-2);
+    }
+    .contract-page p { font-size: 13.5px; }
+    .contract-page li { font-size: 13px; margin-bottom: 7px; }
+    .contract-page .who { font-size: 12.5px; color: var(--muted); }
+    .contract-page .tags { margin-top: 16px; display: flex; gap: 6px; flex-wrap: wrap; }
+    table.numbers td:first-child { color: var(--ink); width: 40%; }
+    table.numbers td.val { color: var(--sage-2); font-variant-numeric: tabular-nums; white-space: nowrap; width: 26%; }
+
+    .grouplabel {
+      margin: 26px 0 12px;
+      color: var(--sage-2);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+    }
+
+    /* Diagrams */
+    pre.diagram {
+      margin: 0;
+      padding: 16px 18px;
+      background: var(--code);
+      border: 1px solid var(--line);
+      color: #cdd6cf;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre;
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    pre.diagram b { color: var(--sage-2); font-weight: 650; }
+    pre.diagram .h { color: var(--gold); }
+    pre.diagram .l { color: var(--blue); }
+
+    .colophon {
+      padding-top: 28px;
+      color: var(--soft);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      main { padding: 24px 16px 56px; }
+      .hero, .two-col { grid-template-columns: 1fr; }
+      .meta-row { grid-template-columns: 96px minmax(0, 1fr); }
+    }
+
+    @media print {
+      body { background: #fff; color: #111; }
+      main { max-width: none; }
+      .card, .callout, .note, .ccard, table, .meta-grid, pre.diagram {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+      /* §13: one contract per printed page. The group label rides the top of its
+         first contract's page; every later contract starts a fresh page. The page
+         article itself is NOT break-inside:avoid — a long page (off-chain custody)
+         may flow across sheets; only its inner tables/callouts stay intact. */
+      #contracts-detail .grouplabel { break-before: page; }
+      #contracts-detail .contract-page { break-before: page; box-shadow: none; }
+      #contracts-detail .grouplabel + .contract-page { break-before: auto; }
+      table.numbers { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+
+  <section class="hero">
+    <div>
+      <div class="kicker">OpenForage · Smart Contracts · TARGET STATE</div>
+      <h1>The architecture now implemented on testnet</h1>
+      <p class="lede">
+        The <strong>target</strong> shape of OpenForage's on-chain system, now implemented in
+        the repository and proven on Arbitrum Sepolia after two
+        deliberate simplifications: the cross-chain HyperLiquid stack collapses from
+        eight contracts to a single Arbitrum custodian (trading moves off-chain), and
+        the five separate treasuries consolidate into two. Same protections, fewer
+        moving parts. Written, like its companion, for a reader who does not read
+        Solidity.
+      </p>
+    </div>
+    <aside class="meta-grid" aria-label="document metadata">
+      <div class="meta-row"><strong>Drafted</strong><span>2026-06-05</span></div>
+      <div class="meta-row"><strong>Audience</strong><span>Executive / internal</span></div>
+      <div class="meta-row"><strong>Scope</strong><span>14 target contracts — all on Arbitrum (0 HyperEVM)</span></div>
+      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div>
+      <div class="meta-row"><strong>Companion</strong><span>smart_contract_architecture.html (historical as-is baseline)</span></div>
+    </aside>
+  </section>
+
+  <!-- TARGET BANNER -->
+  <section class="section" id="target-banner" style="padding-top:26px">
+    <div class="callout warning">
+      <h3 style="color:var(--ink);margin-bottom:10px">Read this first — what "TARGET" means now</h3>
+      <p>This document began as the <strong>desired end-state</strong> of the smart-contract
+        architecture. As of the June 2026 target-gap buildout, that target is now the
+        implemented repository baseline and has been proven on Arbitrum Sepolia. The
+        contracts named here as new — <strong>USDCTreasury</strong>, <strong>FORAGETreasury</strong>,
+        and the <strong>slimmed HLTradingBridge</strong> — now exist in
+        <code>openforage_smart_contracts/src/</code>; the predecessor treasury contracts,
+        HyperEVM trading stack, and CCIP transport are no longer active production
+        source. Mainnet deployment and external audit remain separate later steps.</p>
+      <p class="small" style="margin-top:10px">Two consolidations drive the whole document:
+        <strong>(1) HyperLiquid:</strong> 8 contracts → 1 (an Arbitrum-side custodian; zero
+        HyperEVM contracts), with custody and trading moved off-chain (a single cold master
+        account + a fund-less trading key); <strong>(2)
+        Treasuries:</strong> <code>ProtocolTreasury</code> + <code>FundingTreasury</code> →
+        <strong>USDCTreasury</strong>, and <code>RewardPool</code> + <code>DepositorPool</code>
+        + <code>Partnerships</code> → <strong>FORAGETreasury</strong>. Net implemented state:
+        <strong>24 → 14</strong> production contract types.</p>
+    </div>
+  </section>
+
+  <!-- EXECUTIVE BOX -->
+  <section class="section" id="exec">
+    <div class="callout info">
+      <h3 style="color:var(--ink);margin-bottom:10px">What you most need to know — in 60 seconds</h3>
+      <ul>
+        <li><strong>What it is.</strong> A set of on-chain "vault" programs that take in
+          dollars (USDC), hand them to a market-neutral trading operation, and share
+          the profits and losses back to depositors by fixed rules no single person
+          can override. <em>That core is unchanged in the target.</em></li>
+        <li><strong>What protects depositors.</strong> Every movement of money is still bounded
+          by hard-coded caps; an emergency "brake" (the Guardian) can only ever
+          <em>slow things down</em>, never move funds out; and any change to the rules sits
+          in an <strong>8-day public waiting room</strong> before it can take effect.</li>
+        <li><strong>The tier idea.</strong> Unchanged. Four tiers; longer lock-up = bigger
+          share of the profit; losses are shared <strong>pro-rata across all four tiers</strong>,
+          the same percentage from each.</li>
+        <li><strong>What changes (HyperLiquid).</strong> Trading no longer runs through an
+          on-chain account on a second blockchain. Capital sits in a single <strong>cold
+          custody account</strong>, a separate <strong>fund-less trading key</strong> places
+          trades <strong>off-chain</strong> on HyperLiquid's native exchange, and a keeper
+          reports the value back. One Arbitrum contract (the slimmed
+          <strong>HLTradingBridge</strong>) holds the caps and accounting. The cross-chain
+          bridge (Chainlink CCIP) is no longer needed.</li>
+        <li><strong>What changes (treasuries).</strong> Five treasury contracts become two —
+          one for all protocol USDC (the <strong>USDCTreasury</strong> money router), one for all
+          treasury FORAGE. The FORAGE side is unchanged; the USDC side is <em>redesigned</em> —
+          profit and loss are recognised as accounting at each NAV attestation (no cash moves),
+          then returned USDC is earmarked and disbursed by purpose, separately (§4, §13).</li>
+        <li><strong>The honest trade-off.</strong> Moving trading off-chain removes the
+          on-chain, per-instruction gate that used to constrain the trading key. The
+          desk's exposure is instead held by the <strong>same Arbitrum caps</strong> that
+          already bound it, plus conservative valuation and the Guardian's powers. In
+          return, trading gets materially faster (no on-chain transaction per order).
+          §7 and §9 state this trade plainly.</li>
+        <li><strong>Stage.</strong> <span class="tag good">Implemented on testnet</span> This is
+          the current target implementation in the repo and on Arbitrum Sepolia. It is
+          not a mainnet deployment, and it still needs external audit sign-off before
+          production launch.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- §1 -->
+  <section class="section" id="what">
+    <div class="section-head">
+      <span class="section-num">§1</span>
+      <div>
+        <h2>What this is, and why it exists</h2>
+        <p class="section-sub">A programmable vault for a market-neutral trading fund — streamlined.</p>
+      </div>
+    </div>
+    <p>
+      OpenForage is, at heart, an automated fund. Depositors put in dollars; the
+      protocol deploys that capital to a trading operation that aims to make money
+      regardless of which way markets move ("market-neutral"); and the gains or
+      losses are distributed back to depositors automatically. None of that purpose
+      changes in the target.
+    </p>
+    <p>
+      The difference from a traditional fund is that the rule-book is written as
+      <strong>smart contracts</strong> — programs that live on a blockchain and execute
+      exactly as written, the same way every time, with every action permanently
+      recorded and publicly auditable. The contracts in this document <em>are</em> that
+      rule-book.
+    </p>
+    <p>
+      <strong>Why a target document.</strong> The first build proved the system end-to-end,
+      and in doing so showed where it was carrying more machinery than it needed. Two
+      areas were judged over-engineered: an eight-contract cross-chain apparatus to make
+      trading "trustless on-chain," and five separate treasury contracts that each did
+      one job. This document is the agreed destination of simplifying both — fewer
+      contracts to audit, deploy, and reason about, with the depositor protections kept
+      intact. It answers the same four questions as before — how dollars get in and out,
+      how capital reaches the desk and returns, how profit and loss are shared, and who
+      may change anything — with a smaller surface.
+    </p>
+  </section>
+
+  <!-- §2 -->
+  <section class="section" id="glance">
+    <div class="section-head">
+      <span class="section-num">§2</span>
+      <div>
+        <h2>The system at a glance</h2>
+        <p class="section-sub">14 contracts, one chain that matters, four jobs.</p>
+      </div>
+    </div>
+    <p>
+      In the target there are <strong>14 production contracts</strong> (down from 24), and —
+      unlike today — <strong>every one of them deploys on Arbitrum</strong>. The HyperLiquid
+      side is now entirely <strong>off-chain</strong>: there are <strong>no HyperEVM contracts</strong>
+      at all. The single remaining HyperLiquid-subsystem contract, the
+      <strong>HLTradingBridge</strong> custodian, lives on Arbitrum and tracks the capital sent
+      to the off-chain trading account. The same <strong>four jobs</strong> remain.
+    </p>
+
+    <pre class="diagram" aria-label="system overview diagram">          <b>ARBITRUM</b>  (the bank + the rule-book — 13 contracts)            <b>HYPERLIQUID</b>  (the trading floor)
+   ┌───────────────────────────────────────────────┐            ┌──────────────────────────────────┐
+   │  <span class="l">①  TOKENS &amp; CAPITAL</span>                            │            │  <span class="h">④  THE TRADING ENGINE</span>  (off-chain)  │
+   │     RISKUSD · atRISKUSD tiers · the Vault      │  deploy     │     a COLD master account holds   │
+   │                                                │ ─────────▶  │     the capital; a fund-less HOT  │
+   │  <span class="l">②  TREASURY &amp; DISTRIBUTION</span>                     │  capital    │     key trades on HyperLiquid's   │
+   │     USDCTreasury · FORAGETreasury · staking    │  ◀───────── │     native exchange, off-chain    │
+   │                                                │  settle     │                                  │
+   │  <span class="l">③  GOVERNANCE &amp; SAFETY</span>                         │  ◀┄┄┄┄┄┄┄┄  │     a keeper reports value (NAV)  │
+   │     Governor · Guardian · registries          │  NAV (keeper)│     back to HLTradingBridge       │
+   └───────────────────────────────────────────────┘            └──────────────────────────────────┘
+                                                       <span class="h">no second set of trading contracts · no CCIP</span></pre>
+
+    <div class="two-col" style="margin-top:16px">
+      <div class="card">
+        <h3>① Tokens &amp; capital</h3>
+        <p class="small">Unchanged. The <strong>Vault</strong> holds the cash; <strong>RISKUSD</strong>
+          is the dollar receipt; the four <strong>atRISKUSD tiers</strong> are the staking
+          options depositors choose.</p>
+      </div>
+      <div class="card">
+        <h3>② Treasury &amp; distribution</h3>
+        <p class="small"><span class="tag warn">changed</span> Two treasuries instead of five:
+          <strong>USDCTreasury</strong> is the money router for all protocol USDC (PnL accounting,
+          USDC returns, purpose-keyed disbursement); <strong>FORAGETreasury</strong> handles all
+          treasury FORAGE (airdrops, partnerships).</p>
+      </div>
+      <div class="card">
+        <h3>③ Governance &amp; safety</h3>
+        <p class="small">The <strong>Governor</strong> runs token-holder votes; the
+          <strong>Guardian</strong> is the emergency brake; registries and the blocklist
+          enforce who/what is trusted. The Guardian gains one new emergency power (§6).</p>
+      </div>
+      <div class="card">
+        <h3>④ The trading engine</h3>
+        <p class="small"><span class="tag warn">changed</span> Now <strong>off-chain</strong>: a
+          single cold custody account plus a fund-less trading key, with one Arbitrum
+          custodian contract tracking it. No HyperEVM contracts, no CCIP.</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:16px">
+      <p><strong>Current → target.</strong> 24 → 14 contracts, all on Arbitrum (0 HyperEVM).
+        HyperLiquid subsystem: 8 → 1 (the Arbitrum-side custodian). Treasuries: 5 → 2.
+        Everything in jobs ① and ③ is carried over essentially as-is; the change is
+        concentrated in ② and ④.</p>
+    </div>
+  </section>
+
+  <!-- §3 -->
+  <section class="section" id="key">
+    <div class="section-head">
+      <span class="section-num">§3</span>
+      <div>
+        <h2>The few pieces you actually need to know</h2>
+        <p class="section-sub">Six contracts carry most of the story; the full catalog is in §8–§9.</p>
+      </div>
+    </div>
+    <p>
+      Before the complete tour, here are the six load-bearing contracts in the target.
+      Five are unchanged from today; one — the profit-and-loss router — is the
+      consolidated <strong>USDCTreasury</strong>.
+    </p>
+
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The Vault</h3>
+        <div class="sol">RISKUSDVault · Arbitrum</div>
+        <p>The single door every dollar enters and leaves through. It holds the USDC,
+          hands out the dollar receipt, enforces the deposit/withdrawal caps, sends
+          capital to the trading custodian, and continuously proves it can still pay
+          everyone back.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the
+          financial heart — and the place the safety checks are enforced.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">core</span><span class="tag good">unchanged</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The dollar receipt</h3>
+        <div class="sol">RISKUSD · Arbitrum</div>
+        <p>A token worth exactly one dollar, backed 1-for-1 by the USDC sitting in
+          the Vault. You get RISKUSD when you deposit and hand it back to redeem.
+          Only the Vault can create or destroy it.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the unit
+          of account everything else is measured in.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span><span class="tag good">unchanged</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The tier shares</h3>
+        <div class="sol">atRISKUSD · Arbitrum · 4 copies (Tiers 0–3)</div>
+        <p>When you stake your dollar receipt you receive a tier share. There are
+          four tiers, each a standard "vault share" whose value grows as profits
+          accrue. Your tier decides your lock-up and your profit share.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>This is the
+          product the depositor actually chooses (see §5).</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span><span class="tag good">unchanged</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The USDC treasury</h3>
+        <div class="sol">USDCTreasury · Arbitrum · <span style="color:var(--gold)">implemented (merges 2)</span></div>
+        <p>One contract — the money router — for all protocol USDC, with two separated jobs.
+          On each NAV attestation it recognises profit or loss as <em>accounting</em> (marking the
+          tier shares up or down; no cash moves). Separately, when actual USDC is returned it
+          earmarks it — depositor/vault, agents, the protocol, and the Foundation's cut of the
+          protocol share — and a generic disburse pays each earmark to its allowed destination.
+          Losses are shared pro-rata across the tiers, then a retained buffer; folding in the former
+          funding treasury, it pays the operators ("agents") within strict caps.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the
+          engine of who-gets-paid and who-takes-the-hit, now in one place.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges ProtocolTreasury + FundingTreasury</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The voting system</h3>
+        <div class="sol">ForageGovernor · Arbitrum</div>
+        <p>The democratic layer. Holders of the FORAGE token vote on proposals to
+          change parameters or upgrade contracts. Approved proposals do not take
+          effect immediately — they pass through an 8-day timelock first.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is "who has
+          the keys," and the answer is: a token-holder vote, on a delay (see §6).</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag warn">governance</span><span class="tag good">unchanged</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The emergency brake</h3>
+        <div class="sol">GuardianModule · Arbitrum</div>
+        <p>A fast-acting safety device for emergencies. It can pause activity,
+          tighten caps, freeze valuations, and cancel a malicious proposal — built so
+          it can <strong>only ever make the rules stricter</strong>, never looser. In the
+          target it also gains one targeted recovery power: a guardian super-majority can
+          <em>accelerate</em> a vote-approved custody rotation if a key is compromised (§6).</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the single
+          most reassuring control: a brake that cannot become an accelerator.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span><span class="tag warn">extended</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §4 -->
+  <section class="section" id="flow">
+    <div class="section-head">
+      <span class="section-num">§4</span>
+      <div>
+        <h2>How money flows through it</h2>
+        <p class="section-sub">Follow one dollar, top to bottom. The rule that bounds each step is on the right.</p>
+      </div>
+    </div>
+
+    <pre class="diagram" aria-label="money flow diagram">
+                    ┌────────────────────────────┐
+  <b>1  DEPOSIT</b>         │   Depositor's USDC         │
+                    └─────────────┬──────────────┘
+                                  │   1 USDC ──▶ 1 RISKUSD          <span class="h">cap: per-block 20% /</span>
+                                  ▼                                 <span class="h">daily 20% / weekly 200% mint</span>
+                    ┌────────────────────────────┐
+  <b>2  THE VAULT</b>       │   RISKUSDVault             │   holds the cash, issues the receipt
+                    └─────────────┬──────────────┘
+                                  │   stake into a tier
+                                  ▼
+       ┌──────────────────────────────────────────────────────────┐
+  <b>3  STAKE</b>           │  atRISKUSD —  Tier 0   Tier 1   Tier 2   Tier 3          │
+                   │  lock-up        0d      90d      180d     360d          │
+                   │  your split     50%     55%      60%      65%           │
+                   └────────────────────────────┬─────────────────────────┘
+                                                │   up to 95% deployed         <span class="h">cap: ≥5% kept</span>
+                                                ▼                              <span class="h">in reserve</span>
+                    ┌────────────────────────────┐
+  <b>4  DEPLOY</b>          │  HLTradingBridge (custodian)│   tracks capital, holds the caps
+                    └─────────────┬──────────────┘
+                                  │   sent to the COLD master account on HyperLiquid
+                                  ▼                              <span class="h">cap: per-block 1M / daily 5M USDC</span>
+                    ┌────────────────────────────┐
+  <b>5  TRADE</b>           │  HyperLiquid (off-chain)   │   a fund-less HOT key trades; no on-chain tx per order
+                    └─────────────┬──────────────┘
+                                  │   value reported back (NAV) by a keeper
+                                  ▼                              <span class="h">≤10% NAV rise/interval; losses uncapped; stale→rejected</span>
+                    ┌────────────────────────────┐
+  <b>6  SETTLE</b>          │  USDCTreasury              │   <span class="h">accounting only — no USDC moves</span>
+                    └─────────────┬──────────────┘
+              ┌──────────────────┴───────────────────┐
+              ▼  <b>GAINS</b> (mark shares up)              ▼  <b>LOSSES</b> (mark shares down)
+     shared to tiers; protocol flat 30%   shared pro-rata: <span class="h">same % from every tier</span>
+              │                                        │
+              └────────────────────┬───────────────────┘
+                                   ▼   <span class="h">later, when real USDC returns</span>
+                    ┌────────────────────────────┐
+  <b>7  RETURN</b>          │  USDCTreasury (cash in)    │   <span class="h">returnPrincipalUSDC → Vault</span>
+                    └─────────────┬──────────────┘   <span class="h">returnPnLUSDC → earmarks · disburse</span>
+                                  ▼
+  <b>8  REDEEM</b>          dollar receipt ──▶ USDC back out        <span class="h">cap: 5% / week + ~2% / 24h</span>
+</pre>
+
+    <div class="callout info" style="margin-top:16px">
+      <p><strong>The key idea is unchanged.</strong> At every hop a hard-coded cap limits how
+      fast money can move. The target keeps every one of those caps — including the
+      same deploy and return caps on the custodian that already bound the trading
+      desk's exposure. What changed at steps 4–7 is <em>where</em> trading happens (off-chain,
+      via a cold account and a fund-less key), <em>how</em> value comes back (a keeper posts
+      the NAV instead of a cross-chain message), and that the treasury now <em>separates</em>
+      recognising PnL (accounting, step 6) from moving the cash (returns and disbursement, step 7) —
+      not the limits that contain it. <strong>Every USDC exit — vault redemption, the protocol-retained
+      withdrawal, the Foundation disbursement, and agent pay — additionally carries a rolling-24-hour cash
+      cap</strong>, so no single day can drain any of them.</p>
+    </div>
+
+    <h3 style="margin-top:22px">The eight steps in words</h3>
+    <ul>
+      <li><strong>1 · Deposit.</strong> A depositor sends USDC to the Vault and receives an
+        equal amount of RISKUSD, throttled per block, per day, and per week.</li>
+      <li><strong>2 · The Vault.</strong> The Vault holds the cash and keeps proving its
+        solvency rule: cash on hand plus the conservative value of money out trading
+        must always cover every receipt in existence.</li>
+      <li><strong>3 · Stake.</strong> The depositor stakes RISKUSD into one of four tiers. The
+        tier sets the lock-up and the profit split; losses are shared pro-rata across
+        all tiers (§5).</li>
+      <li><strong>4 · Deploy.</strong> The Vault sends up to <strong>95%</strong> of its capital to
+        the custodian (<strong>HLTradingBridge</strong>), always keeping at least a
+        <strong>5%</strong> buffer. The custodian forwards capital to the protocol's single
+        <strong>cold master account</strong> on HyperLiquid, within the per-block and per-day
+        deploy caps.</li>
+      <li><strong>5 · Trade.</strong> On HyperLiquid, a separate <strong>fund-less trading key</strong>
+        places trades on the master account's behalf, signing orders <strong>off-chain</strong>
+        on the native exchange. The trading key can trade but cannot withdraw — it
+        holds no funds.</li>
+      <li><strong>6 · Settle (accounting only).</strong> A permissioned <strong>keeper</strong>
+        reports the capital's current worth (NAV); the <strong>USDCTreasury</strong> recognises the
+        profit or loss as <em>accounting</em> — <strong>no USDC moves</strong>. A profit marks the
+        tier shares up immediately and records the split: depositors and agents keep their tier
+        shares of profit (always 70% together), leaving a flat <strong>30% protocol share</strong>,
+        of which the Foundation takes <strong>50%</strong> (15% of profit), and the protocol retains the other 50%. A loss marks the tier shares
+        down pro-rata across all tiers, then the retained buffer absorbs any remainder.</li>
+      <li><strong>7 · Return &amp; route (cash).</strong> Periodically the custodian sends real USDC
+        back. <strong>Principal</strong> comes back through <code>returnPrincipalUSDC</code> straight
+        to the Vault, refreshing the cash available to redeem. <strong>Profit</strong> comes back
+        through <code>returnPnLUSDC</code> and is earmarked — a vault top-up for depositors, plus the
+        agent, protocol, and Foundation cuts — and a generic <code>disburse</code> later pays each
+        earmark to its allowed destination. The immediate mark-up in step 6 can lead the cash; the
+        <strong>5% weekly cap</strong> (fixed at week-start) and the conservative
+        <code>min(book, NAV)</code> rule keep redemptions bounded and backed until it arrives.</li>
+      <li><strong>8 · Redeem.</strong> A depositor hands back the receipt and gets USDC out —
+        no more than <strong>5% of the total</strong> per week (and no more than <strong>~2%</strong> in any
+        rolling 24 hours), so a panic cannot drain the vault faster than capital can be recalled.</li>
+    </ul>
+  </section>
+
+  <!-- §5 -->
+  <section class="section" id="tiers">
+    <div class="section-head">
+      <span class="section-num">§5</span>
+      <div>
+        <h2>The tiers and the economics</h2>
+        <p class="section-sub">Unchanged: lock longer, earn a bigger share of the profit — losses are shared equally across all tiers.</p>
+      </div>
+    </div>
+    <p>
+      The four tiers are the heart of the product. Think of them as <strong>profit-share
+      classes</strong>: the longer you lock your money, the bigger the share of profit you keep.
+      Of every dollar of profit, depositors keep their tier share (50–65%) and the agents are
+      funded by the tier fee (20–5%); these always sum to <strong>70%</strong>, so the
+      <strong>protocol share is a flat 30% of profit</strong> across every tier. Out of that
+      protocol share the <strong>OpenForage Foundation takes 50%</strong> — <strong>15% of
+      profit</strong> — and the protocol retains the other 50% (also 15% of profit); 50% is the
+      hard cap and can never be raised higher. Losses, by contrast,
+      are <strong>not</strong> tranched — they are shared <strong>pro-rata across all four tiers at
+      once</strong>, so every tier takes the same percentage hit. A longer lock-up buys a
+      bigger slice of the upside; it gives no extra protection on the downside.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:34%">&nbsp;</th>
+          <th>Tier 0</th><th>Tier 1</th><th>Tier 2</th><th>Tier 3</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Lock-up</strong> (your money is committed)</td><td>None</td><td>90 days</td><td>180 days</td><td>360 days</td></tr>
+        <tr><td><strong>Your share of the profit</strong></td><td>50%</td><td>55%</td><td>60%</td><td>65%</td></tr>
+        <tr><td><strong>Agent funding fee</strong></td><td>20%</td><td>15%</td><td>10%</td><td>5%</td></tr>
+        <tr><td><strong>Protocol share</strong> (the remainder; depositor + agent always = 70%)</td><td>30%</td><td>30%</td><td>30%</td><td>30%</td></tr>
+        <tr><td style="padding-left:24px">— of which <strong>Foundation</strong> (50% of it)</td><td>15%</td><td>15%</td><td>15%</td><td>15%</td></tr>
+        <tr><td style="padding-left:24px">— of which <strong>protocol-retained</strong> (the other 50%)</td><td>15%</td><td>15%</td><td>15%</td><td>15%</td></tr>
+        <tr><td><strong>Loss sharing</strong> (if the desk loses money)</td><td>Equal %</td><td>Equal %</td><td>Equal %</td><td>Equal %</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note" style="margin-top:16px">
+      <p><strong>How a loss is shared.</strong> If the desk loses money, the USDCTreasury
+      reduces all four tiers at once, in proportion to how much each holds — so every
+      tier takes the <strong>same percentage</strong> hit. There is no first-loss tier and no
+      loss queue. Only if a loss is large enough to use up the tiers' capital does the
+      protocol's own retained buffer absorb the remainder. (This is exactly today's
+      behaviour, now living in USDCTreasury instead of ProtocolTreasury.)</p>
+    </div>
+    <p class="small" style="margin-top:14px">
+      The percentages above are the launch configuration set when the contracts are
+      deployed; they can be changed later only through the governance process in §6. The
+      Foundation's cut is <strong>50% of the protocol share</strong> — <strong>15% of profit</strong> —
+      with 50% also the hard cap and no higher; the protocol retains the other 50% (15% of profit).
+      The vault also opens with a <strong>$10M</strong> total-deposit cap.
+    </p>
+  </section>
+
+  <!-- §6 -->
+  <section class="section" id="gov">
+    <div class="section-head">
+      <span class="section-num">§6</span>
+      <div>
+        <h2>Governance — who has the keys</h2>
+        <p class="section-sub">A token-holder vote behind an 8-day delay — plus the new roles the off-chain custody model needs.</p>
+      </div>
+    </div>
+    <p>
+      The governance backbone is unchanged: token-holders propose and vote, and an
+      approved change waits 8 days in a public timelock before it can execute. What the
+      target adds are the roles and controls the off-chain custody model needs — and it
+      keeps them inside the same governance-and-Guardian framework.
+    </p>
+
+    <pre class="diagram" aria-label="governance chain diagram">   FORAGE holders        ForageGovernor            TimelockController         the contracts
+   ──────────────   ──▶  ───────────────    ──▶    ──────────────────   ──▶   ─────────────
+   propose &amp; vote        tallies the vote          holds the approved        change takes
+   (need 1% to            (need 4% quorum,          change for <b>8 days</b>          effect only
+    propose)               5-day voting)            in public view             after the wait</pre>
+
+    <h3 style="margin-top:18px">Guardian authority — three lanes</h3>
+    <p>
+      The Guardian is not one power but <strong>three deliberately separated lanes</strong>. The
+      principle behind the split is one line: <strong>guardians may restore governance control
+      during an incident, but they may never enact a governance outcome themselves.</strong> Every
+      lane either stops activity or hands control back to the normal vote — none of them lets
+      guardians spend, mint, choose where funds go, or rewrite the rules.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:18%">Lane</th>
+          <th style="width:20%">Who</th>
+          <th>What it can do</th>
+          <th>What it can <em>never</em> do</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1 · Stop</strong></td>
+          <td>Any one guardian (1 of 7)</td>
+          <td>Pause a whitelisted contract; freeze valuations and outbound <em>deploys</em> on the trading custodian — inbound <em>returns</em> stay open. Restrict-only.</td>
+          <td>Unpause, un-freeze, move funds, or loosen anything.</td>
+        </tr>
+        <tr>
+          <td><strong>2 · Recover</strong></td>
+          <td>A 4-of-7 guardian super-majority</td>
+          <td>Cancel a malicious proposal; <em>accelerate</em> a governance-approved emergency change to a 10-minute floor; rotate a compromised guardian seat or a captured voting-delegation to its <strong>pre-committed successor</strong>.</td>
+          <td>Originate a rotation of the custody account or the governor; accelerate a change to the pre-committed-successor list itself; touch funds or parameters.</td>
+        </tr>
+        <tr>
+          <td><strong>3 · Govern</strong></td>
+          <td>Token-holder vote + 8-day timelock</td>
+          <td>Everything else: unpause, un-freeze, rotate the custody account or the governor, upgrade contracts, change economic parameters, manage the successor list, supply control.</td>
+          <td>Skip the 8-day wait — though a healthy 4-of-7 may accelerate most changes to 10 minutes (never the successor list, which always waits the full window).</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="small">
+      The <strong>pre-committed successor list</strong> is a governance-maintained registry
+      (<code>preCommittedSuccessors[role]</code>, held on the <code>GuardianModule</code> — see §13) that
+      names, in advance, the safe address each rotatable role (the cold-account successor, each
+      guardian seat, each voting-delegation pool, and any designated large delegators) would move
+      to in an emergency. Lane 2 can only ever rotate <em>to</em> a
+      pre-committed address, which is exactly what stops the recovery power from becoming an
+      attack. Changing the list itself is Lane 3 only and can never be accelerated.
+    </p>
+    <div class="note" style="margin-top:8px">
+      <p><strong>Where this stands, stated honestly.</strong> This three-lane model has moved
+        from target design into <code>GuardianModule</code>. The current contract still keeps the
+        one-guardian fast lane for pause/cancel/emergency-execute/propose permissions, and it now
+        also carries the 4-of-7 accelerated rotation machinery, the 10-minute acceleration floor,
+        and the <code>preCommittedSuccessor</code> registry that keeps every recovery move pinned to
+        a governance-prepared successor.</p>
+      <p style="margin-top:8px"><strong>The honest ceiling.</strong> A 4-of-7 quorum is both the
+        <em>strength</em> of the recovery lane and its <em>limit</em>: if four or more of the seven
+        guardians are compromised together, deterministic on-chain recovery is gone — a liveness
+        checkmate — and if governance is captured at the same time, it is full checkmate. That is
+        why the seven seats are held by seven distinct trust zones with no one person owning four
+        of them, and why the 10-minute acceleration floor presumes automated monitoring and a
+        standing cancel responder. §7 states the residual risk in full.</p>
+    </div>
+
+    <h3 style="margin-top:18px">The approved custody account, and how it rotates</h3>
+    <p>
+      Because capital now rests in a single <strong>cold master account</strong> off-chain, the
+      trading custodian (the slimmed <code>HLTradingBridge</code> on Arbitrum) holds that
+      account's address on-chain — it is the only place the Vault's capital may be sent, the only
+      destination withdrawals may return to, and the account whose value the keeper attests.
+      Rotating that address (for routine key hygiene, or to recover from a compromise) has
+      <strong>three</strong> deliberate paths, mapping onto the three lanes above:
+    </p>
+    <ul>
+      <li><strong>Routine rotation — token-holder vote + 8-day timelock (Lane 3).</strong> The
+        normal, fully-deliberate path, identical to any other parameter change: the approved-account
+        address is a governance-only change that lands after the 8-day wait, and it can only ever be
+        set to the pre-committed cold-account successor.</li>
+      <li><strong>Emergency freeze — any guardian, immediate (Lane 1).</strong> The Guardian (or
+        owner) can instantly <em>freeze deploys</em> — the flow of capital <em>out</em> to the
+        account — while a rotation is arranged. The freeze is <strong>asymmetric</strong>:
+        <em>returns</em> (capital coming <em>back</em> to the Vault) stay open, because pulling
+        capital home can only ever reduce exposure, never add to it — the one exception being the
+        brief window while a loss is being recorded (see <em>"Why the freeze is asymmetric"</em>
+        below). Freezing only ever restricts — it cannot move funds and never widens a cap.</li>
+      <li><strong>Accelerated rotation — a 4-of-7 guardian super-majority (Lane 2).</strong> If a
+        key is compromised and waiting 8 days is unsafe, governance still <em>originates</em> the
+        rotation, but a four-of-seven guardian quorum can <strong>accelerate</strong> it to a
+        10-minute floor — and only to a <strong>pre-committed successor</strong> address.
+        Guardians never repoint custody on their own initiative; they compress the timelock on a
+        governance-approved switch to a pre-agreed safe address.</li>
+    </ul>
+    <div class="note" style="margin-top:4px">
+      <p><strong>Why guardians cannot pick the new account.</strong> Letting a 4-of-7 quorum
+        <em>directly</em> repoint custody would turn a guardian-quorum compromise into authority
+        over the very account that receives the protocol's capital. Restricting Lane 2 to
+        <em>accelerating a governance-originated rotation to a pre-committed successor</em> keeps
+        the choice of custody target a governance decision while still allowing a same-day
+        response — a guardian-quorum compromise can <em>delay or accelerate</em>, never
+        <em>choose</em>, the new account. Custody itself remains a single off-chain cold account
+        by design (see §9); the 4-of-7 is a threshold on the <em>guardian role</em>, never a
+        multi-signer custody wallet.</p>
+    </div>
+
+    <h3 style="margin-top:18px">Why the freeze is asymmetric</h3>
+    <p>
+      A freeze is not a blunt "halt everything." It follows one rule:
+      <strong>block any flow that could harm the protocol; keep open any flow that can only help
+      it.</strong> A <em>deploy</em> sends capital <em>out</em> toward an account that may be
+      compromised, so a freeze stops it. A verified <em>return</em> brings capital <em>back</em>
+      into the Vault and can only reduce exposure, so it stays open — subject to the same caps and
+      checks that always apply (a freeze never widens a cap). The only pause a freeze <em>adds</em>
+      to a return is the brief window while a loss is being recorded, so the loss bookkeeping cannot
+      desync. Valuation-dependent flows freeze because they would apply the very price report the
+      freeze exists to distrust.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36%">Flow during a freeze</th>
+          <th style="width:15%">State</th>
+          <th>Why</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Deploy capital → trading account</td>
+          <td><strong>Frozen</strong></td>
+          <td>Sends more capital toward a possibly-compromised account.</td>
+        </tr>
+        <tr>
+          <td>Return principal → Vault</td>
+          <td><strong>Open</strong></td>
+          <td>Brings capital home; can only reduce exposure. Subject to its usual caps and checks; the freeze adds only a pause while a loss is being recorded.</td>
+        </tr>
+        <tr>
+          <td>Loss absorption (burns) &amp; replenish</td>
+          <td><strong>Open</strong></td>
+          <td>Remediation and truth-recording must never be bricked — even mid-incident.</td>
+        </tr>
+        <tr>
+          <td>Yield / PnL recognition</td>
+          <td><strong>Frozen</strong></td>
+          <td>Applying a new gain or loss from the attestation is exactly the work the freeze suspends.</td>
+        </tr>
+        <tr>
+          <td>User deposit</td>
+          <td><strong>Conditional</strong></td>
+          <td>Not the freeze itself — held by the loss-pending gate and conservative valuation; minting against an unverified value can be unfair to existing holders.</td>
+        </tr>
+        <tr>
+          <td>User redemption</td>
+          <td><strong>Conditional</strong></td>
+          <td>Not the freeze itself — the loss-pending gate blocks stale-price exits that would shift loss onto the holders who stay.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="small">
+      The asymmetric freeze governs the custodian's <em>capital flow</em> and <em>valuation</em>
+      directly. User-flow fairness during an incident is held by the conservative
+      <code>min(book, NAV)</code> valuation and the unresolved-loss gate (which blocks stale-price
+      exits), with a separate full Vault-pause available to governance if every user flow must
+      stop — not by any widened guardian power. Like the three-lane model above, this
+      directional freeze is now implemented in the slimmed <code>HLTradingBridge</code>: deploys
+      and positive NAV movement are frozen, while principal/PnL return paths and loss recording
+      remain available for incident resolution.
+    </p>
+
+    <h3 style="margin-top:18px">The keeper (value reporter)</h3>
+    <p>
+      A permissioned <strong>keeper</strong> reads the master account's worth on HyperLiquid
+      and posts it on-chain as the NAV. The keeper can only <em>report a number</em>; it
+      cannot move funds, and its number is bounded (see §7). It is a governance-managed
+      role, replaceable like any other.
+    </p>
+
+    <h3 style="margin-top:18px">Who can do what</h3>
+    <p>The point of the table below is the number of "No" answers. Most actors are
+      tightly boxed in.</p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:22%">Actor</th>
+          <th>Deposit / redeem?</th>
+          <th>Move funds to trade?</th>
+          <th>Change a parameter?</th>
+          <th>Loosen a cap?</th>
+          <th>Extract funds?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>A depositor</strong></td><td>Yes (their own)</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td><strong>FORAGE voters + 8-day timelock</strong></td><td>—</td><td>No</td><td>Yes, on the delay</td><td>Yes, on the delay</td><td>No</td></tr>
+        <tr><td><strong>Guardian (emergency)</strong></td><td>—</td><td>No</td><td>Tighten only</td><td><strong>No — never</strong></td><td>No</td></tr>
+        <tr><td><strong>4-of-7 guardians</strong></td><td>—</td><td>No</td><td>Cancel a bad proposal; accelerate a vote-approved change (to a pre-set address)</td><td>No</td><td>No</td></tr>
+        <tr><td><strong>Keeper (value reporter)</strong></td><td>—</td><td>No</td><td>Reports NAV only (bounded)</td><td>No</td><td>No</td></tr>
+        <tr><td><strong>Hot trading key (off-chain)</strong></td><td>—</td><td>Trades the deployed capital</td><td>No</td><td>No</td><td><strong>No — it is fund-less</strong></td></tr>
+        <tr><td><strong>Cold master account</strong></td><td>—</td><td>Holds deployed capital; returns it within caps</td><td>No</td><td>No</td><td>Trusted custody root (off-chain) — a compromise can move deployed funds; see §7</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:22px">Can the contracts be changed after launch?</h3>
+    <p>
+      Most contracts remain <strong>upgradeable</strong> only through the vote-plus-8-day-timelock
+      path, never unilaterally. The 1-for-1 dollar backing, the four-tier structure, and
+      the safety invariants stay fixed. The <strong>vesting wallet</strong> for team/partner
+      tokens remains <strong>not upgradeable at all</strong>, so a vesting schedule cannot be
+      quietly rewritten.
+    </p>
+  </section>
+
+  <!-- §7 -->
+  <section class="section" id="safety">
+    <div class="section-head">
+      <span class="section-num">§7</span>
+      <div>
+        <h2>How it's kept safe</h2>
+        <p class="section-sub">The same layered controls — plus an honest account of the one protection the off-chain move trades away.</p>
+      </div>
+    </div>
+    <p>
+      Safety here is layers, not one feature. The target keeps the Vault's controls
+      unchanged and keeps the caps that bound the trading desk. Four representative
+      controls convey the philosophy; the callout after them states, plainly, the one
+      thing the HyperLiquid simplification gives up and what holds the line instead.
+    </p>
+
+    <div class="two-col">
+      <div class="callout">
+        <h3 style="color:var(--ink)">The solvency promise</h3>
+        <p>On every deposit, redemption, and capital deployment, the Vault re-checks
+        a single rule and refuses the action if it would break:</p>
+        <p class="small"><em>"Cash in the vault, plus the conservative value of money out
+          trading, must always cover every dollar-receipt in existence."</em></p>
+        <p class="small">In code that is
+          <code>vaultUSDC + min(bookValue, NAV) ≥ total RISKUSD</code> — the
+          <code>min()</code> means deployed capital is always valued cautiously.
+          <strong>Unchanged in the target.</strong></p>
+      </div>
+      <div class="callout warning">
+        <h3 style="color:var(--ink)">The shrink-only brake</h3>
+        <p>The Guardian can tighten caps, pause, or freeze — its only direction is
+        <strong>more restrictive</strong>. It cannot widen a limit, mint, or move funds. Its freeze
+        is <strong>asymmetric by direction</strong>: it stops the harmful outbound flow (deploys)
+        while leaving the beneficial inbound flow (verified returns) open at its existing caps —
+        still restrict-only, because keeping an already-capped return path available adds no new
+        capability and widens nothing (§6). The
+        target adds one new <em>restrictive-or-recovery</em> power: a 4-of-7 guardian
+        super-majority can <em>accelerate</em> a governance-approved custody rotation in a
+        compromise (§6).</p>
+      </div>
+      <div class="callout">
+        <h3 style="color:var(--ink)">Bounded value reports</h3>
+        <p>The keeper's NAV is not trusted blindly. An <strong>upward</strong> report can raise
+        the recorded value by at most ~10% per interval; a <strong>downward (loss)</strong>
+        report is deliberately <strong>not</strong> capped — it registers immediately and triggers
+        loss handling and exit locks. A stale report is rejected rather than used, the
+        Guardian can freeze attestations, and the conservative <code>min(book, NAV)</code>
+        rule applies on top.</p>
+      </div>
+      <div class="callout">
+        <h3 style="color:var(--ink)">Bounded capital flow</h3>
+        <p>The custodian keeps the same hard caps as today: a per-block and per-day
+        ceiling on how much capital can be deployed, and a per-call and per-day ceiling
+        on how much can be returned. These are the limits that contain the off-chain
+        desk's exposure.</p>
+      </div>
+    </div>
+
+    <div class="callout danger" style="margin-top:16px">
+      <h3 style="color:var(--ink);margin-bottom:10px">The honest trade-off — what moving trading off-chain gives up</h3>
+      <p><strong>What is removed.</strong> Today, trades are submitted through an on-chain account
+        on HyperLiquid that re-checks every single instruction against an allow-list and
+        a forbidden-action gate before it reaches the exchange. That made the desk's
+        trading <em>trustless on-chain</em>: even the trading key could not place a
+        disallowed action. The target removes that on-chain, per-instruction gate.</p>
+      <p style="margin-top:10px"><strong>What holds the line instead.</strong> The desk's exposure
+        is bounded by the <strong>same Arbitrum caps</strong> that already limited it — how much
+        capital can be deployed to the account and how much can be pulled back, per block
+        and per day — together with the conservative NAV valuation, the Guardian's freeze,
+        and the ability to rotate the account. The trading key is <strong>fund-less</strong>: it
+        can trade the deployed capital but can never withdraw it. So a compromised trading
+        key can lose, at most, what is already deployed (itself capped), and cannot exfiltrate
+        funds.</p>
+      <p style="margin-top:10px"><strong>The residual risk, stated plainly.</strong> The
+        <strong>cold master account is a trusted custody root</strong>. It is an off-chain key, so
+        the on-chain caps cannot physically force it to send only to the Vault — a compromise
+        of the cold key can withdraw the capital currently deployed to it. What contains that:
+        only a fraction of the vault is ever deployed (the ≥5% buffer stays on-chain), the
+        per-block and per-day deploy caps limit how fast capital can accumulate at the account,
+        conservative valuation surfaces any shortfall as a loss rather than hiding it, that loss
+        is socialised pro-rata, a guardian can instantly freeze further deploys, and a 4-of-7
+        guardian quorum can accelerate a vote-approved rotation to a fresh pre-committed account
+        within minutes. The protocol's own withdrawal control adds to this: the keeper validates every
+        withdrawal against a capped, destination-pinned on-chain intent record before it signs, and the
+        return path reconciles arrivals by a real balance delta — a keeper-side policy plus on-chain
+        detection, since <strong>the chain cannot itself veto an off-chain signature</strong> (§9, §13).
+        Funds <em>already</em> at a compromised account are nonetheless at risk — this is the residual the
+        off-chain model accepts; it can be hardened further still with HyperLiquid-level
+        withdrawal-address allow-listing, were one offered (an operational control, not assumed here).</p>
+      <p style="margin-top:10px"><strong>What is gained.</strong> Trading becomes materially faster.
+        On-chain submission meant an on-chain transaction — block time, gas, and an on-chain
+        re-check — for every order. Off-chain, the fund-less key signs orders directly on
+        HyperLiquid's native exchange, the path built for low-latency trading. The speed gain
+        comes from off-chain execution, not from the cold account (which only ever holds and
+        moves custody, never trades).</p>
+    </div>
+
+    <div class="note" style="margin-top:16px">
+      <p><strong>The guardian-authority residual.</strong> The 4-of-7 recovery lane (§6) is what
+        lets honest guardians cancel a hostile proposal and accelerate a fix during an incident —
+        but it is also the protocol's recovery ceiling. If <strong>four or more of the seven</strong>
+        guardians are compromised together, a hostile quorum can keep cancelling rotations and
+        unpause proposals, and deterministic on-chain recovery is gone — a <strong>liveness
+        checkmate</strong>. If governance is captured <em>at the same time</em>, it is full
+        checkmate. Two disciplines hold the line below that threshold: the seven seats sit in seven
+        distinct trust zones with no person owning four, and the 10-minute acceleration floor
+        presumes automated monitoring plus a standing cancel responder. One distinction matters: the
+        guardian lanes themselves can never move funds, so a 4-of-7 guardian compromise <em>on its
+        own</em> is a liveness failure, not a drain — guardians can stall or accelerate a change,
+        never originate a fund-moving one. The drain case is the <em>combined</em> one: a hostile
+        governance majority <em>plus</em> a hostile 4-of-7 quorum, where governance originates a
+        fund-moving change and the quorum accelerates it to minutes. Keeping the vote and the guardian
+        seats in separate hands is what makes that collusion — not a guardian-only compromise — the
+        real worst case.</p>
+    </div>
+
+    <div class="note" style="margin-top:16px">
+      <p><strong>The accounting-ahead-of-cash window, stated plainly.</strong> In the target the USDCTreasury
+        recognises profit as accounting the moment the keeper attests — the tier shares are marked up before the
+        matching USDC has physically returned from the desk. That is deliberate, and two things bound it. First,
+        redemptions are capped at <strong>5% of supply per week, fixed at the start of the week</strong>, so even
+        a large mark-up cannot be withdrawn faster than capital can be recalled — the cap is set before the
+        attestation it would respond to. Second, the Vault's solvency rule values deployed capital conservatively
+        (<code>vaultUSDC + min(book, NAV) ≥ total RISKUSD</code>), so a claim is always measured against the
+        cautious value of what is actually out trading. The cash that ultimately backs the marked-up claim
+        arrives separately, as the Vault top-up in the return step (§4 step 7) — it funds the claim, it does not
+        create new value.</p>
+    </div>
+
+    <p class="small" style="margin-top:16px">
+      Other controls in the same family are unchanged: the trading custodian can never be
+      over-funded (the 95% / 5%-buffer rule), tier share-values can never tick down from a
+      yield update, the most sensitive settings use two-step setters, and a blocklist plus a
+      custodian registry constrain exactly which addresses can ever be trusted.
+    </p>
+  </section>
+
+  <!-- §8 -->
+  <section class="section" id="catalog">
+    <div class="section-head">
+      <span class="section-num">§8</span>
+      <div>
+        <h2>The full catalog — Arbitrum side (13 contracts)</h2>
+        <p class="section-sub">Every contract on the money-and-rules chain in the target, in plain English.</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-bottom:16px">
+      <p><strong>Current → target on this chain (16 → 13).</strong> The treasury group shrinks
+        from seven contracts to four: <code>ProtocolTreasury</code> + <code>FundingTreasury</code>
+        merge into <strong>USDCTreasury</strong>, and <code>RewardPool</code> +
+        <code>DepositorPool</code> + <code>Partnerships</code> merge into <strong>FORAGETreasury</strong>.
+        Everything else on Arbitrum is carried over unchanged.</p>
+    </div>
+
+    <div class="grouplabel">Tokens — the units of value</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The dollar receipt</h3>
+        <div class="sol">RISKUSD</div>
+        <p>A token worth one dollar, backed 1-for-1 by USDC in the Vault. Created and
+          destroyed only by the Vault as people deposit and redeem.</p>
+        <div class="tags"><span class="tag good">token</span><span class="tag good">unchanged</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The tier shares</h3>
+        <div class="sol">atRISKUSD — deployed 4× (Tiers 0–3)</div>
+        <p>A standard interest-bearing "vault share." Staking your receipt mints tier
+          shares whose value rises as profit accrues. Four copies, one per tier.</p>
+        <div class="tags"><span class="tag good">token</span><span class="tag good">unchanged</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The vote token</h3>
+        <div class="sol">ForageToken (FORAGE)</div>
+        <p>The 100-million-supply governance token. In the target its mint at launch
+          changes destination: <strong>80M</strong> goes to the single FORAGETreasury (for
+          agent, depositor, and partnership programs) and <strong>20M</strong> goes directly to
+          the team vesting wallet — the team allocation never passes through a treasury,
+          exactly as today.</p>
+        <div class="tags"><span class="tag good">token</span><span class="tag warn">mint target updated</span></div>
+      </div>
+    </div>
+
+    <div class="grouplabel">Core capital — the cash engine</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The Vault</h3>
+        <div class="sol">RISKUSDVault</div>
+        <p>The central USDC pool. Handles 1-for-1 deposits and capped redemptions,
+          deploys capital to the trading custodian, records the value reported back,
+          settles losses, and enforces the solvency promise on every move.</p>
+        <div class="tags"><span class="tag good">core</span><span class="tag good">unchanged</span></div>
+      </div>
+    </div>
+
+    <div class="grouplabel">Treasury &amp; distribution — where value is routed (5 → 2 contracts)</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The USDC treasury</h3>
+        <div class="sol">USDCTreasury · <span style="color:var(--gold)">implemented — merges ProtocolTreasury + FundingTreasury</span></div>
+        <p>One contract — the <strong>money router</strong> — for <strong>all protocol USDC</strong>,
+          with two clearly separated jobs. <em>Accounting:</em> on each NAV attestation it
+          recognises profit or loss with no cash moving — marking the tier shares up or down, and
+          spreading a loss pro-rata across the tiers (the same percentage from each), then a
+          retained buffer. <em>Cash:</em> principal returned from trading goes straight to the
+          Vault to refresh redemption liquidity, while returned profit is earmarked four ways —
+          depositor/vault, agents, the Foundation's cut of the protocol share, and the
+          protocol-retained remainder — and a generic <code>disburse</code> pays each earmark to
+          its allowed destination (the Vault, any agent wallet, or an allow-listed
+          protocol/foundation wallet with a failover backup). It preserves the on-chain settlement
+          resilience that matters: a blocklisted tier or recipient never blocks the rest. Folding
+          in the former funding treasury, agent pay keeps its per-payment and rolling-24-hour caps.</p>
+        <div class="tags"><span class="tag good">treasury</span><span class="tag good">implemented · merges 2</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The FORAGE treasury</h3>
+        <div class="sol">FORAGETreasury · <span style="color:var(--gold)">implemented — merges RewardPool + DepositorPool + Partnerships</span></div>
+        <p>One contract for <strong>all treasury FORAGE</strong>, holding the 80M of non-team
+          supply across three programs: quarterly claim-by-proof ("Merkle") airdrops to
+          agents (<strong>30M</strong>), claim-by-proof airdrops to RISKUSD depositors
+          (<strong>10M</strong>), and governance-controlled direct distribution for partnership
+          deals (<strong>40M</strong>) to governance-chosen recipients — in practice each
+          partner's separately deployed vesting wallet. It keeps the solvency accounting,
+          outflow caps, cooldowns, and voting delegation the three pools have today.</p>
+        <div class="tags"><span class="tag good">treasury</span><span class="tag good">implemented · merges 3</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The staking queue</h3>
+        <div class="sol">StakingQueue</div>
+        <p>An orderly, two-lane first-in-first-out line for processing staking
+          requests, so deposits enter the tiers fairly and predictably.</p>
+        <div class="tags"><span class="tag good">treasury</span><span class="tag good">unchanged</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The vesting wallet</h3>
+        <div class="sol">DelegatingVestingWallet</div>
+        <p>Per-person FORAGE vesting with a cliff, while still letting the locked
+          tokens vote. Deliberately <strong>not upgradeable</strong>. The team's 20M and each
+          partnership's allocation vest through their own instances of this wallet.</p>
+        <div class="tags"><span class="tag good">treasury</span><span class="tag warn">immutable</span><span class="tag good">unchanged</span></div>
+      </div>
+    </div>
+
+    <div class="grouplabel">Governance &amp; safety — who and what is trusted</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The voting system</h3>
+        <div class="sol">ForageGovernor</div>
+        <p>Runs FORAGE-holder proposals and votes (1% to propose, 4% quorum, 5-day
+          vote), and routes approved changes through the 8-day timelock.</p>
+        <div class="tags"><span class="tag warn">governance</span><span class="tag good">unchanged</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The emergency brake</h3>
+        <div class="sol">GuardianModule</div>
+        <p>Holds the emergency powers — pause, tighten caps, cancel a malicious
+          proposal, freeze valuations — built so it can only ever make the rules
+          stricter. The target adds a 4-of-7 guardian super-majority that can
+          <em>accelerate</em> a vote-approved custody rotation in a compromise.</p>
+        <div class="tags"><span class="tag risk">safety</span><span class="tag warn">extended</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The blocklist</h3>
+        <div class="sol">Blocklist</div>
+        <p>An address-level deny-list for emergencies: fast to add (protect), slow to
+          remove (release).</p>
+        <div class="tags"><span class="tag risk">safety</span><span class="tag good">unchanged</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The custodian registry</h3>
+        <div class="sol">CustodianRegistry</div>
+        <p>The approved list of trading custodians the Vault may deploy capital to.
+          Capital can only ever flow to a registered, governance-approved destination —
+          in the target, the slimmed HLTradingBridge.</p>
+        <div class="tags"><span class="tag risk">safety</span><span class="tag good">unchanged</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The vault registry</h3>
+        <div class="sol">VaultRegistry</div>
+        <p>A central, governance-only directory of all strategy vaults and their
+          configuration — the system's source of truth for which vaults exist.</p>
+        <div class="tags"><span class="tag risk">safety</span><span class="tag good">unchanged</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §9 -->
+  <section class="section" id="hl">
+    <div class="section-head">
+      <span class="section-num">§9</span>
+      <div>
+        <h2>The trading engine — HyperLiquid (1 contract + off-chain custody)</h2>
+        <p class="section-sub">From eight contracts and a cross-chain bridge to one custodian and an off-chain desk.</p>
+      </div>
+    </div>
+    <p>
+      Trading still happens on <strong>HyperLiquid</strong>, the blockchain purpose-built for
+      fast derivatives trading. What changes is how OpenForage reaches it. Today an
+      eight-contract apparatus runs an on-chain trading account on HyperLiquid's EVM and
+      coordinates with Arbitrum over a cross-chain bridge. The target replaces all of
+      that with the way professional desks actually trade on HyperLiquid: a custody
+      account and a trading key, operated off-chain, with a single Arbitrum contract
+      keeping the books and the caps. No contracts run on HyperEVM any more.
+    </p>
+
+    <pre class="diagram" aria-label="target hyperliquid flow diagram">    <b>ARBITRUM</b>                                          <b>HYPERLIQUID</b>  (off-chain operation)
+    ─────────                                          ──────────────────────
+    RISKUSDVault ──deploy──▶ <b>HLTradingBridge</b> ──send──▶  COLD master account  (holds the capital)
+                            (the slimmed custodian)             │  approves a fund-less key
+       keeper ──posts NAV──▶ <b>HLTradingBridge</b>                  ▼
+                            (caps · accounting · settle)   HOT trading key ──signs orders off-chain──▶ HyperLiquid markets
+                                                           (fund-less: trades, cannot withdraw)
+
+    <span class="h">gone: HLTradingVault · SubmitModule · WithdrawalModule · CoreWriterActionParser ·</span>
+    <span class="h">      ExecutorProxy · HLGovernanceCCIPSender · HLCustodianBridgeAdapter · Chainlink CCIP</span></pre>
+
+    <div class="grouplabel" style="margin-top:22px">The one HyperLiquid-stack contract</div>
+    <div class="two-col">
+      <div class="ccard hl">
+        <h3>The custodian (slimmed)</h3>
+        <div class="sol">HLTradingBridge · Arbitrum</div>
+        <p>The single remaining contract of the HyperLiquid stack, and it stays on
+          <strong>Arbitrum</strong>. It is the Vault's trading "custodian": it holds the approved
+          cold-account address, sends capital out and brings it back within the per-block,
+          per-day, and per-return caps, accepts the keeper's NAV (applying the
+          conservative valuation, the per-interval cap on upside moves — losses register
+          immediately — the staleness check, and the Guardian's freeze), records the value
+          into the Vault for the USDCTreasury to crystallise the profit or loss as accounting,
+          and returns USDC within the caps (principal to the Vault, realised profit to the
+          USDCTreasury). A negative-NAV report still locks tier exits and is
+          absorbed before deployed principal is reduced.</p>
+        <div class="tags"><span class="tag info">custodian</span><span class="tag warn">slimmed</span><span class="tag risk">caps + NAV + settle</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>Off-chain custody &amp; trading</h3>
+        <div class="sol">not a contract — operated keys</div>
+        <p>Capital rests in a single <strong>cold master account</strong> on HyperLiquid that only
+          deposits and withdraws. A separate <strong>hot, fund-less trading key</strong> is
+          approved to trade on the master's behalf and signs orders off-chain on the
+          native exchange — it holds no funds and cannot withdraw. This is HyperLiquid's
+          own account-plus-agent model, used directly instead of re-implementing it
+          on-chain. The cold account is the trusted custody root; the honest residual risk
+          of that choice is stated in §7.</p>
+        <div class="tags"><span class="tag info">off-chain</span><span class="tag good">cold + hot split</span></div>
+      </div>
+    </div>
+
+    <div class="callout danger" style="margin-top:16px">
+      <h3 style="color:var(--ink);margin-bottom:10px">What was removed, and why it is safe to remove</h3>
+      <p>Seven contracts and the cross-chain bridge go away: the on-chain trading account
+        (<code>HLTradingVault</code>) and its two logic modules, the instruction decoder
+        (<code>CoreWriterActionParser</code>), the on-chain command inbox
+        (<code>ExecutorProxy</code>), the Arbitrum command outbox
+        (<code>HLGovernanceCCIPSender</code>), the deposit adapter
+        (<code>HLCustodianBridgeAdapter</code>), and the <strong>Chainlink CCIP</strong> messaging
+        between the two chains.</p>
+      <p style="margin-top:10px">All of that machinery existed to make trading trustless
+        <em>on-chain</em> — to re-check every instruction and bound it from a second blockchain.
+        Its job is taken over by the off-chain model under the same economic limits: the
+        cold/hot split means the trading key cannot withdraw, the Arbitrum caps bound how
+        much can ever be deployed or returned, a guardian can freeze deploys and governance can
+        rotate the account. There is also a hard practical reason the on-chain account had to go:
+        HyperLiquid's protocol <strong>rejects contract-account withdrawals</strong> outright, which
+        is why a real (externally-owned) custody account was already required. The target
+        embraces that constraint instead of working around it.</p>
+    </div>
+
+    <div class="note" style="margin-top:16px">
+      <p><strong>One documentation correction this implies.</strong> An older note elsewhere in the
+        repo still describes the planned execution service as an "MPC … 3/5 hot-wallet
+        multisig." That is superseded: custody is a <strong>single cold account</strong> plus a
+        fund-less trading key — no MPC, no multisig for custody. (The 4-of-7 in §6 is on the
+        <em>guardian</em> role — it accelerates a governance-approved rotation, it is not a
+        custody wallet.) That note is corrected
+        separately; this document is the authority for the target custody model.</p>
+    </div>
+  </section>
+
+  <!-- §10 -->
+  <section class="section" id="maturity">
+    <div class="section-head">
+      <span class="section-num">§10</span>
+      <div>
+        <h2>Maturity and status</h2>
+        <p class="section-sub">Implemented in the repo, proven on Arbitrum Sepolia, not yet mainnet.</p>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <p><strong>This target has been built.</strong> The consolidated contracts described
+      here — USDCTreasury, FORAGETreasury, and the slimmed HLTradingBridge — are now
+      committed production source and deployed in the Arbitrum Sepolia target manifest.
+      The historical companion document remains useful context for what was replaced,
+      but the current code is the source of truth for implemented behaviour.</p>
+    </div>
+
+    <div class="two-col" style="margin-top:16px">
+      <div class="card">
+        <h3>The path now completed on testnet</h3>
+        <p class="small">The consolidations were implemented as reviewed changes,
+          tested with the target Foundry and Python surface suites, then the whole new
+          set was <strong>redeployed fresh to Arbitrum Sepolia</strong>. The A25 proof ran the
+          end-to-end flow — deposit → deploy → off-chain trade boundary → keeper NAV
+          → settle → return → rotate → freeze — and ended with the deployment in an
+          intentionally post-tail frozen state.</p>
+      </div>
+      <div class="card">
+        <h3>What does not change</h3>
+        <p class="small">The depositor-facing guarantees — 1-for-1 backing, the four
+          tiers, pro-rata loss, the caps, the 8-day timelock, the shrink-only Guardian,
+          and the solvency promise — are all preserved. The target reduces the contract
+          count and moves trading off-chain; it does not relax a single depositor
+          protection.</p>
+      </div>
+    </div>
+
+    <p class="small" style="margin-top:16px">
+      In short: fewer contracts (24 → 14), trading moved to HyperLiquid's native
+      off-chain path, two treasuries instead of five — with every protection carried
+      over and one trade-off (the on-chain per-instruction gate) stated openly in §7
+      and §9. External audit sign-off and mainnet deployment remain, as before, separate
+      later steps.
+    </p>
+  </section>
+
+  <!-- §11 -->
+  <section class="section" id="glossary">
+    <div class="section-head">
+      <span class="section-num">§11</span>
+      <div>
+        <h2>Glossary</h2>
+        <p class="section-sub">The recurring terms, in one place.</p>
+      </div>
+    </div>
+    <table>
+      <tbody>
+        <tr><td style="width:22%"><strong>USDC</strong></td><td>A digital dollar ("stablecoin") worth $1, issued by a regulated company. The asset depositors put in.</td></tr>
+        <tr><td><strong>Arbitrum</strong></td><td>A fast, low-cost blockchain built on top of Ethereum. Home of OpenForage's money and governance — and, in the target, all but one contract.</td></tr>
+        <tr><td><strong>HyperLiquid</strong></td><td>A blockchain and exchange specialised for derivatives trading. In the target, OpenForage trades on its native exchange off-chain rather than through an on-chain account.</td></tr>
+        <tr><td><strong>Cold master account</strong></td><td>The single externally-owned account that holds the protocol's trading capital on HyperLiquid and only deposits/withdraws — never trades.</td></tr>
+        <tr><td><strong>Hot trading key (fund-less)</strong></td><td>A key approved to place trades on the master account's behalf. It can trade but holds no funds and cannot withdraw, so its compromise cannot exfiltrate capital.</td></tr>
+        <tr><td><strong>Keeper</strong></td><td>A permissioned reporter that posts the trading account's current value (NAV) on-chain. It can report a bounded number; it cannot move funds.</td></tr>
+        <tr><td><strong>NAV</strong> (net asset value)</td><td>The current worth of the capital out on the trading floor, reported back so the Vault can value itself honestly — applied conservatively as <code>min(book, NAV)</code>. Upward reports are rate-capped per interval; losses are not.</td></tr>
+        <tr><td><strong>Market-neutral</strong></td><td>A trading style that aims to profit from relative price moves while hedging out overall market direction.</td></tr>
+        <tr><td><strong>ERC-4626 vault / shares</strong></td><td>An industry-standard recipe for "deposit an asset, hold a share whose value grows." The four tiers use it.</td></tr>
+        <tr><td><strong>Merkle airdrop (claim-by-proof)</strong></td><td>A way to distribute tokens where eligible recipients prove their entitlement with a cryptographic proof and claim themselves — used by FORAGETreasury for agent and depositor rewards.</td></tr>
+        <tr><td><strong>Timelock</strong></td><td>A mandatory waiting period (here, 8 days) between approving a change and it taking effect.</td></tr>
+        <tr><td><strong>4-of-7 (guardian threshold)</strong></td><td>An emergency control requiring four of seven guardians to act together — used to cancel a malicious proposal, <em>accelerate</em> a vote-approved emergency change (such as a custody rotation, to a pre-committed address) to a 10-minute floor, or rotate a compromised guardian seat. A control on the guardian role, not a custody wallet: guardians accelerate governance, they never replace it.</td></tr>
+        <tr><td><strong>Custodian</strong></td><td>The trusted destination the Vault deploys capital to — in the target, the slimmed HLTradingBridge contract on Arbitrum, which tracks the off-chain account.</td></tr>
+        <tr><td><strong>Upgradeable (UUPS)</strong></td><td>A pattern that lets a contract's logic be improved later — under OpenForage, only via the vote-plus-timelock path.</td></tr>
+        <tr><td><strong>Crystallise (PnL accounting)</strong></td><td>Recognising a period's profit or loss as internal accounting on the USDCTreasury when the keeper attests NAV — marking the tier shares up or down and recording the agent / protocol / Foundation amounts. No USDC moves at this step.</td></tr>
+        <tr><td><strong>Earmark</strong></td><td>A per-purpose balance of USDC the treasury has actually received and reserved for one destination (vault top-up, agents, protocol, Foundation). A disbursement can never exceed the earmark's balance.</td></tr>
+        <tr><td><strong>returnPrincipalUSDC / returnPnLUSDC</strong></td><td>The two functions the custodian uses to send USDC back to the treasury: principal goes 100% to the Vault (refreshing redemption liquidity); realised profit is split into the four earmarks. Principal is never split to agents, protocol, or Foundation.</td></tr>
+        <tr><td><strong>disburse (purpose-keyed)</strong></td><td>The generic treasury function that pays an earmark out to its allowed destination — the Vault, any agent wallet, or an allow-listed protocol / Foundation wallet — never exceeding the earmark balance.</td></tr>
+        <tr><td><strong>Failover backup wallet</strong></td><td>A pre-set second destination for the protocol-spender and Foundation earmarks, usable only when the allow-listed primary is blocked or unavailable. Governance rotates both under the timelock.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §12 -->
+  <section class="section" id="sources">
+    <div class="section-head">
+      <span class="section-num">§12</span>
+      <div>
+        <h2>Sources &amp; a note on accuracy</h2>
+        <p class="section-sub">Where the target is grounded, change by change, and one honest caveat.</p>
+      </div>
+    </div>
+    <p>
+      This section now separates the historical grounding that shaped the target from the
+      current implementation proof. The old source files named below explain what was
+      consolidated; the current authority is the merged production source under
+      <code>openforage_smart_contracts/src/</code> and the retained audit evidence in
+      <code>documentation/smart_contract_audits/2026-06-09-audit/</code>.
+    </p>
+    <table>
+      <thead>
+        <tr><th style="width:30%">Target change</th><th>Current source / proof</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>24 → 14 contracts</strong> (16 Arbitrum + 8 HL → 13 + 1)</td><td><code>openforage_smart_contracts/src/</code> now contains the target contract set, including <code>USDCTreasury.sol</code>, <code>FORAGETreasury.sol</code>, and <code>hyperliquid/HLTradingBridge.sol</code>. The old treasury and HyperEVM/CCIP production contracts are absent from active source.</td></tr>
+        <tr><td><strong>USDCTreasury</strong> = ProtocolTreasury + FundingTreasury</td><td>Implemented in <code>openforage_smart_contracts/src/USDCTreasury.sol</code>. It carries the deliberate redesign: accounting/cash split, <code>returnPrincipalUSDC</code>, <code>returnPnLUSDC</code>, purpose-keyed <code>disburse</code>, failover wallets, and the 50%-of-protocol-share Foundation rule.</td></tr>
+        <tr><td><strong>FORAGETreasury</strong> = RewardPool + DepositorPool + Partnerships</td><td>Implemented in <code>openforage_smart_contracts/src/FORAGETreasury.sol</code>. It holds the 80M non-team FORAGE treasury and runs agent Merkle, depositor Merkle, partnership distribution, sweep, and delegation flows.</td></tr>
+        <tr><td><strong>FORAGE allocations &amp; team-direct mint</strong> (80M → FORAGETreasury, 20M → team wallet)</td><td>Implemented through <code>ForageToken</code> and the target deployment path. Deployment manifests and addresses are intentionally omitted from this public-safe snapshot.</td></tr>
+        <tr><td><strong>HL 8 → 1; trading off-chain</strong></td><td>Implemented in <code>openforage_smart_contracts/src/hyperliquid/HLTradingBridge.sol</code>. The old <code>HLTradingVault</code>, modules, executor proxy, CCIP sender, and bridge adapter are absent from active production source.</td></tr>
+        <tr><td><strong>The caps that bound the off-chain desk (preserved)</strong></td><td><code>HLTradingBridge.sol</code> enforces $1M/block and $5M/day deploy caps, 10% NAV-upside clamp, 24h staleness, 10% return caps, arrival reconciliation, and directional freeze.</td></tr>
+        <tr><td><strong>EOA custody is required (contract withdraw3 rejected)</strong></td><td><code>documentation/runbooks/hl_wet_eoa_custodian_authority.md</code> and project memory (HyperLiquid rejects contract-account <code>withdraw3</code>: "Vault may not perform this action").</td></tr>
+        <tr><td><strong>4-of-7 guardian quorum</strong></td><td>Implemented in <code>GuardianModule.sol</code>: <code>preCommittedSuccessor</code>, <code>proposeAcceleratedRotation</code>, four guardian approvals, the 10-minute accelerated floor, routine 8-day rotation, and guardian-seat replacement are now production code.</td></tr>
+        <tr><td><strong>Solvency rule preserved</strong></td><td><code>RISKUSDVault.sol:1363-1368</code> — <code>solvencyBackingAssets()</code> = vault USDC + <code>min(adjustedNav, bookValue)</code>; companion doc §7.</td></tr>
+        <tr><td><strong>The "MPC / 3-5 multisig" note is superseded</strong></td><td><code>README.md:307</code> (planned <code>execution_service</code>) — to be corrected to the single-EOA + fund-less-agent model.</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:16px">
+      <p><strong>On status and addresses.</strong> This is now an <strong>implemented target</strong>
+      document for the repository and Arbitrum Sepolia. Testnet deployment
+      manifests and addresses are intentionally omitted from this public-safe
+      snapshot. The latest A25 proof completed the deposit/deploy/off-chain-trade-boundary/keeper-NAV/settle/return/rotate/freeze
+      path and left the Sepolia deployment intentionally post-tail frozen. Mainnet addresses are still absent because
+      external audit sign-off and mainnet deployment remain later steps.</p>
+    </div>
+  </section>
+
+  <!-- §13 -->
+  <section class="section" id="contracts-detail" style="border-bottom:none">
+    <div class="section-head">
+      <span class="section-num">§13</span>
+      <div>
+        <h2>Per-contract detail — what each contract does</h2>
+        <p class="section-sub">One plain-English page per contract in the implemented target. Current code is the source of truth.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <p>This is the deep companion to the §8–§9 catalog: the same <strong>14 target contracts</strong>,
+        plus the off-chain custody-and-bridge layer that replaces the old HyperLiquid stack, each given a
+        fuller "what it does / what changes / what bounds it" page — still written for a reader who does
+        not read Solidity. Where a page states a number — a cap, an allocation, a split — that number is
+        now grounded in the current target implementation, with the historical merge context preserved
+        only to explain what was consolidated.</p>
+    </div>
+
+    <!-- ① Tokens -->
+    <div class="grouplabel">① Tokens — the units of value (3)</div>
+
+    <article class="contract-page">
+      <h3>RISKUSD — the dollar receipt</h3>
+      <div class="sol">RISKUSD · Arbitrum · live · unchanged in the target</div>
+      <p class="role">The protocol's internal US dollar — the receipt a depositor holds for cash placed with OpenForage.</p>
+
+      <h4>What it does</h4>
+      <p>RISKUSD is worth exactly one dollar and exists only against real cash: it is created when a depositor
+        puts USDC into the Vault and destroyed when they redeem, so the amount in circulation always equals the
+        USDC the Vault holds. The <strong>Vault is the only address that can create or destroy it</strong> — no
+        one can print a receipt that is not backed by a real dollar. It is the unit every other contract counts
+        in: tiers are denominated in it, losses are settled in it, redemptions pay it back out.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Mint and burn</strong> one-for-one against USDC <span class="who">— the Vault only; no other address can.</span></li>
+        <li><strong>Transfer</strong> between holders, unless an emergency pause is on <span class="who">— while paused, the protocol's own contracts (Vault, staking queue) stay exempt so deposits and redemptions still settle.</span></li>
+        <li><strong>Burn even while paused</strong> <span class="who">— so a loss can always be recorded, never blocked.</span></li>
+        <li><strong>Hand the minter or governor role</strong> to a new contract <span class="who">— a deliberate two-step, time-delayed change (owner / governance).</span></li>
+        <li><strong>Freeze a sanctioned address</strong> via the shared blocklist <span class="who">— a blocked address cannot send or receive.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Value of one RISKUSD</td><td class="val">$1.00</td><td>fully reserved, 1:1 against USDC</td></tr>
+        <tr><td>Who can mint / burn</td><td class="val">Vault only</td><td>a single authorised minter address</td></tr>
+        <tr><td>Transfers while paused</td><td class="val">blocked*</td><td>*protocol contracts stay exempt; burning always allowed</td></tr>
+        <tr><td>Minter / governor handoff</td><td class="val">10 min testnet / 2 days production</td><td>two-step, with a 30-day window to finalise</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance set the minter and governor and the blocklist; the Vault holds the only mint/burn key; a guardian can freeze an address. No admin can mint an unbacked receipt.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">RISKUSD.sol</span> (Vault-only minter, pause exemptions, burn-bypasses-pause) and <span class="mono">FinalizeDelayProfile.sol</span> (10-minute local / Arbitrum Sepolia finalizers; 2-day production finalizers)</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>atRISKUSD — the four tier shares</h3>
+      <div class="sol">atRISKUSD · Arbitrum · live · deployed 4× (Tiers 0–3) · unchanged in the target</div>
+      <p class="role">The profit-share class a depositor holds after staking — one contract per tier, four in all.</p>
+
+      <h4>What it does</h4>
+      <p>When a depositor stakes their RISKUSD they receive a <strong>tier share</strong>: an interest-bearing
+        vault share (the standard ERC-4626 recipe) whose value rises as trading profit is paid in. The tier they
+        pick sets two things — how long the money is locked, and how big a slice of the profit they keep. Longer
+        lock, bigger slice. A share's value can <strong>never tick down from a profit update</strong>; it only
+        falls when a real loss is shared. Two "never down" rules are at work and should not be confused: a
+        <em>profit</em> update never lowers a share's value, and an <em>exit</em> never lowers the
+        backing-per-share of the holders who stay. Losses are <strong>not</strong> tranched here — every tier
+        takes the same percentage hit at once (see §5).</p>
+      <p>Two further rules govern a tier share once it exists. <strong>At lock-up maturity</strong> the position
+        does not silently sit idle: by default it <em>auto-renews</em> for another full lock-up period (the
+        depositor keeps their tier and its higher profit share), while a depositor who turns auto-renew off has
+        their position <em>reverted to Tier 0</em> (the no-lock tier) at maturity instead. Auto-renew is
+        <strong>on by default</strong>; the depositor toggles it, and the staking queue drives the renew-or-revert
+        pass (a permissionless batch, with a depositor self-revert fallback — see <em>StakingQueue</em> above).
+        <strong>Transfers</strong> of the tier share are allowed but gated: a holder cannot transfer while still
+        inside their lock-up window, a blocked address can neither send nor receive, and a holder who let an
+        opted-out lock-up lapse may only send to the vault itself (to redeem) — not to a third party. The lock-up
+        is tied to the <em>address</em>, fixed when the depositor stakes; it does <strong>not</strong> travel with
+        the token, so once a holder is past their own lock-up the shares they send arrive unlocked. (A pending loss
+        locks <em>exits</em>, not peer-to-peer transfers.)</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Accept a stake</strong> of RISKUSD and issue tier shares <span class="who">— via the staking queue.</span></li>
+        <li><strong>Accrue profit</strong>, raising every share's value <span class="who">— paid in by the treasury; never decreases a share.</span></li>
+        <li><strong>Absorb a loss</strong>, lowering every share's value pro-rata <span class="who">— the treasury, equal % across all four tiers.</span></li>
+        <li><strong>Release a withdrawal</strong> after the lock-up and a cooldown, within a weekly cap <span class="who">— the depositor; it burns the leaver's own shares and never lowers the backing-per-share of the holders who stay (the payout is capped at the share value snapshotted when the withdrawal was requested, so a leaver takes no profit accrued during the cooldown — it stays with the stayers).</span></li>
+        <li><strong>Lock exits while a loss settles</strong> <span class="who">— so no one races out ahead of a loss being shared.</span></li>
+        <li><strong>Renew or revert a matured lock-up</strong> — renew the tier by default, or revert an opted-out position to Tier 0 <span class="who">— driven by the staking queue's permissionless expiry pass.</span></li>
+        <li><strong>Transfer a tier share</strong> — once past the holder's own lock-up <span class="who">— any holder; blocked during lock-up and for blocked addresses; the lock does not travel with the token.</span></li>
+        <li><strong>Toggle auto-renew</strong> <span class="who">— the depositor (on by default).</span></li>
+        <li><strong>Tighten the weekly cap</strong> in an emergency <span class="who">— owner / governance / guardian (cap can only go down).</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Lock-up by tier (0 / 1 / 2 / 3)</td><td class="val">0 / 90 / 180 / 360 days</td><td>longer lock, bigger profit share</td></tr>
+        <tr><td>Depositor profit share by tier</td><td class="val">50 / 55 / 60 / 65%</td><td>of gross profit; with the agent fee this is 70%, leaving a flat 30% protocol share (§5)</td></tr>
+        <tr><td>Protocol fee by tier (the rest)</td><td class="val">20 / 15 / 10 / 5%</td><td>funds the agents</td></tr>
+        <tr><td>Weekly withdrawal cap</td><td class="val">5%</td><td>of tier assets, per 7-day window (launch default)</td></tr>
+        <tr><td>Cap range (governance-set)</td><td class="val">1% – 100%</td><td>can be tightened, never set below 1%</td></tr>
+        <tr><td>Withdrawal cooldown</td><td class="val">7 days</td><td>launch setting</td></tr>
+        <tr><td>Loss treatment</td><td class="val">equal % across all 4</td><td>not tranched; a longer lock buys no downside protection</td></tr>
+        <tr><td>Auto-renew at maturity</td><td class="val">on by default</td><td>renews the tier; opt out to revert to Tier 0 instead</td></tr>
+        <tr><td>Share transfer</td><td class="val">after lock-up</td><td>blocked during lock-up &amp; for blocked addresses; lock is per-address, not carried by the token</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance set the cooldown and weekly cap and wire the treasury and staking queue; the treasury alone pays profit and applies loss; a guardian can pause and tighten the cap. The tier percentages are the launch configuration, governance-adjustable later (§6).</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>tier numbers <span class="mono">Deploy.s.sol:74-76</span>; weekly cap 5% / 7-day window <span class="mono">atRISKUSD.sol:146-147</span>, cap range 1–100% <span class="mono">:1172</span>; 7-day cooldown <span class="mono">Deploy.s.sol:59</span>; never-decrease-on-profit, backing-per-share guard, and the min(snapshot-at-request, current) cooldown payout that leaves cooldown-period yield with the stayers, plus the loss-pending exit lock <span class="mono">atRISKUSD.sol:432,457,462-466,1153</span> · auto-renew default-on <span class="mono">:116,579-582,818-819</span>, renew <span class="mono">:560-573</span> / Tier-0 revert <span class="mono">:528-557</span>; transfer gate — lock-up + blocklist, per-address lock that does not travel <span class="mono">:917-941</span></div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>ForageToken (FORAGE) — the vote token</h3>
+      <div class="sol">ForageToken · Arbitrum · live · mint target updated</div>
+      <p class="role">The governance token — what holders vote with, fixed at 100 million and minted once.</p>
+
+      <h4>What it does</h4>
+      <p>FORAGE is the voting unit of the protocol. Its supply is fixed at <strong>100 million</strong>, all
+        minted at launch and never inflated. It carries voting power with delegation, and uses a timestamp clock
+        so governance periods work correctly on Arbitrum's sub-second blocks. <strong>Locked tokens can still
+        vote</strong>, which lets vesting and treasury holdings take part in governance without being spendable.
+        The only target change is <em>where the launch mint goes</em> — the token mechanics are unchanged.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Carry votes</strong> and be delegated <span class="who">— any holder; delegated to the beneficiary by default for vesting / treasury.</span></li>
+        <li><strong>Be locked while still voting</strong> <span class="who">— authorised lockers (vesting, treasury), up to 32 concurrent locks per account.</span></li>
+        <li><strong>Be burned</strong> by an authorised burner <span class="who">— it can never be minted beyond the fixed 100M.</span></li>
+        <li><strong>Freeze a sanctioned address</strong> from transfer and delegation <span class="who">— via the blocklist.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Total supply</td><td class="val">100,000,000</td><td>fixed, minted once at launch, never inflated</td></tr>
+        <tr><td>Today's mint split</td><td class="val">20 / 30 / 10 / 40M</td><td>team vesting / rewards / depositor / partnerships</td></tr>
+        <tr><td>Target mint split</td><td class="val">80M + 20M</td><td>80M → the single FORAGETreasury, 20M → team vesting</td></tr>
+        <tr><td>Max locks per account</td><td class="val">32</td><td>concurrent lock-holders</td></tr>
+        <tr><td>Governance clock</td><td class="val">timestamp</td><td>for sub-second Arbitrum blocks</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance authorise burners and lockers and the blocklist; no one can raise the 100M supply. The target merges the three non-team pools, so the mint sends 80M to one treasury and 20M straight to the team's vesting wallet — the team allocation still never passes through a treasury, exactly as today.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">ForageToken.sol:50-54</span> (100M = 20M + 30M + 10M + 40M), <span class="mono">:106-109</span> (direct mints), <span class="mono">:55</span> (32 lockers), <span class="mono">:75-81</span> (timestamp clock)</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span><span class="tag warn">mint target updated</span></div>
+    </article>
+
+    <!-- ② Core capital -->
+    <div class="grouplabel">② Core capital — the cash engine (1)</div>
+
+    <article class="contract-page">
+      <h3>RISKUSDVault — the Vault</h3>
+      <div class="sol">RISKUSDVault · Arbitrum · live · unchanged in the target</div>
+      <p class="role">The single door every dollar enters and leaves through — and the contract that proves the protocol is always solvent.</p>
+
+      <h4>What it does</h4>
+      <p>The Vault takes USDC one-for-one for RISKUSD on the way in, pays USDC back on redemption, sends capital
+        out to the approved trading custodian, records the value reported back, and settles losses. On every
+        deposit, redemption and deployment it re-checks one rule and refuses anything that would break it:
+        <strong>cash in the vault plus the conservative value of money out trading must always cover every
+        receipt in existence</strong> — deployed capital is valued at the lower of its book value and the latest
+        reported NAV. It keeps at least a 5% reserve on-chain and can only send capital to a registered,
+        governance-approved custodian.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Take a deposit</strong> of USDC and mint RISKUSD 1:1 <span class="who">— any depositor, throttled per block / day / week.</span></li>
+        <li><strong>Redeem</strong> RISKUSD for USDC within the weekly cap <span class="who">— any holder; a panic cannot drain it.</span></li>
+        <li><strong>Deploy capital</strong> to the custodian, keeping the reserve <span class="who">— the custodian address only.</span></li>
+        <li><strong>Record the value reported back (NAV)</strong> <span class="who">— the custodian / keeper; the USDCTreasury then recognises the profit or loss as accounting (§13).</span></li>
+        <li><strong>Accept a top-up or replenishing USDC, and burn for a loss</strong> <span class="who">— refreshes redemption liquidity from returned principal and the treasury's vault earmark; the custodian / loss reporter (the treasury).</span></li>
+        <li><strong>Tighten caps and pause</strong> in an emergency <span class="who">— owner / governance / guardian (caps only shrink).</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Mint / redeem ratio</td><td class="val">1:1</td><td>USDC ↔ RISKUSD</td></tr>
+        <tr><td>Weekly redemption cap</td><td class="val">5%</td><td>of supply per 7-day window — bounds a bank run</td></tr>
+        <tr><td>24-hour redemption cap</td><td class="val">~2%</td><td>of supply per rolling 24h — bounds an intraday rush, sits under the weekly cap (target; governance-set)</td></tr>
+        <tr><td>Mint cap — per block</td><td class="val">20%</td><td>of supply, and never more than $10M in one block</td></tr>
+        <tr><td>Mint cap — per day</td><td class="val">20%</td><td>of the day's opening supply</td></tr>
+        <tr><td>Mint cap — per week</td><td class="val">200%</td><td>of the week's opening supply</td></tr>
+        <tr><td>Max deployed to trading</td><td class="val">95%</td><td>at most — the rest stays on-chain</td></tr>
+        <tr><td>On-chain reserve buffer</td><td class="val">≥ 5%</td><td>kept liquid for redemptions</td></tr>
+        <tr><td>Value-report interval</td><td class="val">1 day</td><td>expected NAV attestation cadence</td></tr>
+        <tr><td>Vault capacity cap</td><td class="val">$10M</td><td>total-deposit ceiling at launch (governance-set)</td></tr>
+        <tr><td>Solvency rule</td><td class="val">always enforced</td><td>vault USDC + min(NAV, book) ≥ all RISKUSD</td></tr>
+      </tbody></table>
+
+      <p class="small"><strong>Large positions.</strong> The caps are hard limits, not queues: a deposit or
+        redemption larger than the per-block / per-day / per-week room <strong>reverts</strong> rather than
+        partially filling, so a large depositor splits the amount across blocks (and, if needed, days or weeks) and
+        resubmits — there is deliberately no partial-fill or reservation path on the Vault itself. A large
+        <em>stake</em> that exceeds a tier's remaining capacity is instead <strong>waitlisted</strong> in the
+        staking queue (FIFO, skipped until capacity frees, cancellable for a full refund — see <em>StakingQueue</em>),
+        never partially filled. Predictable hard caps over a smoother large-order UX is the deliberate choice; a
+        bespoke partial-fill / capacity-reservation path is a non-goal.</p>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance set every cap, wire the custodian and loss reporter (a two-step, time-delayed change), and can pause; the custodian alone moves capital; the treasury alone reports loss. The solvency check is unconditional — no role can switch it off.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>caps <span class="mono">RISKUSDVault.sol:267-274</span> (redemption 5%, deploy 95%, mint 200% / 20% / 20% + $10M, 5% buffer, 1-day interval); solvency <span class="mono">:1363-1368</span>; custodian-only deploy/return <span class="mono">:355-381</span>,<span class="mono">:385-399</span>; $10M capacity <span class="mono">Deploy.s.sol:71</span></div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">core</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <!-- ③ Treasury & distribution -->
+    <div class="grouplabel">③ Treasury &amp; distribution — where value is routed (5 → 2, plus 2 carried over)</div>
+
+    <article class="contract-page">
+      <h3>USDCTreasury — the protocol's money router <span style="color:var(--gold)">(implemented — merges 2)</span></h3>
+      <div class="sol">USDCTreasury · Arbitrum · implemented target · merges ProtocolTreasury + FundingTreasury</div>
+      <p class="role">The money router for all protocol USDC: it recognises profit and loss as accounting on each attestation (no cash moves), then earmarks and disburses the actual USDC the desk returns — to the Vault, the agents, the Foundation, and the protocol's own buffer.</p>
+
+      <h4>What it does</h4>
+      <p>One contract for <strong>all protocol USDC</strong>, with two clearly separated jobs.</p>
+      <p><strong>① Accounting — on each NAV attestation, no USDC moves.</strong> When the keeper reports value,
+        the treasury recognises the period's profit or loss as pure accounting. A profit <strong>marks the four
+        tier shares up immediately</strong> (this is the depositor's claim) and records the agent, protocol, and
+        Foundation amounts; a loss <strong>marks the tier shares down pro-rata — the same percentage from each</strong>
+        — and only if a loss is large enough to exhaust the tiers does the retained buffer absorb the remainder.
+        No dollars are transferred in this step.</p>
+      <p><strong>② Cash — when the desk actually returns USDC.</strong> Returned capital arrives by two
+        functions. <code>returnPrincipalUSDC</code> sends principal <strong>straight to the Vault</strong>,
+        refreshing the cash available for redemptions — it is never split to agents, protocol, or Foundation.
+        <code>returnPnLUSDC</code> brings back realised profit, which is split into four <strong>earmark
+        balances</strong>: a Vault top-up that funds the depositor claim already created in step ①; the agent
+        lane; the protocol share; and the Foundation's cut of that protocol share. Earmark balances only ever
+        hold USDC that has actually been returned.</p>
+      <p><strong>③ Disbursement — a generic, purpose-keyed <code>disburse</code>.</strong> It pays an earmark
+        out to its allowed destination and can never exceed the balance on hand: the Vault top-up goes to the
+        RISKUSDVault; agent pay goes to any (non-blocked) agent wallet under per-payment and rolling-24-hour
+        caps; the protocol and Foundation earmarks go only to an allow-listed primary wallet, each with a
+        pre-set <em>failover</em> backup usable only when the primary is blocked or unavailable — and each is
+        itself bounded by a <strong>rolling-24-hour cash cap</strong>, so no single day can drain it.</p>
+      <p><strong>The depositor mark-up is not double-counted.</strong> Step ① raises the tier share value and
+        <em>defines</em> the depositor's redemption claim; the step-② Vault top-up only <em>funds</em> the cash
+        to honour it — it never raises share value a second time. A principal return refreshes redemption
+        liquidity; it does not "fund profit".</p>
+
+      <div class="note" style="margin:12px 0">
+        <p class="small"><strong>How the split reads.</strong> Depositors keep their tier share of profit
+          (50 / 55 / 60 / 65%) and the agents are funded by the tier fee (20 / 15 / 10 / 5%); the two always sum
+          to <strong>70%</strong>, so the <strong>protocol share is a flat 30% of profit</strong> in every tier.
+          The Foundation takes <strong>50% of that protocol share</strong> (15% of profit) and the protocol
+          retains the other 50% (15% of profit); 50% is also the hard cap — never higher. Worked through $100 of
+          Tier-0 profit: $50 depositor, $20 agent, $30 protocol share — of which <strong>$15 Foundation and $15 retained</strong>.
+          When several tiers participate, each pool is shared between them in proportion to the matching tier
+          weights.</p>
+      </div>
+
+      <p class="small"><strong>Who is eligible is computed off-chain.</strong> The treasury pays an
+        <em>address</em>; it carries no on-chain notion of a "contributor" or of who earned what. Agent eligibility
+        and the amount owed are computed off-chain by the protocol's attribution, and governance publishes the
+        result — the per-payment <code>disburse</code> list for cash, and a Merkle root for FORAGE rewards (the
+        FORAGETreasury). This is a deliberate, accepted boundary: the on-chain surface is the payment and its caps,
+        not the eligibility logic.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Crystallise PnL on attestation</strong> — mark the tier shares up (profit) or down (loss), and record the agent / protocol / Foundation amounts <span class="who">— no USDC moves; driven by the keeper / bridge that reports the NAV.</span></li>
+        <li><strong>Take a principal return</strong> via <code>returnPrincipalUSDC</code>, routed 100% to the Vault <span class="who">— the custodian; refreshes redemption liquidity, never split.</span></li>
+        <li><strong>Take a profit return</strong> via <code>returnPnLUSDC</code> and earmark it four ways (vault top-up / agent / protocol / Foundation) <span class="who">— the custodian; earmarks hold only returned cash.</span></li>
+        <li><strong>Disburse an earmark</strong> by purpose — vault top-up, agent pay, protocol spend, Foundation — never exceeding its balance <span class="who">— an authorised caller; blocklist + caps gate every send.</span></li>
+        <li><strong>Survive a blocked recipient</strong> — a blocklisted tier or agent never blocks the rest <span class="who">— automatic.</span></li>
+        <li><strong>Absorb a loss</strong> pro-rata across the four tiers, then from the retained buffer <span class="who">— the keeper / bridge.</span></li>
+        <li><strong>Adjust the splits, caps, and allow-listed wallets, rotate a backup under timelock, and pause</strong> <span class="who">— owner / governance; a guardian can pause.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Depositor tier yield (by tier)</td><td class="val">50 / 55 / 60 / 65%</td><td>of gross profit; shared proportionally when several tiers participate</td></tr>
+        <tr><td>Agent funding fee (by tier)</td><td class="val">20 / 15 / 10 / 5%</td><td>of gross profit; to the agent-payment lane</td></tr>
+        <tr><td>Protocol share</td><td class="val">flat 30%</td><td>of profit — the remainder once depositor + agent (always 70%) are taken</td></tr>
+        <tr><td>Foundation share</td><td class="val">50%</td><td>of the protocol share (15% of profit); 50% is also the hard cap — never higher</td></tr>
+        <tr><td>Protocol-retained</td><td class="val">the other 50%</td><td>the other half of the protocol share (15% of profit), plus any skipped / failed-transfer amount</td></tr>
+        <tr><td>Return functions</td><td class="val">2</td><td><code>returnPrincipalUSDC</code> → Vault (100%); <code>returnPnLUSDC</code> → the four earmark balances</td></tr>
+        <tr><td>Disburse destinations</td><td class="val">by purpose</td><td>vault top-up → RISKUSDVault; agent → any wallet; protocol / Foundation → allow-listed primary + failover backup</td></tr>
+        <tr><td>Loss sharing</td><td class="val">equal % across all 4</td><td>then the retained buffer absorbs anything beyond the tiers</td></tr>
+        <tr><td>Loss-rate cap</td><td class="val">10% / day</td><td>of tier assets — bounds how fast a loss can be applied</td></tr>
+        <tr><td>Profit accepted per block</td><td class="val">≤ $10M</td><td>per-block settlement ceiling</td></tr>
+        <tr><td>Retained-balance withdrawal</td><td class="val">≤ $1M / day</td><td>1-day cooldown (max 30), 10-minute Sepolia / 2-day production finalize — the protocol wallet's rolling-24h cash cap</td></tr>
+        <tr><td>Foundation disbursement cap</td><td class="val">~10% / 24h</td><td>of the Foundation earmark per rolling 24h — bounds Foundation cash outflow (target; governance-set)</td></tr>
+        <tr><td>Agent payment cap</td><td class="val">10%</td><td>of balance per payment <em>and</em> per rolling 24h</td></tr>
+        <tr><td>Agent batch size</td><td class="val">≤ 100</td><td>recipients per batch</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the per-block and loss-rate caps, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating an allow-listed protocol / Foundation wallet or its backup, are two-step, time-delayed changes. A guardian can pause and shrink the loss-rate cap. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><strong>Implemented target redesign.</strong> <span class="mono">USDCTreasury.sol</span> is the current source: foundation re-based to <em>50% of the protocol share</em> (15% of profit); PnL recognised as accounting at attestation, cash separated into <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code>, and a purpose-keyed <code>disburse</code> with failover-backup allow-lists. The removed <code>ProtocolTreasury</code> / <code>FundingTreasury</code> code remains historical context only.</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 2 · redesigned</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>FORAGETreasury — the token treasury <span style="color:var(--gold)">(implemented — merges 3)</span></h3>
+      <div class="sol">FORAGETreasury · Arbitrum · implemented target · merges RewardPool + DepositorPool + Partnerships</div>
+      <p class="role">The single home for all treasury FORAGE — the 80M of non-team supply — running the three distribution programmes the separate pools run today.</p>
+
+      <h4>What it does</h4>
+      <p>One contract holds the <strong>80M of non-team FORAGE</strong> and runs three programmes: claim-by-proof
+        ("Merkle") airdrops to agents, claim-by-proof airdrops to RISKUSD depositors, and governance-controlled
+        distribution for partnership deals (in practice, each partner's own separately-deployed vesting wallet).
+        It keeps every protection the three pools carry now — per-round and rolling outflow caps with cooldowns,
+        solvency accounting that will not promise tokens it does not hold, a one-time-only token setter, and the
+        ability to delegate the treasury's own voting power.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Publish an airdrop round</strong> (a Merkle root + total) for agents or depositors <span class="who">— owner / governance.</span></li>
+        <li><strong>Let a claimer pull their share</strong> with a valid proof <span class="who">— anyone in the published tree.</span></li>
+        <li><strong>Distribute partnership FORAGE</strong> by single or batch transfer <span class="who">— owner / governance, under outflow caps.</span></li>
+        <li><strong>Sweep an expired round's unclaimed tokens</strong> back to the treasury <span class="who">— owner.</span></li>
+        <li><strong>Delegate the treasury's voting power</strong> <span class="who">— owner / governance.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Total FORAGE held</td><td class="val">80,000,000</td><td>the non-team supply</td></tr>
+        <tr><td>Agent rewards</td><td class="val">30M</td><td>Merkle claim · 90-day rounds · ≤ 1M / round outflow cap</td></tr>
+        <tr><td>Depositor airdrop</td><td class="val">10M</td><td>Merkle claim · 1-day outflow window · ≤ 1M cap · 30-day max cooldown</td></tr>
+        <tr><td>Partnerships</td><td class="val">40M</td><td>owner-gated single / batch (≤ 100) · 1-day window · ≤ 1M cap</td></tr>
+        <tr><td>Partner vesting</td><td class="val">per-partner</td><td>each via its own DelegatingVestingWallet</td></tr>
+        <tr><td>Token setter</td><td class="val">one-time</td><td>the FORAGE address can be set once, never rewritten</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance publish rounds, distribute partnership FORAGE, sweep expired rounds, and delegate votes — all under the outflow caps. Claimers pull their own share with a proof. (Historical note: the removed RewardPool and DepositorPool comment headers misstated their sizes as 40M and 20M; the target allocations are 30M and 10M.)</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">FORAGETreasury.sol</span> and <span class="mono">ForageToken.sol</span>: 30M agent rewards, 10M depositor airdrop, 40M partnerships, 80M treasury total, self-claim Merkle rounds, partnership distributions, sweeps, and delegation.</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 3</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>StakingQueue — the staking line</h3>
+      <div class="sol">StakingQueue · Arbitrum · live · unchanged in the target</div>
+      <p class="role">The orderly line that turns RISKUSD deposits into tier shares — fair, capped, and predictable.</p>
+
+      <h4>What it does</h4>
+      <p>Staking does not happen instantly; it goes through a two-lane <strong>first-in-first-out</strong> line.
+        A standard lane and a priority lane keep the order fair and predictable, each tier has its own
+        deposit-capacity cap, and a depositor can move up a tier from within the queue. Where a deposit's
+        handling depends on the FORAGE price, the queue reads it with a staleness guard so a stale price cannot
+        be used. FORAGE pricing here is <strong>dual-mode</strong>: by default the protocol sets a fixed FORAGE
+        price by governance — the launch choice, since FORAGE may be too thinly traded early for an oracle feed —
+        and governance can later switch to reading a live price from an oracle instead. Either way the price has
+        one narrow job: it sizes how much FORAGE a depositor must lock to use the priority lane. A missing, zero,
+        or stale price simply closes the priority lane and the deposit falls back to the standard lane; it never
+        blocks the deposit.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:22%">Pricing mode</th>
+            <th style="width:30%">Where the price comes from</th>
+            <th>Freshness rule</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Fixed price</strong> (launch default)</td>
+            <td>Set by governance, within a hard upper bound; chosen for launch because FORAGE may be too thinly traded for an oracle feed.</td>
+            <td>A nonzero fixed price is rejected once it is more than 7 days old; a price of zero turns the priority lane off entirely.</td>
+          </tr>
+          <tr>
+            <td><strong>Oracle</strong></td>
+            <td>A live market price read from an external oracle, available only once governance has configured one.</td>
+            <td>Rejected once older than a governance-set limit (at most 30 days); a bad reading is ignored, not treated as fatal.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">Switching between the two modes is a two-step governance action that waits a fixed delay before it takes effect, and the protocol cannot switch to oracle mode until an oracle has actually been configured. In either mode, a price that is missing, zero, or stale only closes the priority lane — the deposit still proceeds in the standard lane.</p>
+
+      <p>Two lock lifecycles run alongside the line, and neither ever consumes a depositor's tokens.
+        <strong>Priority-lane FORAGE is a refundable escrow lock</strong>, not a fee: the FORAGE stays in the
+        depositor's own wallet but is held non-transferable (for the amount the price sized) while the queue entry
+        is open, and it is released back in full the moment the entry is processed, cancelled, or admin-cancelled —
+        never burned, never sent to a treasury. A release that fails is retried by a permissionless call, so the
+        FORAGE can never be stranded. <strong>Tier lock-up maturity</strong> is driven from here too: when a staked
+        position's lock-up (0 / 90 / 180 / 360 days, by tier) expires, the expiry pass <em>renews</em> it for
+        another full period <strong>by default</strong>, or — for a depositor who has turned auto-renew off —
+        <em>reverts</em> the position to Tier 0 (the no-lock tier). The batch pass is permissionless (an off-chain
+        keeper normally drives it); a depositor who has opted out can also self-trigger their own reversion. The
+        renew-vs-revert mechanics live on the tier share itself (see <em>atRISKUSD</em> below).</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Accept a deposit</strong> of RISKUSD into a chosen tier and lane <span class="who">— any depositor; the RISKUSD entry and any priority-lane FORAGE escrow are held while queued and returned in full on processing or cancel.</span></li>
+        <li><strong>Process the queue</strong> into tier-share deposits in order <span class="who">— an operator runs the batch; releases the entry's FORAGE escrow.</span></li>
+        <li><strong>Cancel a queued entry</strong> and reclaim the RISKUSD + FORAGE escrow <span class="who">— the depositor (or an admin, returning both to the depositor).</span></li>
+        <li><strong>Move a queued depositor up a tier</strong> <span class="who">— the depositor.</span></li>
+        <li><strong>Process expired tier lock-ups</strong> — renew (default) or revert opted-out positions to Tier 0 <span class="who">— a permissionless batch anyone may run; a depositor may self-revert their own.</span></li>
+        <li><strong>Tighten a tier's deposit cap</strong> in an emergency <span class="who">— a guardian (caps only shrink).</span></li>
+        <li><strong>Pause</strong> intake <span class="who">— owner / governance.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Lanes</td><td class="val">2</td><td>standard + priority, both FIFO</td></tr>
+        <tr><td>Per-tier deposit caps</td><td class="val">yes</td><td>each tier capped; a guardian can tighten</td></tr>
+        <tr><td>FORAGE price</td><td class="val">dual-mode</td><td>a governance-set fixed price (launch default) or a live oracle price</td></tr>
+        <tr><td>Price freshness</td><td class="val">staleness-guarded</td><td>a stale price closes the priority lane, it is never used</td></tr>
+        <tr><td>Tier upgrade</td><td class="val">in-queue</td><td>move up a tier without leaving the line</td></tr>
+        <tr><td>Priority FORAGE</td><td class="val">refundable escrow</td><td>locked in the depositor's wallet while queued; released in full on process / cancel; never burned or fee'd</td></tr>
+        <tr><td>Lock-up maturity</td><td class="val">auto-renew (default) / revert</td><td>renews the tier lock-up by default; reverts to Tier 0 if the depositor opted out; permissionless batch</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance set the per-tier caps, set the fixed FORAGE price, choose the pricing mode (a fixed price or an oracle), configure the oracle and its freshness limit, and can pause; a guardian can tighten caps; an operator triggers the batch that drains the line. No admin can reorder the queue.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">StakingQueue.sol:36-85</span> (dual-lane FIFO, per-tier deposit caps, tier upgrade) · <span class="mono">:116-119, 172-174, 749-785, 788-807, 823-871, 1390-1418</span> (dual-mode FORAGE pricing: fixed-price and oracle modes with their bounds, the two-step governance mode switch, and the resolver that branches between them) · FORAGE escrow lock <span class="mono">:338-345</span> via <span class="mono">ForageToken.lock</span> (<span class="mono">ForageToken.sol:256-293</span>), released on cancel <span class="mono">:390-397</span> / process <span class="mono">:479-488</span> / admin-cancel <span class="mono">:1023-1030</span>, retried <span class="mono">:1081-1106</span> · lock-up maturity <span class="mono">:600-672</span> (renew vs Tier-0 revert) / <span class="mono">:1039-1078</span> (selfRevert)</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>DelegatingVestingWallet — the vesting wallet</h3>
+      <div class="sol">DelegatingVestingWallet · Arbitrum · live · immutable · unchanged in the target</div>
+      <p class="role">A per-person FORAGE vesting wallet — one deployed for each beneficiary, its schedule fixed forever at deployment.</p>
+
+      <h4>What it does</h4>
+      <p>Each beneficiary — the team, and each partnership — gets their own wallet that releases FORAGE on a
+        <strong>cliff-then-linear</strong> schedule. It is deliberately <strong>not upgradeable</strong>:
+        beneficiary, start, duration and cliff are fixed at deployment, so a vesting schedule can never be
+        quietly rewritten. The locked tokens can still vote, delegated by default to the beneficiary. A
+        donation-proofing detail caps the vested amount against a snapshot of the original allocation, so sending
+        extra FORAGE in later cannot accelerate or inflate the schedule — and there is deliberately no rescue
+        path for FORAGE that could bypass that.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Release vested FORAGE</strong> on schedule <span class="who">— the beneficiary, once the cliff has passed.</span></li>
+        <li><strong>Delegate the locked tokens' votes</strong> <span class="who">— defaults to the beneficiary.</span></li>
+        <li><strong>Rescue non-FORAGE tokens</strong> sent in by mistake <span class="who">— the owner; FORAGE rescue is forbidden by design.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Cliff</td><td class="val">1 year</td><td>nothing releases before the cliff</td></tr>
+        <tr><td>Total vesting duration</td><td class="val">4 years</td><td>linear release after the cliff</td></tr>
+        <tr><td>Instances</td><td class="val">one per person</td><td>team (20M) + each partner</td></tr>
+        <tr><td>Upgradeable</td><td class="val">no</td><td>beneficiary / start / duration / cliff fixed at deployment</td></tr>
+        <tr><td>Vested ceiling</td><td class="val">original allocation</td><td>extra FORAGE sent in later cannot inflate the schedule</td></tr>
+        <tr><td>FORAGE rescue</td><td class="val">none</td><td>protects the vesting invariant</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">No one can rewrite the schedule — that is the point. The beneficiary releases what has vested and holds the delegated votes; the owner can only rescue non-FORAGE tokens.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>1-year cliff / 4-year duration <span class="mono">Deploy.s.sol:57-58</span>; non-upgradeable + immutable schedule + original-allocation snapshot + delegation <span class="mono">DelegatingVestingWallet.sol:9-11</span>,<span class="mono">:41-56</span></div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">vesting</span><span class="tag warn">immutable</span></div>
+    </article>
+
+    <!-- ④ Governance & safety -->
+    <div class="grouplabel">④ Governance &amp; safety — who and what is trusted (5)</div>
+
+    <article class="contract-page">
+      <h3>ForageGovernor — the voting system</h3>
+      <div class="sol">ForageGovernor · Arbitrum (+ OpenZeppelin TimelockController) · live · unchanged in the target</div>
+      <p class="role">The democratic layer — how FORAGE holders propose, vote on, and enact changes to the protocol.</p>
+
+      <h4>What it does</h4>
+      <p>FORAGE holders propose and vote; an approved proposal does <strong>not</strong> execute immediately — it
+        passes through a separate timelock contract first, the public "waiting room" the rest of this document
+        refers to. The shared <code>Deploy.s.sol</code> core is target/testnet-only; the separate
+        <strong><code>DeployMainnet.s.sol</code> no-broadcast dry-run reuses that core with production settings</strong>
+        (1-day voting delay, 5-day vote, 8-day timelock), so the mainnet launch path is proven with production
+        governance from genesis without broadcasting. The reduced no-delay / one-hour-vote / no-timelock profile is
+        selected only by the target/testnet deploy path, so testers can exercise the full governance path without multi-day waits. Because the
+        wait is enforced by a standard OpenZeppelin TimelockController and not by the Governor itself, rotating
+        the custody account routinely (§6) inherits exactly the same delay as any other change. Separate
+        two-step trust-boundary finalizers use <code>FinalizeDelayProfile</code>: local chain <code>31337</code>
+        and Arbitrum Sepolia <code>421614</code> use 10 minutes for testnet proof; every other chain keeps
+        the 2-day production delay.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Accept a proposal</strong> from a holder above the threshold <span class="who">— or a guardian with the propose permission.</span></li>
+        <li><strong>Run a vote</strong> with a snapshotted quorum <span class="who">— FORAGE holders, by delegated weight.</span></li>
+        <li><strong>Queue and execute</strong> an approved proposal after the timelock <span class="who">— via the TimelockController.</span></li>
+        <li><strong>Relay a pause</strong> to the Vault and treasury <span class="who">— the Governor cannot pause itself.</span></li>
+        <li><strong>Adjust its own thresholds</strong> within the ceiling <span class="who">— by governance vote.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Threshold to propose</td><td class="val">1%</td><td>of FORAGE supply — same on every network</td></tr>
+        <tr><td>Quorum</td><td class="val">4%</td><td>of FORAGE supply — same on every network</td></tr>
+        <tr><td>Voting delay</td><td class="val">1 day</td><td>before voting opens (mainnet / production, from genesis)</td></tr>
+        <tr><td>Voting period</td><td class="val">5 days</td><td>the vote stays open (mainnet / production, from genesis)</td></tr>
+        <tr><td>Timelock</td><td class="val">8 days</td><td>the waiting room before execution (mainnet / production, from genesis)</td></tr>
+        <tr><td>Threshold / quorum ceiling</td><td class="val">≤ 50%</td><td>governance can adjust, but neither above half</td></tr>
+        <tr><td>Testnet profile</td><td class="val">no delay · 1h vote · no timelock</td><td>Sepolia / Arbitrum-Sepolia / anvil / hardhat only — never mainnet</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">FORAGE holders own every decision through the vote; the timelock enforces the wait; a guardian can cancel a malicious proposal but never one that strips its own powers. Mainnet dry-runs these production settings from genesis through <code>DeployMainnet.s.sol</code>, which reuses the shared <code>Deploy.s.sol</code> core; the reduced no-delay / 1h-vote profile is target/testnet-only.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>production 1d / 5d / 8d mainnet dry-run <span class="mono">DeployMainnet.s.sol:17-20</span>,<span class="mono">:26-57</span>,<span class="mono">:60-83</span>; target/testnet-only shared deploy core <span class="mono">Deploy.s.sol:23-26</span>,<span class="mono">:138-178</span>; ≤50% ceiling and the voting-period &amp; timelock floors <span class="mono">ForageGovernor.sol:82-85</span>,<span class="mono">:162-164</span></div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag warn">governance</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>GuardianModule — the emergency brake</h3>
+      <div class="sol">GuardianModule · Arbitrum · live · extended in the target</div>
+      <p class="role">The emergency powers — every one of which can only ever make the rules stricter, never looser.</p>
+
+      <h4>What it does</h4>
+      <p>The Guardian holds the break-glass powers: pause a whitelisted contract, cancel a malicious proposal
+        (but never one that would strip the guardian's own powers), and run a bounded emergency execution. Each
+        guardian carries an individual permission bitmask — pause, cancel, execute, propose — so powers are
+        handed out one bit at a time. The fast lane remains one permitted guardian acting alone for
+        strictly bounded actions, and the recovery lane now adds a 4-of-7 threshold for accelerated
+        rotations to pre-committed successors. Every power is one-directional — a guardian can only
+        tighten, never loosen, and never move funds.</p>
+
+      <div class="callout warning" style="margin:12px 0">
+        <p class="small"><strong>The target additions now built.</strong> Two pieces of the
+          defence-in-depth redesign live here (§6, §7). First, a <strong>4-of-7 guardian super-majority</strong>
+          (Lane 2) with a small, fixed set of recovery primitives and no rate-limit: cancel a malicious proposal;
+          <em>accelerate</em> a governance-approved change to a 10-minute floor; rotate a compromised guardian seat
+          to its pre-committed successor; and rotate a captured voting-delegation to its pre-committed successor. It
+          can accelerate a custody rotation but <strong>never originate one</strong>, and every rotation lands only
+          on a pre-committed address. Second, the <strong><code>preCommittedSuccessors[role]</code> registry</strong>
+          — a governance-maintained list naming, in advance, the safe successor for each rotatable role (each
+          guardian seat, each voting-delegation pool, designated large delegators, and the cold-account / executor /
+          governor roles). The registry is <strong>Lane 3 only</strong> — changing it always waits the full 8-day
+          timelock and is the one change a 4-of-7 can never accelerate, so a compromised quorum can never re-point a
+          successor on short notice. This is the first "several-of" threshold in the guardian model. Full design:
+          <code>documentation/smart_contract_audits/defence_in_depth.md</code> Appendix D (D-24, D-26, D-32).</p>
+      </div>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Pause</strong> a whitelisted contract <span class="who">— a guardian with the pause bit.</span></li>
+        <li><strong>Cancel</strong> a malicious proposal <span class="who">— a guardian with the cancel bit; never one that strips guardian powers.</span></li>
+        <li><strong>Run a bounded emergency execution</strong> <span class="who">— a guardian with the execute bit.</span></li>
+        <li><strong>Grant / revoke each permission bit</strong> and manage the pause whitelist <span class="who">— the owner (governance).</span></li>
+        <li><strong>As a 4-of-7 super-majority (Lane 2):</strong> cancel a malicious proposal; accelerate a vote-approved change to a 10-minute floor; rotate a compromised guardian seat or a captured voting-delegation — each only to its <code>preCommittedSuccessor</code> entry <span class="who">— a 4-of-7 guardian super-majority.</span></li>
+        <li><strong>Maintain the <code>preCommittedSuccessor</code> registry</strong> <span class="who">— governance only (Lane 3), 8-day timelock, never guardian-accelerable.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Permission bits per guardian</td><td class="val">4</td><td>pause · cancel · emergency-execute · propose</td></tr>
+        <tr><td>Fast-lane threshold</td><td class="val">1 permitted guardian</td><td>pause / cancel / bounded emergency execution / propose, according to permission bits</td></tr>
+        <tr><td>Recovery-lane threshold</td><td class="val">4-of-7</td><td>accelerated rotation only, to a pre-committed successor</td></tr>
+        <tr><td>Direction of every power</td><td class="val">stricter only</td><td>can pause / cancel, never loosen or move funds</td></tr>
+        <tr><td>Pause scope</td><td class="val">whitelist only</td><td>only owner-whitelisted targets can be paused</td></tr>
+        <tr><td>Accelerated floor</td><td class="val">10 minutes</td><td>only after the 4th approval, and only to a pre-committed successor</td></tr>
+        <tr><td>Successor registry</td><td class="val">preCommittedSuccessor[slot][current]</td><td>governance-maintained (Lane 3, 8-day, non-accelerable); every Lane-2 rotation lands only on a registry entry</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Governance (the owner) appoints guardians and hands out each permission bit and the pause whitelist; individual guardians wield only the bits they hold. Four guardians acting together can activate only the accelerated recovery lane to a pre-committed successor.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>per-guardian bitmask and fast-lane permissions in <span class="mono">GuardianModule.sol</span>; <span class="mono">preCommittedSuccessor</span>, <span class="mono">proposeAcceleratedRotation</span>, four approvals, <span class="mono">ACCELERATED_ROTATION_FLOOR</span>, and routine rotation finalization in the current target implementation.</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span><span class="tag good">extended · 4-of-7 implemented</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>Blocklist — the deny-list</h3>
+      <div class="sol">Blocklist · Arbitrum · live · unchanged in the target</div>
+      <p class="role">The address-level emergency deny-list — deliberately fast to add to, slow to remove from.</p>
+
+      <h4>What it does</h4>
+      <p>A shared deny-list every token and vault consults, so a sanctioned address cannot transfer, deposit,
+        claim, or vote. It is tuned for emergencies: a guardian can block an address in a <strong>single
+        step</strong>, but removing one is an owner action that must first sit through a finalize delay — fast to
+        stop a threat, slow and deliberate to undo.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Block an address</strong> in one step <span class="who">— a guardian; takes effect immediately for 365 days.</span></li>
+        <li><strong>Propose, then finalize, an unblock</strong> after the delay <span class="who">— the owner only.</span></li>
+        <li><strong>Cancel a pending unblock</strong> <span class="who">— the owner.</span></li>
+        <li><strong>Answer "is this address blocked?"</strong> <span class="who">— read by every token and vault.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Block duration</td><td class="val">365 days</td><td>per block entry</td></tr>
+        <tr><td>To add</td><td class="val">1 step (instant)</td><td>a guardian, immediately</td></tr>
+        <tr><td>To remove</td><td class="val">2-step + 10 min testnet / 2 days production</td><td>owner only, with a 30-day window to finalize</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">A guardian can block instantly; only the owner can unblock, and only after the delay. The asymmetry is the design — stopping a threat is one fast action, reversing it is slow and accountable.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">Blocklist.sol</span> (365-day block, 30-day expiry, guardian one-step add, owner delayed remove) and <span class="mono">FinalizeDelayProfile.sol</span> (10-minute local / Arbitrum Sepolia finalizers; 2-day production finalizers)</div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>CustodianRegistry — the approved-destination list</h3>
+      <div class="sol">CustodianRegistry · Arbitrum · live · unchanged in the target</div>
+      <p class="role">The governance-approved list of trading destinations the Vault may ever send capital to — and the per-destination caps that bound each one.</p>
+
+      <h4>What it does</h4>
+      <p>Capital can <strong>only ever flow to a registered destination</strong> — in the target, the slimmed
+        HLTradingBridge. Each entry carries that destination's own caps: a maximum deployed, per-block and
+        per-day deploy ceilings, the cap on how fast a value report may rise, and the per-call and per-day return
+        ceilings. It is venue-aware — it distinguishes HyperLiquid, Lighter, and generic kinds — so the same
+        registry can hold a future second venue without re-architecting.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Register a custodian</strong> with its kind and full cap set <span class="who">— governance.</span></li>
+        <li><strong>Update a custodian's caps</strong> <span class="who">— governance.</span></li>
+        <li><strong>Pause a custodian</strong>, disabling new deploys to it <span class="who">— the owner.</span></li>
+        <li><strong>Answer "is this destination approved, and what are its caps?"</strong> <span class="who">— read by the Vault / bridge on every deploy.</span></li>
+      </ul>
+
+      <h4>The numbers <span class="small" style="text-transform:none;letter-spacing:0;color:var(--soft)">— HyperLiquid launch entry</span></h4>
+      <table class="numbers"><tbody>
+        <tr><td>Deploy ceiling — per block</td><td class="val">$1M</td><td>per registered destination</td></tr>
+        <tr><td>Deploy ceiling — per day</td><td class="val">$5M</td><td>per destination</td></tr>
+        <tr><td>NAV-rise cap</td><td class="val">10% / interval</td><td>how fast a value report may climb</td></tr>
+        <tr><td>Return ceiling — per call</td><td class="val">10%</td><td>target: set to match the bridge — the cap actually enforced on returns (see note)</td></tr>
+        <tr><td>Return ceiling — per day</td><td class="val">10%</td><td>target: set to match the bridge (see note)</td></tr>
+        <tr><td>Venues recognised</td><td class="val">3 kinds</td><td>HyperLiquid · Lighter · generic</td></tr>
+      </tbody></table>
+
+      <div class="callout info" style="margin-top:4px">
+        <p class="small"><strong>One number reconciled.</strong> The HyperLiquid launch entry now carries return
+          ceilings of <strong>10% / call and 10% / day</strong>, matching the bridge's own return caps. On the
+          principal-return path the bridge first updates local principal/liquidity accounting, then records the
+          return through the registry, so the registry's return entry is live: it restores deployed exposure and
+          enforces the same return-rate ceiling before capital is returned to the vault.</p>
+      </div>
+
+      <h4>Who controls it</h4>
+      <p class="who">Governance alone adds a destination or changes its caps; the owner can pause one. The Vault physically cannot send capital anywhere not on this list.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>per-custodian kind + caps <span class="mono">CustodianRegistry.sol:13-77</span>; current HyperLiquid launch entry (deploy 1M / 5M, NAV 10%, return 10% / 10%) <span class="mono">:423-434</span>; bridge registry-return hook <span class="mono">HLTradingBridge.sol:617-624</span>; registry return-cap enforcement <span class="mono">CustodianRegistry.sol:631-645</span></div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span><span class="tag warn">live · return entry reconciled to 10/10</span></div>
+    </article>
+
+    <article class="contract-page">
+      <h3>VaultRegistry — the directory of strategy vaults</h3>
+      <div class="sol">VaultRegistry · Arbitrum · live · unchanged in the target</div>
+      <p class="role">The system's source of truth for which strategy vaults exist and how each is configured.</p>
+
+      <h4>What it does</h4>
+      <p>It records every strategy vault and its configuration — name, abbreviation, capacity cap, the four tier
+        vaults, the yield and funding splits, and the status. The list is <strong>append-only</strong>: a vault
+        ID is never reused or removed, and a vault moves through <strong>Active → Paused → Winding-down</strong>
+        rather than vanishing, so the historical record stays complete. Only governance can add a vault or change
+        its configuration, and a vault with an unresolved loss cannot be wound down.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Register a new strategy vault</strong> with its full config <span class="who">— governance.</span></li>
+        <li><strong>Pause or resume</strong> a vault <span class="who">— governance.</span></li>
+        <li><strong>Wind down</strong> a vault — blocked while a loss is unresolved <span class="who">— governance.</span></li>
+        <li><strong>Update a capacity cap or yield split</strong> by a two-step change <span class="who">— governance.</span></li>
+        <li><strong>Answer "which vaults exist, and how is each set up?"</strong> <span class="who">— read by the Vault and treasury.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Per-vault config</td><td class="val">name · cap · 4 tiers · splits · status</td><td>the full record per vault</td></tr>
+        <tr><td>Vault IDs</td><td class="val">append-only</td><td>never reused or removed</td></tr>
+        <tr><td>Lifecycle</td><td class="val">Active → Paused → Winding-down</td><td>a vault never simply vanishes</td></tr>
+        <tr><td>Default capacity cap</td><td class="val">$10M</td><td>per vault at launch</td></tr>
+        <tr><td>Wind-down guard</td><td class="val">no open loss</td><td>cannot wind down while a loss is pending</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Governance alone adds vaults and changes their configuration; the append-only, status-lifecycle design means the record can grow and vaults can retire, but history is never erased.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">VaultRegistry.sol:21-70</span> (append-only registry, per-vault config + status lifecycle, governance-only mutation, loss-pending wind-down guard); $10M cap <span class="mono">Deploy.s.sol:71</span></div>
+      <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span><span class="tag good">live · unchanged</span></div>
+    </article>
+
+    <!-- ⑤ HyperLiquid + off-chain -->
+    <div class="grouplabel">⑤ The trading engine — HyperLiquid (1 contract + off-chain)</div>
+
+    <article class="contract-page hl">
+      <h3>HLTradingBridge — the custodian (slimmed)</h3>
+      <div class="sol">HLTradingBridge · Arbitrum · implemented target · slimmed</div>
+      <p class="role">The Vault's trading custodian — the one on-chain contract that sends capital to the off-chain desk and brings the value back.</p>
+
+      <h4>What it does</h4>
+      <p>The one remaining contract of the HyperLiquid stack, and it stays on Arbitrum. It holds the approved
+        cold-account address, sends capital out and brings it back within the caps, accepts the keeper's NAV,
+        records the value into the Vault for the USDCTreasury to crystallise the profit or loss as accounting,
+        and returns USDC within the caps — principal to the Vault, realised profit to the USDCTreasury. A loss
+        report still locks tier exits and is absorbed before deployed principal is reduced. The target build removed the
+        cross-chain machinery: this slimmed version drops CCIP and the HyperEVM peer and takes NAV from a
+        permissioned keeper instead.</p>
+
+      <h4>What it can do</h4>
+      <ul>
+        <li><strong>Deploy capital</strong> from the Vault to the cold account, within the caps <span class="who">— an authorised executor.</span></li>
+        <li><strong>Record a NAV report</strong> so the USDCTreasury can crystallise the profit / loss as accounting <span class="who">— a permissioned keeper.</span></li>
+        <li><strong>Return USDC</strong> — principal to the Vault (<code>returnPrincipalUSDC</code>), realised profit to the USDCTreasury (<code>returnPnLUSDC</code>) <span class="who">— the executor.</span></li>
+        <li><strong>Hold a withdrawal-intent record</strong> — a capped, destination-pinned (to the Vault custodian) request the off-chain keeper must match before it signs a HyperLiquid withdrawal; marking it consumed only settles the record, it moves no funds <span class="who">— the executor records; the keeper validates off-chain (see §7 for what the chain can and cannot enforce).</span></li>
+        <li><strong>Reconcile a return arrival</strong> — booking returned capital requires a real on-chain balance delta, so an out-of-band withdrawal cannot be passed off as a return <span class="who">— on the return path.</span></li>
+        <li><strong>Wire the executor and keeper</strong> via a two-step propose / accept handoff <span class="who">— governance; the same delayed handoff the Vault uses for its custodian.</span></li>
+        <li><strong>Pause</strong> deploys and settlement <span class="who">— owner / governance / guardian.</span></li>
+      </ul>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Deploy cap — per block</td><td class="val">$1M</td><td>out to the cold account</td></tr>
+        <tr><td>Deploy cap — per day</td><td class="val">$5M</td><td>out to the cold account</td></tr>
+        <tr><td>NAV rise per interval</td><td class="val">≤ 10%</td><td>a reported gain is clamped; a loss registers immediately and uncapped</td></tr>
+        <tr><td>Stale-report rejection</td><td class="val">&gt; 24 hours</td><td>an old NAV report is refused</td></tr>
+        <tr><td>Return cap</td><td class="val">≤ 10% / call &amp; / day</td><td>bridge-enforced from its own storage — the cap actually checked on returns; the registry entry is set to match (prev page)</td></tr>
+        <tr><td>Withdrawal intent</td><td class="val">capped + pinned</td><td>on-chain record the keeper must match; the chain cannot force the off-chain signature itself (§7)</td></tr>
+        <tr><td>Executor / keeper wiring</td><td class="val">two-step</td><td>propose / accept delayed handoff, like the Vault's custodian</td></tr>
+        <tr><td>Cross-chain machinery</td><td class="val">removed</td><td>CCIP + HyperEVM peer dropped; NAV now from a keeper</td></tr>
+      </tbody></table>
+
+      <h4>Who controls it</h4>
+      <p class="who">Owner / governance set the caps and wire the executor and keeper and can pause; the executor moves capital within the caps; the keeper posts NAV. Capital can only go to the one approved cold account.</p>
+
+      <div class="why-line"><span class="glabel">Grounded in</span>current <span class="mono">HLTradingBridge.sol</span>: deploy / return caps, NAV upside clamp and downside immediacy, withdrawal intents, arrival reconciliation, two-step keeper wiring, and directional freeze. Removed HyperEVM/CCIP contracts are historical context only.</div>
+      <div class="tags"><span class="tag info">custodian</span><span class="tag good">slimmed · implemented</span><span class="tag risk">caps + NAV + settle</span></div>
+    </article>
+
+    <article class="contract-page hl">
+      <h3>Off-chain custody &amp; the bridge — how capital actually crosses to HyperLiquid</h3>
+      <div class="sol">not a contract — operated keys + HyperLiquid's native bridge</div>
+      <p class="role">How capital actually reaches the trading desk: a single cold account on both chains, HyperLiquid's own bridge, and a fund-less key that trades but cannot withdraw.</p>
+
+      <h4>What it does</h4>
+      <p>This is the answer to "what is the best way to bridge funds from Arbitrum to HyperLiquid," and the short
+        version is: <strong>use HyperLiquid's own native bridge (Bridge2), and let the single-account custody
+        model do the hard part for you.</strong> Capital rests in one <strong>cold master account — an ordinary
+        externally-owned key</strong> — whose address is the same on Arbitrum and on HyperLiquid. The Vault
+        deploys USDC (within the caps above) to that account on Arbitrum; the account sends <strong>native
+        USDC</strong> to Bridge2; and because Bridge2 <strong>credits the sender's own address</strong> on
+        HyperLiquid, the money lands in that same account's trading balance in under a minute. A separate
+        <strong>fund-less "agent" key</strong> then trades on its behalf — it can place orders but holds no funds
+        and cannot withdraw.</p>
+      <p>This is why the single-account model is the <em>enabler</em>, not just a simplification: the old design
+        needed funds credited to an on-chain <em>contract</em>, which HyperLiquid's bridge does not support (it
+        credits the sender), and HyperLiquid also <strong>rejects withdrawals by contract accounts
+        outright</strong> — which is why a real key was always required. With one account on both sides, the
+        deposit "just works" and the return is a normal withdrawal the account signs itself.</p>
+
+      <h4>The numbers</h4>
+      <table class="numbers"><tbody>
+        <tr><td>Custody</td><td class="val">1 cold account</td><td>an ordinary key, same address on Arbitrum &amp; HyperLiquid</td></tr>
+        <tr><td>Bridge</td><td class="val">native Bridge2</td><td>HyperLiquid's own bridge; native USDC only</td></tr>
+        <tr><td>Minimum deposit</td><td class="val">5 USDC</td><td>below this it is lost — deposits are batched well above</td></tr>
+        <tr><td>Withdrawal cost</td><td class="val">~1 USDC</td><td>flat, arriving in a few minutes</td></tr>
+        <tr><td>Trading key</td><td class="val">fund-less</td><td>places orders, holds no funds, cannot withdraw</td></tr>
+        <tr><td>Route</td><td class="val">governance-swappable</td><td>Bridge2 is the bridge; the destination can be re-pointed under governance if it is ever retired (no migration planned)</td></tr>
+      </tbody></table>
+
+      <div class="callout warning" style="margin-top:4px">
+        <h3 style="color:var(--ink);margin-bottom:8px">Two operational traps to hard-guard</h3>
+        <p class="small"><strong>Native USDC only.</strong> Bridge2 credits <em>native</em> USDC; sending the
+          older bridged "USDC.e" is not credited and can be lost. <strong>Five-USDC minimum</strong> per deposit,
+          below which it is lost — so deposits are batched well above the floor. Deposits cost only Arbitrum gas;
+          a withdrawal costs a flat ~1 USDC and arrives in a few minutes. The canonical Bridge2 address must be
+          pinned from the official HyperLiquid app at integration time (this design document, being pre-mainnet,
+          quotes no addresses).</p>
+      </div>
+
+      <div class="callout info" style="margin-top:10px">
+        <h3 style="color:var(--ink);margin-bottom:8px">Bridge2 is the bridge — kept swappable as a contingency</h3>
+        <p class="small">Bridge2 is the chosen route, and there is <strong>no planned migration off it and no migration
+          machinery to build</strong>. The one forward-looking note is purely defensive: HyperLiquid has stated the
+          Arbitrum Bridge2 <strong>may eventually be deprecated</strong> in favour of natively-minted USDC, so the
+          deposit <strong>destination is kept governance-swappable</strong> — the CustodianRegistry already abstracts
+          it — and could be re-pointed under timelock to whatever native route HyperLiquid then supports (Circle's
+          native USDC / CCTP being the likely candidate) <em>if and only if</em> that ever becomes necessary. Treat
+          that as a contingency, not a roadmap item. The other routes are not contenders for this lane either:
+          Chainlink CCIP (removed here — it carries messages, it does not fund a trading balance) and third-party
+          bridges (LayerZero / Stargate, Across, deBridge) serve multi-chain onboarding or non-USDC assets, not
+          moving Arbitrum USDC into the same account's HyperLiquid balance.</p>
+      </div>
+
+      <div class="callout danger" style="margin-top:10px">
+        <h3 style="color:var(--ink);margin-bottom:8px">The residual the model accepts (cross-ref §7)</h3>
+        <p class="small">The cold account is a <strong>trusted custody root</strong>: it is an off-chain key, so the
+          on-chain caps cannot physically force it to send only to the Vault, and a HyperLiquid withdrawal lets the
+          holder name any destination — so a compromise of that key can move the funds currently deployed. There is
+          <strong>no HyperLiquid-enforced withdrawal allow-list</strong>, and — stated plainly — <strong>the chain
+          cannot enforce the off-chain withdrawal signature at all</strong>: a key-holder can sign a HyperLiquid
+          <code>withdraw3</code> whether or not it matches anything on-chain, and the on-chain "intent" record only
+          marks itself settled — it never moves the funds. What the protocol relies on instead is a layered control,
+          honest about its limits: (1) the keeper <em>validates</em> each withdrawal against a capped,
+          destination-pinned on-chain withdrawal-intent record (recipient = the Vault custodian) <em>before</em> it
+          signs — a keeper-side policy, not a chain-enforced gate; (2) the return path <strong>reconciles arrivals by
+          a real on-chain balance delta</strong>, so an out-of-band withdrawal cannot be laundered back as a "return"
+          and shows up as a missing arrival; (3) monitoring and a standing incident response watch for an intent-less
+          or mismatched movement. A related gap: the Vault records the deploy and hands USDC to the account but cannot
+          force the off-chain step that bridges it; if the funds never arrive, the conservative NAV valuation surfaces
+          the shortfall as a loss rather than hiding it. The <strong>irreducible residual</strong> — a compromised key
+          signing a withdrawal the chain cannot veto — is what the rest contains: only a fraction is ever deployed
+          (the ≥5% buffer stays on-chain), the per-block / per-day caps bound how fast capital accumulates, losses are
+          socialised pro-rata, a guardian can instantly freeze deploys, and governance can rotate the account — a
+          vote-approved rotation a 4-of-7 guardian quorum can accelerate to minutes (§6, §7).</p>
+      </div>
+
+      <div class="why-line" style="margin-top:10px"><span class="glabel">Grounded in</span>the current <span class="mono">HLTradingBridge.sol</span> withdrawal-intent and arrival-reconciliation paths; <span class="mono">CustodianRegistry.sol</span> route/cap configuration; the EOA-only <code>withdraw3</code> custody runbook; and HyperLiquid Bridge2's sender-credit / no-destination-credit model. Removed adapter and HyperEVM intent contracts are historical context only.</div>
+      <div class="tags"><span class="tag info">off-chain</span><span class="tag good">native Bridge2</span><span class="tag warn">route governance-swappable</span><span class="tag risk">trusted custody root</span></div>
+    </article>
+
+    <div class="colophon">
+      <p>OpenForage · Target Smart Contract Architecture · drafted 2026-06-05 · for executive /
+      internal understanding. Self-contained — no external stylesheets, scripts, fonts, or
+      network calls. The contracts in <code>openforage_smart_contracts/</code> are the source of
+      truth for current behaviour; this document describes that implemented target plus its
+      historical consolidation rationale. If it ever disagrees with merged code or live chain
+      state, the code/live state wins and this document should be updated.</p>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

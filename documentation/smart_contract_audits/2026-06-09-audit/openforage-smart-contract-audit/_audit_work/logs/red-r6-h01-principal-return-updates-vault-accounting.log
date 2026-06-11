@@ -1,0 +1,17 @@
+Compiling 2 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.67s
+Compiler run successful!
+
+Ran 1 test for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: principal return must reduce vault deployed accounting: 20000000000 != 19000000000] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 902572)
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 3.45ms (211.25µs CPU time)
+
+Ran 1 test suite in 4.19ms (3.45ms CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: principal return must reduce vault deployed accounting: 20000000000 != 19000000000] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 902572)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

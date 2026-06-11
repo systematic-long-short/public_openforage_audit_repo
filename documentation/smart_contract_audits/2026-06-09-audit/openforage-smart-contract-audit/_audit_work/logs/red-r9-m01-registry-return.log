@@ -1,0 +1,1196 @@
+Compiling 2 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.64s
+Compiler run successful!
+
+Ran 3 tests for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: principal return must restore capacity: 10000000000000 != 9000000000000] test_R9_M01_principalReturnRestoresRegistryDeployCapacity() (gas: 2553789)
+Traces:
+  [2553789] HLTradingBridge_TargetCustody::test_R9_M01_principalReturnRestoresRegistryDeployCapacity()
+    ├─ [5200] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    ├─ [0] VM::prank(timelock: [0x290BfbcC15841F36bCFEE1C8f1160d8B8b57E9c9])
+    │   └─ ← [Return]
+    ├─ [13828] ERC1967Proxy::fallback(10000 [1e4])
+    │   ├─ [8944] RISKUSDVault::setMaxDeploymentRatioBps(10000 [1e4]) [delegatecall]
+    │   │   ├─ emit MaxDeploymentRatioUpdated(oldRatio: 9500, newRatio: 10000 [1e4])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [7242] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [2358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [466767] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [466383] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [7612] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [3112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [130597] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [130210] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 1000000000000 [1e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [2559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [128705] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [128321] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [3112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [2725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [2559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [25982] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 1000000000000 [1e12])
+    │   │   │   │   ├─ [7299] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [2415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 9000000000000 [9e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [25182] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 1000000000000 [1e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(2)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   └─ ← [Return] 1000000000000 [1e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [148861] ERC1967Proxy::fallback(1, 1000000000000 [1e12], 1000000000000 [1e12], 172802 [1.728e5])
+    │   ├─ [148462] HLTradingBridge::postNAV(1, 1000000000000 [1e12], 1000000000000 [1e12], 172802 [1.728e5]) [delegatecall]
+    │   │   ├─ [3112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [49380] ERC1967Proxy::fallback(1, 1000000000000 [1e12], 0)
+    │   │   │   ├─ [48987] RISKUSDVault::recordCustodianNAV(1, 1000000000000 [1e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 1000000000000 [1e12], timestamp: 172802 [1.728e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 1000000000000 [1e12], rawNav: 1000000000000 [1e12], appliedNav: 1000000000000 [1e12], observedAt: 172802 [1.728e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [147406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [147022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 2000000000000 [2e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [63254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [62870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 9000000000000 [9e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 2000000000000 [2e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 8000000000000 [8e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 2000000000000 [2e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(3)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 2000000000000 [2e12]
+    │   └─ ← [Return] 2000000000000 [2e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 2000000000000 [2e12], 2000000000000 [2e12], 172802 [1.728e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 2000000000000 [2e12], 2000000000000 [2e12], 172802 [1.728e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 2000000000000 [2e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 2000000000000 [2e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 2000000000000 [2e12], timestamp: 172802 [1.728e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 2000000000000 [2e12], rawNav: 2000000000000 [2e12], appliedNav: 2000000000000 [2e12], observedAt: 172802 [1.728e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 3000000000000 [3e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 8000000000000 [8e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 3000000000000 [3e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 7000000000000 [7e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 3000000000000 [3e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(4)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 3000000000000 [3e12]
+    │   └─ ← [Return] 3000000000000 [3e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 3000000000000 [3e12], 3000000000000 [3e12], 172802 [1.728e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 3000000000000 [3e12], 3000000000000 [3e12], 172802 [1.728e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 3000000000000 [3e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 3000000000000 [3e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 3000000000000 [3e12], timestamp: 172802 [1.728e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 3000000000000 [3e12], rawNav: 3000000000000 [3e12], appliedNav: 3000000000000 [3e12], observedAt: 172802 [1.728e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 4000000000000 [4e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 7000000000000 [7e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 4000000000000 [4e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 6000000000000 [6e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 4000000000000 [4e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(5)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 4000000000000 [4e12]
+    │   └─ ← [Return] 4000000000000 [4e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 4000000000000 [4e12], 4000000000000 [4e12], 172802 [1.728e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 4000000000000 [4e12], 4000000000000 [4e12], 172802 [1.728e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 4000000000000 [4e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 4000000000000 [4e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 4000000000000 [4e12], timestamp: 172802 [1.728e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 4000000000000 [4e12], rawNav: 4000000000000 [4e12], appliedNav: 4000000000000 [4e12], observedAt: 172802 [1.728e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 5000000000000 [5e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 6000000000000 [6e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 5000000000000 [5e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 5000000000000 [5e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 5000000000000 [5e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(6)
+    │   └─ ← [Return]
+    ├─ [0] VM::warp(259203 [2.592e5])
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 5000000000000 [5e12]
+    │   └─ ← [Return] 5000000000000 [5e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 5000000000000 [5e12], 5000000000000 [5e12], 259203 [2.592e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 5000000000000 [5e12], 5000000000000 [5e12], 259203 [2.592e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 5000000000000 [5e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 5000000000000 [5e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 5000000000000 [5e12], timestamp: 259203 [2.592e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 5000000000000 [5e12], rawNav: 5000000000000 [5e12], appliedNav: 5000000000000 [5e12], observedAt: 259203 [2.592e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [188438] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [188054] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [49819] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [49432] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 6000000000000 [6e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 5000000000000 [5e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 6000000000000 [6e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 4000000000000 [4e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 6000000000000 [6e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(7)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 6000000000000 [6e12]
+    │   └─ ← [Return] 6000000000000 [6e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 6000000000000 [6e12], 6000000000000 [6e12], 259203 [2.592e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 6000000000000 [6e12], 6000000000000 [6e12], 259203 [2.592e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 6000000000000 [6e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 6000000000000 [6e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 6000000000000 [6e12], timestamp: 259203 [2.592e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 6000000000000 [6e12], rawNav: 6000000000000 [6e12], appliedNav: 6000000000000 [6e12], observedAt: 259203 [2.592e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 7000000000000 [7e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 4000000000000 [4e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 7000000000000 [7e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 3000000000000 [3e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 7000000000000 [7e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(8)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 7000000000000 [7e12]
+    │   └─ ← [Return] 7000000000000 [7e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 7000000000000 [7e12], 7000000000000 [7e12], 259203 [2.592e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 7000000000000 [7e12], 7000000000000 [7e12], 259203 [2.592e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 7000000000000 [7e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 7000000000000 [7e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 7000000000000 [7e12], timestamp: 259203 [2.592e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 7000000000000 [7e12], rawNav: 7000000000000 [7e12], appliedNav: 7000000000000 [7e12], observedAt: 259203 [2.592e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 8000000000000 [8e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 3000000000000 [3e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 8000000000000 [8e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 2000000000000 [2e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 8000000000000 [8e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(9)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 8000000000000 [8e12]
+    │   └─ ← [Return] 8000000000000 [8e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 8000000000000 [8e12], 8000000000000 [8e12], 259203 [2.592e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 8000000000000 [8e12], 8000000000000 [8e12], 259203 [2.592e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 8000000000000 [8e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 8000000000000 [8e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 8000000000000 [8e12], timestamp: 259203 [2.592e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 8000000000000 [8e12], rawNav: 8000000000000 [8e12], appliedNav: 8000000000000 [8e12], observedAt: 259203 [2.592e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 9000000000000 [9e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 2000000000000 [2e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 9000000000000 [9e12])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 9000000000000 [9e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(10)
+    │   └─ ← [Return]
+    ├─ [742] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [358] HLTradingBridge::deployedPrincipal() [delegatecall]
+    │   │   └─ ← [Return] 9000000000000 [9e12]
+    │   └─ ← [Return] 9000000000000 [9e12]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [13703] ERC1967Proxy::fallback(1, 9000000000000 [9e12], 9000000000000 [9e12], 259203 [2.592e5])
+    │   ├─ [13304] HLTradingBridge::postNAV(1, 9000000000000 [9e12], 9000000000000 [9e12], 259203 [2.592e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [6222] ERC1967Proxy::fallback(1, 9000000000000 [9e12], 0)
+    │   │   │   ├─ [5829] RISKUSDVault::recordCustodianNAV(1, 9000000000000 [9e12], 0) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ emit CustodianNAVRecorded(nav: 9000000000000 [9e12], timestamp: 259203 [2.592e5])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit NAVPosted(vaultId: 1, bookValue: 9000000000000 [9e12], rawNav: 9000000000000 [9e12], appliedNav: 9000000000000 [9e12], observedAt: 259203 [2.592e5])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [145406] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [145022] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [26897] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [26510] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 10000000000000 [1e13])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [61254] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [60870] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   │   │   ├─ [23182] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 10000000000000 [1e13])
+    │   │   │   │   ├─ [799] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 0
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [3282] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 10000000000000 [1e13])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::roll(11)
+    │   └─ ← [Return]
+    ├─ [1089] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [staticcall]
+    │   ├─ [702] CustodianRegistry::deployedByCustodian(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [delegatecall]
+    │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   └─ ← [Return] 10000000000000 [1e13]
+    ├─ [0] VM::assertEq(10000000000000 [1e13], 10000000000000 [1e13], "registry max exposure reached") [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [160010] ERC1967Proxy::fallback(1000000000000 [1e12], ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 0x000000000000000000000000000000000000000000000000000000000000beef, 421614 [4.216e5])
+    │   ├─ [159608] HLTradingBridge::requestWithdrawalIntent(1000000000000 [1e12], ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 0x000000000000000000000000000000000000000000000000000000000000beef, 421614 [4.216e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ emit WithdrawalIntentRequested(intentId: 0xdcfd8ff43be9c67a7d5ef13285c89d83924ee43f01aa7b1412bf4d76543fd080, amount: 1000000000000 [1e12], recipient: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], sourceAccount: 0x000000000000000000000000000000000000000000000000000000000000beef, chainSelector: 421614 [4.216e5])
+    │   │   └─ ← [Return] 0xdcfd8ff43be9c67a7d5ef13285c89d83924ee43f01aa7b1412bf4d76543fd080
+    │   └─ ← [Return] 0xdcfd8ff43be9c67a7d5ef13285c89d83924ee43f01aa7b1412bf4d76543fd080
+    ├─ [27684] MockUSDC::mint(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   └─ ← [Stop]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [27224] ERC1967Proxy::fallback(0xdcfd8ff43be9c67a7d5ef13285c89d83924ee43f01aa7b1412bf4d76543fd080, 1000000000000 [1e12])
+    │   ├─ [26837] HLTradingBridge::reconcileWithdrawalArrival(0xdcfd8ff43be9c67a7d5ef13285c89d83924ee43f01aa7b1412bf4d76543fd080, 1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ emit WithdrawalArrivalReconciled(intentId: 0xdcfd8ff43be9c67a7d5ef13285c89d83924ee43f01aa7b1412bf4d76543fd080, amount: 1000000000000 [1e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [160999] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [160615] HLTradingBridge::returnPrincipalUSDC(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [3112] ERC1967Proxy::fallback(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [24735] MockUSDC::approve(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 1000000000000 [1e12])
+    │   │   │   ├─ emit Approval(owner: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], spender: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ [33289] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [32905] RISKUSDVault::returnCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [4154] MockUSDC::transferFrom(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalReturned(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 9000000000000 [9e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [2735] MockUSDC::approve(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 0)
+    │   │   │   ├─ emit Approval(owner: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], spender: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 0)
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ [53026] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [48142] USDCTreasury::recordPrincipalReturnUSDC(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit PrincipalReturned(amount: 1000000000000 [1e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit PrincipalReturned(usdcE6: 1000000000000 [1e12], deployedPrincipal: 9000000000000 [9e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [1089] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [staticcall]
+    │   ├─ [702] CustodianRegistry::deployedByCustodian(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [delegatecall]
+    │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   └─ ← [Return] 10000000000000 [1e13]
+    ├─ [0] VM::assertEq(10000000000000 [1e13], 9000000000000 [9e12], "principal return must restore capacity") [staticcall]
+    │   └─ ← [Revert] principal return must restore capacity: 10000000000000 != 9000000000000
+    └─ ← [Revert] principal return must restore capacity: 10000000000000 != 9000000000000
+
+Backtrace:
+  at VM.assertEq
+  at HLTradingBridge_TargetCustody.test_R9_M01_principalReturnRestoresRegistryDeployCapacity
+
+[FAIL: emergency return must reduce exposure: 1000000000000 != 900000000000] test_R9_M01_principalReturnUsesEmergencyRegistryReturnWhenRegistryPaused() (gas: 928530)
+Traces:
+  [928530] HLTradingBridge_TargetCustody::test_R9_M01_principalReturnUsesEmergencyRegistryReturnWhenRegistryPaused()
+    ├─ [5200] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [482267] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   ├─ [477383] HLTradingBridge::deployToHyperLiquid(1000000000000 [1e12]) [delegatecall]
+    │   │   ├─ [7612] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [3112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [130597] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12])
+    │   │   │   ├─ [130210] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 1000000000000 [1e12], deployed: 1000000000000 [1e12])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [2559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [135205] ERC1967Proxy::fallback(1000000000000 [1e12])
+    │   │   │   ├─ [130321] RISKUSDVault::deployCapital(1000000000000 [1e12]) [delegatecall]
+    │   │   │   │   ├─ [3112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [2725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [2559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [25982] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1000000000000 [1e12])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1000000000000 [1e12])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000000 [1e12], totalDeployed: 1000000000000 [1e12])
+    │   │   │   │   ├─ [7299] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [2415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 9000000000000 [9e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   │   ├─ [25182] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 1000000000000 [1e12])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 1000000000000 [1e12])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 1000000000000 [1e12], deployedPrincipal: 1000000000000 [1e12])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [160010] ERC1967Proxy::fallback(100000000000 [1e11], ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 0x000000000000000000000000000000000000000000000000000000000000beef, 421614 [4.216e5])
+    │   ├─ [159608] HLTradingBridge::requestWithdrawalIntent(100000000000 [1e11], ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 0x000000000000000000000000000000000000000000000000000000000000beef, 421614 [4.216e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ emit WithdrawalIntentRequested(intentId: 0x59d6b01bd1ebc571c3ea9bc64794f149fc9a8eea28e19aa94965259d6961bc19, amount: 100000000000 [1e11], recipient: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], sourceAccount: 0x000000000000000000000000000000000000000000000000000000000000beef, chainSelector: 421614 [4.216e5])
+    │   │   └─ ← [Return] 0x59d6b01bd1ebc571c3ea9bc64794f149fc9a8eea28e19aa94965259d6961bc19
+    │   └─ ← [Return] 0x59d6b01bd1ebc571c3ea9bc64794f149fc9a8eea28e19aa94965259d6961bc19
+    ├─ [27684] MockUSDC::mint(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 100000000000 [1e11])
+    │   ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 100000000000 [1e11])
+    │   └─ ← [Stop]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [31224] ERC1967Proxy::fallback(0x59d6b01bd1ebc571c3ea9bc64794f149fc9a8eea28e19aa94965259d6961bc19, 100000000000 [1e11])
+    │   ├─ [30837] HLTradingBridge::reconcileWithdrawalArrival(0x59d6b01bd1ebc571c3ea9bc64794f149fc9a8eea28e19aa94965259d6961bc19, 100000000000 [1e11]) [delegatecall]
+    │   │   ├─ [3112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 100000000000 [1e11]
+    │   │   ├─ emit WithdrawalArrivalReconciled(intentId: 0x59d6b01bd1ebc571c3ea9bc64794f149fc9a8eea28e19aa94965259d6961bc19, amount: 100000000000 [1e11])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(guardian-module: [0x32154C77fdFbB4fB944832f4a191567BbB4Cb2B9])
+    │   └─ ← [Return]
+    ├─ [28591] ERC1967Proxy::fallback()
+    │   ├─ [28210] CustodianRegistry::pause() [delegatecall]
+    │   │   ├─ emit Paused(account: guardian-module: [0x32154C77fdFbB4fB944832f4a191567BbB4Cb2B9])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [163183] ERC1967Proxy::fallback(100000000000 [1e11])
+    │   ├─ [162799] HLTradingBridge::returnPrincipalUSDC(100000000000 [1e11]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [3112] ERC1967Proxy::fallback(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 100000000000 [1e11]
+    │   │   ├─ [24735] MockUSDC::approve(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 100000000000 [1e11])
+    │   │   │   ├─ emit Approval(owner: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], spender: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 100000000000 [1e11])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ [35289] ERC1967Proxy::fallback(100000000000 [1e11])
+    │   │   │   ├─ [34905] RISKUSDVault::returnCapital(100000000000 [1e11]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [4154] MockUSDC::transferFrom(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 100000000000 [1e11])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 100000000000 [1e11])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalReturned(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 100000000000 [1e11], totalDeployed: 900000000000 [9e11])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [2735] MockUSDC::approve(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 0)
+    │   │   │   ├─ emit Approval(owner: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], spender: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 0)
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ [53026] ERC1967Proxy::fallback(100000000000 [1e11])
+    │   │   │   ├─ [48142] USDCTreasury::recordPrincipalReturnUSDC(100000000000 [1e11]) [delegatecall]
+    │   │   │   │   ├─ emit PrincipalReturned(amount: 100000000000 [1e11])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit PrincipalReturned(usdcE6: 100000000000 [1e11], deployedPrincipal: 900000000000 [9e11])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [1089] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [staticcall]
+    │   ├─ [702] CustodianRegistry::deployedByCustodian(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [delegatecall]
+    │   │   └─ ← [Return] 1000000000000 [1e12]
+    │   └─ ← [Return] 1000000000000 [1e12]
+    ├─ [0] VM::assertEq(1000000000000 [1e12], 900000000000 [9e11], "emergency return must reduce exposure") [staticcall]
+    │   └─ ← [Revert] emergency return must reduce exposure: 1000000000000 != 900000000000
+    └─ ← [Revert] emergency return must reduce exposure: 1000000000000 != 900000000000
+
+Backtrace:
+  at VM.assertEq
+  at HLTradingBridge_TargetCustody.test_R9_M01_principalReturnUsesEmergencyRegistryReturnWhenRegistryPaused
+
+[FAIL: principal return must reduce registry exposure: 20000000000 != 19000000000] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 905917)
+Traces:
+  [905917] HLTradingBridge_TargetCustody::test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep()
+    ├─ [5200] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [482267] ERC1967Proxy::fallback(20000000000 [2e10])
+    │   ├─ [477383] HLTradingBridge::deployToHyperLiquid(20000000000 [2e10]) [delegatecall]
+    │   │   ├─ [7612] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [3112] ERC1967Proxy::fallback(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [700] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [316] CustodianRegistry::HYPERLIQUID_CUSTODIAN_ID() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   │   └─ ← [Return] 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c
+    │   │   ├─ [130597] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 20000000000 [2e10])
+    │   │   │   ├─ [130210] CustodianRegistry::recordDeployment(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, 20000000000 [2e10]) [delegatecall]
+    │   │   │   │   ├─ emit CustodianDeploymentRecorded(id: 0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c, amount: 20000000000 [2e10], deployed: 20000000000 [2e10])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [2559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ [135205] ERC1967Proxy::fallback(20000000000 [2e10])
+    │   │   │   ├─ [130321] RISKUSDVault::deployCapital(20000000000 [2e10]) [delegatecall]
+    │   │   │   │   ├─ [3112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [2725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [2559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [25982] MockUSDC::transfer(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 20000000000 [2e10])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 20000000000 [2e10])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalDeployed(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 20000000000 [2e10], totalDeployed: 20000000000 [2e10])
+    │   │   │   │   ├─ [7299] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   │   │   ├─ [2415] RISKUSD::totalSupply() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   │   │   └─ ← [Return] 9980000000000 [9.98e12]
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 20000000000 [2e10]
+    │   │   ├─ [25182] MockUSDC::transfer(hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], 20000000000 [2e10])
+    │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: hyperliquid-cold-account: [0x1AbfD6Da7abd79b9AF592078D8a4756ADD28b0e1], amount: 20000000000 [2e10])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ emit DeployedToHyperLiquid(usdcE6: 20000000000 [2e10], deployedPrincipal: 20000000000 [2e10])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [1089] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [staticcall]
+    │   ├─ [702] CustodianRegistry::deployedByCustodian(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [delegatecall]
+    │   │   └─ ← [Return] 20000000000 [2e10]
+    │   └─ ← [Return] 20000000000 [2e10]
+    ├─ [0] VM::assertEq(20000000000 [2e10], 20000000000 [2e10], "deploy must increase registry exposure") [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::prank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [160010] ERC1967Proxy::fallback(1500000000 [1.5e9], ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 0x000000000000000000000000000000000000000000000000000000000000beef, 421614 [4.216e5])
+    │   ├─ [159608] HLTradingBridge::requestWithdrawalIntent(1500000000 [1.5e9], ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 0x000000000000000000000000000000000000000000000000000000000000beef, 421614 [4.216e5]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 0
+    │   │   ├─ emit WithdrawalIntentRequested(intentId: 0xd72b9cd51740628eb6b35baa43708f40e90c5af087628e07ec0a4bd55cf85d2b, amount: 1500000000 [1.5e9], recipient: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], sourceAccount: 0x000000000000000000000000000000000000000000000000000000000000beef, chainSelector: 421614 [4.216e5])
+    │   │   └─ ← [Return] 0xd72b9cd51740628eb6b35baa43708f40e90c5af087628e07ec0a4bd55cf85d2b
+    │   └─ ← [Return] 0xd72b9cd51740628eb6b35baa43708f40e90c5af087628e07ec0a4bd55cf85d2b
+    ├─ [27684] MockUSDC::mint(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], 1500000000 [1.5e9])
+    │   ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], amount: 1500000000 [1.5e9])
+    │   └─ ← [Stop]
+    ├─ [0] VM::prank(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E])
+    │   └─ ← [Return]
+    ├─ [31224] ERC1967Proxy::fallback(0xd72b9cd51740628eb6b35baa43708f40e90c5af087628e07ec0a4bd55cf85d2b, 1500000000 [1.5e9])
+    │   ├─ [30837] HLTradingBridge::reconcileWithdrawalArrival(0xd72b9cd51740628eb6b35baa43708f40e90c5af087628e07ec0a4bd55cf85d2b, 1500000000 [1.5e9]) [delegatecall]
+    │   │   ├─ [3112] ERC1967Proxy::fallback(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(keeper: [0xC3f2c61C4836Afeb9Ae601c91F6FE661df3D634E]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1500000000 [1.5e9]
+    │   │   ├─ emit WithdrawalArrivalReconciled(intentId: 0xd72b9cd51740628eb6b35baa43708f40e90c5af087628e07ec0a4bd55cf85d2b, amount: 1500000000 [1.5e9])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   └─ ← [Return] 1500000000 [1.5e9]
+    ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   └─ ← [Return] 9980000000000 [9.98e12]
+    ├─ [0] VM::startPrank(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30])
+    │   └─ ← [Return]
+    ├─ [163183] ERC1967Proxy::fallback(1000000000 [1e9])
+    │   ├─ [162799] HLTradingBridge::returnPrincipalUSDC(1000000000 [1e9]) [delegatecall]
+    │   │   ├─ [1112] ERC1967Proxy::fallback(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(executor: [0x4AFF9DA56beE9417ae4be3933b24f77b3E29CA30]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [3112] ERC1967Proxy::fallback(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [staticcall]
+    │   │   │   ├─ [2725] Blocklist::isBlocked(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211]) [delegatecall]
+    │   │   │   │   └─ ← [Return] false
+    │   │   │   └─ ← [Return] false
+    │   │   ├─ [559] MockUSDC::balanceOf(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   └─ ← [Return] 1500000000 [1.5e9]
+    │   │   ├─ [24735] MockUSDC::approve(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 1000000000 [1e9])
+    │   │   │   ├─ emit Approval(owner: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], spender: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 1000000000 [1e9])
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ [35289] ERC1967Proxy::fallback(1000000000 [1e9])
+    │   │   │   ├─ [34905] RISKUSDVault::returnCapital(1000000000 [1e9]) [delegatecall]
+    │   │   │   │   ├─ [1112] ERC1967Proxy::fallback(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [staticcall]
+    │   │   │   │   │   ├─ [725] Blocklist::isBlocked(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3]) [delegatecall]
+    │   │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   │   └─ ← [Return] false
+    │   │   │   │   ├─ [4154] MockUSDC::transferFrom(ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 1000000000 [1e9])
+    │   │   │   │   │   ├─ emit Transfer(from: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], to: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 1000000000 [1e9])
+    │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   ├─ emit CapitalReturned(custodian: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], usdcAmount: 1000000000 [1e9], totalDeployed: 19000000000 [1.9e10])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ [2735] MockUSDC::approve(ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], 0)
+    │   │   │   ├─ emit Approval(owner: ERC1967Proxy: [0x2a07706473244BC757E10F2a9E86fB532828afe3], spender: ERC1967Proxy: [0x1d1499e622D69689cdf9004d05Ec547d650Ff211], amount: 0)
+    │   │   │   └─ ← [Return] true
+    │   │   ├─ [53026] ERC1967Proxy::fallback(1000000000 [1e9])
+    │   │   │   ├─ [48142] USDCTreasury::recordPrincipalReturnUSDC(1000000000 [1e9]) [delegatecall]
+    │   │   │   │   ├─ emit PrincipalReturned(amount: 1000000000 [1e9])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [Return]
+    │   │   ├─ emit PrincipalReturned(usdcE6: 1000000000 [1e9], deployedPrincipal: 19000000000 [1.9e10])
+    │   │   └─ ← [Stop]
+    │   └─ ← [Return]
+    ├─ [822] ERC1967Proxy::fallback() [staticcall]
+    │   ├─ [438] RISKUSDVault::totalDeployed() [delegatecall]
+    │   │   └─ ← [Return] 19000000000 [1.9e10]
+    │   └─ ← [Return] 19000000000 [1.9e10]
+    ├─ [0] VM::assertEq(19000000000 [1.9e10], 19000000000 [1.9e10], "principal return must reduce vault deployed accounting") [staticcall]
+    │   └─ ← [Return]
+    ├─ [1089] ERC1967Proxy::fallback(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [staticcall]
+    │   ├─ [702] CustodianRegistry::deployedByCustodian(0x4e5ccb6baef1bf236a34c7add97032ed64416779b0df52de23f1f28abbfeaf9c) [delegatecall]
+    │   │   └─ ← [Return] 20000000000 [2e10]
+    │   └─ ← [Return] 20000000000 [2e10]
+    ├─ [0] VM::assertEq(20000000000 [2e10], 19000000000 [1.9e10], "principal return must reduce registry exposure") [staticcall]
+    │   └─ ← [Revert] principal return must reduce registry exposure: 20000000000 != 19000000000
+    └─ ← [Revert] principal return must reduce registry exposure: 20000000000 != 19000000000
+
+Backtrace:
+  at VM.assertEq
+  at HLTradingBridge_TargetCustody.test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep
+
+Suite result: FAILED. 0 passed; 3 failed; 0 skipped; finished in 4.57ms (1.61ms CPU time)
+
+Ran 1 test suite in 41.57ms (4.57ms CPU time): 0 tests passed, 3 failed, 0 skipped (3 total tests)
+
+Failing tests:
+Encountered 3 failing tests in test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: principal return must restore capacity: 10000000000000 != 9000000000000] test_R9_M01_principalReturnRestoresRegistryDeployCapacity() (gas: 2553789)
+[FAIL: emergency return must reduce exposure: 1000000000000 != 900000000000] test_R9_M01_principalReturnUsesEmergencyRegistryReturnWhenRegistryPaused() (gas: 928530)
+[FAIL: principal return must reduce registry exposure: 20000000000 != 19000000000] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 905917)
+
+Encountered a total of 3 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 3 failed tests

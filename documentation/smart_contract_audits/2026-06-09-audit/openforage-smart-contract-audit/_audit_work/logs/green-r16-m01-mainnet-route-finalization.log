@@ -1,0 +1,27 @@
+Compiling 3 files with Solc 0.8.24
+Solc 0.8.24 finished in 4.76s
+Compiler run successful with warnings:
+Warning (2018): Function state mutability can be restricted to view
+   --> src/ForageGovernor.sol:635:5:
+    |
+635 |     function _authorizeUpgrade(address) internal override {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+    --> src/StakingQueue.sol:1158:5:
+     |
+1158 |     function renounceOwnership() public override onlyOwner {
+     |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+   --> src/atRISKUSD.sol:911:5:
+    |
+911 |     function renounceOwnership() public override onlyOwner {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 1 test for test/DeployMainnet.target.t.sol:DeployMainnetTargetTest
+[PASS] test_mainnetRunWithConfigUsesConfiguredCustodyRoute() (gas: 58831963)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 5.90ms (2.84ms CPU time)
+
+Ran 1 test suite in 6.37ms (5.90ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)

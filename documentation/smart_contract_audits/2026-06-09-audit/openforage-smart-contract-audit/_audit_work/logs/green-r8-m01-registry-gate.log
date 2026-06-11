@@ -1,0 +1,11 @@
+Compiling 2 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.61s
+Compiler run successful!
+
+Ran 3 tests for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[PASS] test_R8_M01_deployRequiresRegistryRouteToThisBridge() (gas: 405166)
+[PASS] test_R8_M01_deployRequiresUnpausedRegistryDestination() (gas: 171136)
+[PASS] test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() (gas: 1072247)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 3.65ms (787.80µs CPU time)
+
+Ran 1 test suite in 4.48ms (3.65ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)

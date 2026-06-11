@@ -1,0 +1,31 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.60s
+Compiler run successful!
+
+Ran 15 tests for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[PASS] test_TSCGB_A14_keeperNAVIsClampedAndStaleReportsRevert() (gas: 233165)
+[PASS] test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() (gas: 863648)
+[PASS] test_TSCGB_A16_principalAndPnLReturnsStaySeparatedAndKeeperIsTwoStep() (gas: 920337)
+[PASS] test_TSCGB_A17_bridgeAndRegistryReturnCapsAreTenPercentPerCallAndPerDay() (gas: 505251)
+[PASS] test_TSCGB_A18_executorFundedReturnsRequireReconciledArrival() (gas: 442087)
+[PASS] test_TSCGB_A18_newIntentBlockedWhilePriorArrivalIsUnreconciled() (gas: 679520)
+[PASS] test_TSCGB_A18_overlappingWithdrawalIntentsReconcileAfterPriorLiquidityIsReturned() (gas: 800783)
+[FAIL: next call did not revert as expected] test_TSCGB_A18_unsolicitedDustDoesNotBlockWithdrawalIntent() (gas: 586207)
+[PASS] test_TSCGB_A18_withdrawalIntentConsumesOnlyAfterArrivalReconciliation() (gas: 569483)
+[PASS] test_TSCGB_A18_withdrawalIntentIsCappedAndPinnedToCustodianRoute() (gas: 386428)
+[PASS] test_TSCGB_A19_directionalFreezeBlocksDeploysButAllowsPrincipalReturns() (gas: 661132)
+[PASS] test_TSCGB_A19_guardianEmergencyBridgePortsAreTightenOnly() (gas: 75802)
+[PASS] test_TSCGB_A19_missingBridgeBlocklistFailsLoudBeforeCustodyActions() (gas: 3333772)
+[PASS] test_TSCGB_A19_revertingBridgeBlocklistFailsLoudBeforeCustodyActions() (gas: 137581)
+[PASS] test_TSCGB_A25_bridgeExposesTierShareSettlementHookForAtRiskusd() (gas: 30579)
+Suite result: FAILED. 14 passed; 1 failed; 0 skipped; finished in 4.06ms (2.93ms CPU time)
+
+Ran 1 test suite in 4.63ms (4.06ms CPU time): 14 tests passed, 1 failed, 0 skipped (15 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: next call did not revert as expected] test_TSCGB_A18_unsolicitedDustDoesNotBlockWithdrawalIntent() (gas: 586207)
+
+Encountered a total of 1 failing tests, 14 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

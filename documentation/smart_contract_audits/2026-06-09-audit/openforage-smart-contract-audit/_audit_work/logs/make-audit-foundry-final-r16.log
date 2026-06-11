@@ -1,0 +1,1457 @@
+forge test --match-contract '.*(Invariant|I4_BackingPerShareMonotonicity).*'
+Compiling 112 files with Solc 0.8.24
+Solc 0.8.24 finished in 8.36s
+Compiler run successful with warnings:
+Warning (2072): Unused local variable.
+   --> test/helpers/ForageGovernorTestBase.sol:254:13:
+    |
+254 |             bytes32 whitelistSalt = keccak256(whitelistData);
+    |             ^^^^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+   --> test/helpers/ForageGovernorTestBase.sol:314:31:
+    |
+314 |     function _queueAndExecute(uint256 proposalId) internal {
+    |                               ^^^^^^^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+  --> test/helpers/MockTarget.sol:20:34:
+   |
+20 |     function doSomethingWithArgs(uint256 arg1, address arg2) external {
+   |                                  ^^^^^^^^^^^^
+
+Warning (5667): Unused function parameter. Remove or comment out the variable name to silence this warning.
+  --> test/helpers/MockTarget.sol:20:48:
+   |
+20 |     function doSomethingWithArgs(uint256 arg1, address arg2) external {
+   |                                                ^^^^^^^^^^^^
+
+Warning (2018): Function state mutability can be restricted to view
+   --> src/ForageGovernor.sol:635:5:
+    |
+635 |     function _authorizeUpgrade(address) internal override {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+    --> src/StakingQueue.sol:1158:5:
+     |
+1158 |     function renounceOwnership() public override onlyOwner {
+     |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+   --> src/atRISKUSD.sol:911:5:
+    |
+911 |     function renounceOwnership() public override onlyOwner {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+   --> test/ForageGovernor.invariant.t.sol:334:5:
+    |
+334 |     function invariant_activeProposalCount() public {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+   --> test/ForageGovernor.invariant.t.sol:372:5:
+    |
+372 |     function invariant_terminalStatesImmutable() public {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Warning (2018): Function state mutability can be restricted to view
+   --> test/ForageGovernor.invariant.t.sol:487:5:
+    |
+487 |     function test_TC11_noWeightedWallets() public {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+
+Ran 3 tests for test/ForageGovernor.invariant.t.sol:ForageGovernor_TC11_RegularInvariants
+[PASS] test_TC11_delegateBySigReverts() (gas: 11088)
+[PASS] test_TC11_noForageVaultDependency() (gas: 142825)
+[PASS] test_TC11_noWeightedWallets() (gas: 32507)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 1.89ms (219.99µs CPU time)
+
+Ran 9 tests for test/Round4BackingPerShareMonotonicity.t.sol:AtRISKUSD_I4_BackingPerShareMonotonicity
+[PASS] test_I4_depositBlocksBackingPerShareDropAfterYield() (gas: 531030)
+[PASS] test_I4_executeWithdrawalBlocksBackingPerShareDropAfterLoss() (gas: 5707557)
+[PASS] test_I4_fullRedeemAllowsZeroSupplyDrainAfterYield() (gas: 5661761)
+[PASS] test_I4_mintBlocksBackingPerShareDropAfterYield() (gas: 535451)
+[PASS] test_I4_redeemBlocksBackingPerShareDropAfterLoss() (gas: 5669757)
+[PASS] test_I4_redeemForReversionBlocksBackingPerShareDropAfterLoss() (gas: 5692085)
+[PASS] test_I4_redeemForUpgradeBlocksBackingPerShareDropAfterLoss() (gas: 5665328)
+[PASS] test_I4_requestWithdrawalKeepsBackingPerShareNonDecreasing() (gas: 5755540)
+[PASS] test_I4_withdrawBlocksBackingPerShareDropAfterLoss() (gas: 5668446)
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 3.38ms (2.20ms CPU time)
+
+Ran 4 tests for test/Round4BackingPerShareMonotonicity.t.sol:StakingQueue_I4_BackingPerShareMonotonicity
+[PASS] test_I4_processExpiredLockupsAllowsYieldedReversionAndPreservesAssets() (gas: 1168090)
+[PASS] test_I4_processExpiredLockupsBlocksCombinedBackingPerShareDropAfterSourceLoss() (gas: 1114997)
+[PASS] test_I4_selfRevertAllowsYieldedReversionAndPreservesAssets() (gas: 1166173)
+[PASS] test_I4_upgradeTierBlocksCombinedBackingPerShareDropAfterSourceLoss() (gas: 1121296)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 2.80ms (1.71ms CPU time)
+
+Ran 5 tests for test/Round4BackingPerShareMonotonicity.t.sol:RISKUSDVault_I4_BackingPerShareMonotonicity
+[PASS] test_I4_depositMustRejectOvermintThatDropsBackingPerShareEvenWhenSolvent() (gas: 491738)
+[PASS] test_I4_fullRedeemAllowsZeroSupplyDrainAfterSurplus() (gas: 498561)
+[PASS] test_I4_honestDepositAfterSurplusDonationPreservesBackingMargin() (gas: 422170)
+[PASS] test_I4_lossReporterDepositAfterReplenishPreservesBackingMargin() (gas: 441048)
+[PASS] test_I4_redeemMustRejectUnderburnThatDropsBackingPerShareEvenWhenSolvent() (gas: 601621)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 62.03s (701.81µs CPU time)
+
+Ran 7 tests for test/RISKUSDVault.invariant.t.sol:RISKUSDVault_TC12_Invariants
+[PASS] invariant_cumulativeCounterMonotonicity() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+[PASS] invariant_custodianOnlyDeployment() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+[PASS] invariant_noYield() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+[PASS] invariant_supplyMatchesDeposits() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+[PASS] invariant_totalDepositorUsdcNonNegative() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+[PASS] invariant_usdcAccountingBalance() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+[PASS] invariant_weeklyCapNotExceeded() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+---------------------------+-------+---------+----------╮
+| Contract            | Selector                  | Calls | Reverts | Discards |
++==============================================================================+
+| RISKUSDVaultHandler | attemptUnauthorizedDeploy | 22225 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | attemptUnauthorizedReturn | 22279 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | burnForLoss               | 22429 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deployCapital             | 22283 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | deposit                   | 22035 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | fundLossReporter          | 22275 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | redeem                    | 21911 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | replenish                 | 22369 | 0       | 0        |
+|---------------------+---------------------------+-------+---------+----------|
+| RISKUSDVaultHandler | returnCapital             | 22194 | 0       | 0        |
+╰---------------------+---------------------------+-------+---------+----------╯
+
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 78.36s (142.02s CPU time)
+
+Ran 10 tests for test/atRISKUSD.invariant.t.sol:AtRISKUSD_TC17_Invariant
+[PASS] invariant_counterMonotonicity() (runs: 1000, calls: 200000, reverts: 31871)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 245     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 850     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 508     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 549     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2927    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2291    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_exchangeRateNonDecreasingUnderYieldOnly() (runs: 1000, calls: 200000, reverts: 31914)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 247     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 865     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 505     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 566     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2931    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2299    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_noEarlyExecution() (runs: 1000, calls: 200000, reverts: 31887)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 251     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 846     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 486     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 559     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2938    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2306    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_noEarlyWithdrawalRequest() (runs: 1000, calls: 200000, reverts: 31907)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 253     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 858     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 515     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 552     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2930    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2298    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_reentrancyBlocked() (runs: 1000, calls: 200000, reverts: 31895)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 254     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 857     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 501     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 552     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2932    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2298    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_reentrancyRevertReason() (runs: 1000, calls: 200000, reverts: 31915)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 256     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 865     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 514     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 551     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2929    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2299    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_sharesToAssetsConsistency() (runs: 1000, calls: 200000, reverts: 31892)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3623    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 247     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 851     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 517     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 541     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2933    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2305    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_singlePendingWithdrawalPerUser() (runs: 1000, calls: 200000, reverts: 31871)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 245     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 856     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 488     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 564     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2922    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2295    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_stakingQueueOnlyDeposit() (runs: 1000, calls: 200000, reverts: 31890)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3631    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 233     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 884     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 496     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 566     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2931    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2274    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+[PASS] invariant_totalAssetsMatchesBalance() (runs: 1000, calls: 200000, reverts: 31891)
+
+╭------------------+-------------------------------+-------+---------+----------╮
+| Contract         | Selector                      | Calls | Reverts | Discards |
++===============================================================================+
+| AtRISKUSDHandler | absorbLoss                    | 16685 | 3626    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | accrueYield                   | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyExecution         | 16576 | 250     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptEarlyWithdrawalRequest | 16756 | 845     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | attemptReentrantDeposit       | 16668 | 16668   | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | cancelWithdrawal              | 16660 | 503     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | deposit                       | 16723 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | depositFromNonQueue           | 16560 | 0       | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | executeWithdrawal             | 16736 | 569     | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | requestWithdrawal             | 16600 | 2931    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | setAutoRenew                  | 16636 | 4207    | 0        |
+|------------------+-------------------------------+-------+---------+----------|
+| AtRISKUSDHandler | transfer                      | 16677 | 2292    | 0        |
+╰------------------+-------------------------------+-------+---------+----------╯
+
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 78.36s (167.85s CPU time)
+
+Ran 9 tests for test/ForageGovernor.invariant.t.sol:ForageGovernor_TC11_Invariants
+[PASS] invariant_activeProposalCount() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_delegateBySigDisabled() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_noForageVaultDependency() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_noWeightedWallets() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_parameterBoundsRespected() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_proposalStateTransitions() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_quorumPercentageBased() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_terminalStatesImmutable() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_timelockOnlyForSetters() (runs: 1000, calls: 200000, reverts: 0)
+
+╭-----------------------+-------------------------+-------+---------+----------╮
+| Contract              | Selector                | Calls | Reverts | Discards |
++==============================================================================+
+| ForageGovernorHandler | advanceBlocks           | 24995 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | callSetterAsNonTimelock | 24832 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByGuardian        | 25121 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | cancelByProposer        | 25244 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | executeQueued           | 25043 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | propose                 | 25055 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | queueSucceeded          | 25084 | 0       | 0        |
+|-----------------------+-------------------------+-------+---------+----------|
+| ForageGovernorHandler | vote                    | 24626 | 0       | 0        |
+╰-----------------------+-------------------------+-------+---------+----------╯
+
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 92.53s (250.23s CPU time)
+
+Warning: the following cheatcode(s) are deprecated and will be removed in future versions:
+  revertTo(uint256): replaced by `revertToState`
+  snapshot(): replaced by `snapshotState`
+Ran 8 tests for test/ForageToken.invariant.t.sol:ForageToken_TC12_Invariants
+[PASS] invariant_allocationSumMatchesTotalSupply() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_lockCeiling() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_lockedTokensRetainVotingPower() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_perLockerSumEqualsAggregate() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_supplyConservation() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_timestampBasedClock() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_totalSupplyNeverIncreases() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+[PASS] invariant_transferableBalance() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------+----------+-------+---------+----------╮
+| Contract           | Selector | Calls | Reverts | Discards |
++============================================================+
+| ForageTokenHandler | burn     | 40026 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | delegate | 39668 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | lock     | 39954 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | transfer | 39971 | 0       | 0        |
+|--------------------+----------+-------+---------+----------|
+| ForageTokenHandler | unlock   | 40381 | 0       | 0        |
+╰--------------------+----------+-------+---------+----------╯
+
+Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 112.65s (220.95s CPU time)
+
+Ran 6 tests for test/TimelockController.invariant.t.sol:TimelockController_TC20_Invariants
+[PASS] invariant_defaultAdminOnlySelf() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------------+-------------------------+-------+---------+----------╮
+| Contract                 | Selector                | Calls | Reverts | Discards |
++=================================================================================+
+| TimelockInvariantHandler | attemptDirectGrantRole  | 28524 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | attemptDirectRevokeRole | 28681 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | cancelRandom            | 28473 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | executeRandomReady      | 28570 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleGrantRole       | 28566 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleOperation       | 28789 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | warpTime                | 28397 | 0       | 0        |
+╰--------------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_minDelayConserved() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------------+-------------------------+-------+---------+----------╮
+| Contract                 | Selector                | Calls | Reverts | Discards |
++=================================================================================+
+| TimelockInvariantHandler | attemptDirectGrantRole  | 28524 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | attemptDirectRevokeRole | 28681 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | cancelRandom            | 28473 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | executeRandomReady      | 28570 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleGrantRole       | 28566 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleOperation       | 28789 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | warpTime                | 28397 | 0       | 0        |
+╰--------------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_noDirectRoleGrants() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------------+-------------------------+-------+---------+----------╮
+| Contract                 | Selector                | Calls | Reverts | Discards |
++=================================================================================+
+| TimelockInvariantHandler | attemptDirectGrantRole  | 28524 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | attemptDirectRevokeRole | 28681 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | cancelRandom            | 28473 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | executeRandomReady      | 28570 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleGrantRole       | 28566 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleOperation       | 28789 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | warpTime                | 28397 | 0       | 0        |
+╰--------------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_openExecution() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------------+-------------------------+-------+---------+----------╮
+| Contract                 | Selector                | Calls | Reverts | Discards |
++=================================================================================+
+| TimelockInvariantHandler | attemptDirectGrantRole  | 28524 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | attemptDirectRevokeRole | 28681 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | cancelRandom            | 28473 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | executeRandomReady      | 28570 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleGrantRole       | 28566 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleOperation       | 28789 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | warpTime                | 28397 | 0       | 0        |
+╰--------------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_proposerRoleConservation() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------------+-------------------------+-------+---------+----------╮
+| Contract                 | Selector                | Calls | Reverts | Discards |
++=================================================================================+
+| TimelockInvariantHandler | attemptDirectGrantRole  | 28524 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | attemptDirectRevokeRole | 28681 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | cancelRandom            | 28473 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | executeRandomReady      | 28570 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleGrantRole       | 28566 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleOperation       | 28789 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | warpTime                | 28397 | 0       | 0        |
+╰--------------------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_validStateTransitions() (runs: 1000, calls: 200000, reverts: 0)
+
+╭--------------------------+-------------------------+-------+---------+----------╮
+| Contract                 | Selector                | Calls | Reverts | Discards |
++=================================================================================+
+| TimelockInvariantHandler | attemptDirectGrantRole  | 28524 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | attemptDirectRevokeRole | 28681 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | cancelRandom            | 28473 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | executeRandomReady      | 28570 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleGrantRole       | 28566 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | scheduleOperation       | 28789 | 0       | 0        |
+|--------------------------+-------------------------+-------+---------+----------|
+| TimelockInvariantHandler | warpTime                | 28397 | 0       | 0        |
+╰--------------------------+-------------------------+-------+---------+----------╯
+
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 112.65s (232.38s CPU time)
+
+Ran 4 tests for test/RISKUSD.invariant.t.sol:RISKUSD_TC09_Invariants
+[PASS] invariant_minterAddressConsistency() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------+-------------------------+-------+---------+----------╮
+| Contract       | Selector                | Calls | Reverts | Discards |
++=======================================================================+
+| RISKUSDHandler | attemptUnauthorizedBurn | 40058 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | attemptUnauthorizedMint | 39739 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | burn                    | 40206 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | mint                    | 40085 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | transfer                | 39912 | 0       | 0        |
+╰----------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_onlyMinterCanBurn() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------+-------------------------+-------+---------+----------╮
+| Contract       | Selector                | Calls | Reverts | Discards |
++=======================================================================+
+| RISKUSDHandler | attemptUnauthorizedBurn | 40058 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | attemptUnauthorizedMint | 39739 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | burn                    | 40206 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | mint                    | 40085 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | transfer                | 39912 | 0       | 0        |
+╰----------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_onlyMinterCanMint() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------+-------------------------+-------+---------+----------╮
+| Contract       | Selector                | Calls | Reverts | Discards |
++=======================================================================+
+| RISKUSDHandler | attemptUnauthorizedBurn | 40058 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | attemptUnauthorizedMint | 39739 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | burn                    | 40206 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | mint                    | 40085 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | transfer                | 39912 | 0       | 0        |
+╰----------------+-------------------------+-------+---------+----------╯
+
+[PASS] invariant_totalSupplyEqualsBalanceSum() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------+-------------------------+-------+---------+----------╮
+| Contract       | Selector                | Calls | Reverts | Discards |
++=======================================================================+
+| RISKUSDHandler | attemptUnauthorizedBurn | 40058 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | attemptUnauthorizedMint | 39739 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | burn                    | 40206 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | mint                    | 40085 | 0       | 0        |
+|----------------+-------------------------+-------+---------+----------|
+| RISKUSDHandler | transfer                | 39912 | 0       | 0        |
+╰----------------+-------------------------+-------+---------+----------╯
+
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 129.95s (48.27s CPU time)
+
+Ran 11 tests for test/StakingQueue.invariant.t.sol:StakingQueue_TC14_Invariants
+[PASS] invariant_cancelledEntriesReturnFunds() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_capacityNotExceededByProcessing() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_processedEntriesDeposited() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_queueIdMonotonicity() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_queueOrderPreserved() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_riskusdBalanceConsistency() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_totalQueuedRiskusdConsistency() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] invariant_upgradesPrioritized() (runs: 1000, calls: 200000, reverts: 0)
+
+╭---------------------+-----------------------+-------+---------+----------╮
+| Contract            | Selector              | Calls | Reverts | Discards |
++==========================================================================+
+| StakingQueueHandler | cancelQueue           | 33423 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | joinQueue             | 33184 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | processQueue          | 33202 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setCapacityCap        | 33694 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setForagePriceUsd     | 33352 | 0       | 0        |
+|---------------------+-----------------------+-------+---------+----------|
+| StakingQueueHandler | setPriorityMultiplier | 33145 | 0       | 0        |
+╰---------------------+-----------------------+-------+---------+----------╯
+
+[PASS] test_TC14_handlerTracksCancel() (gas: 641324)
+[PASS] test_TC14_handlerTracksJoin() (gas: 562889)
+[PASS] test_TC14_handlerTracksProcess() (gas: 1064767)
+Suite result: ok. 11 passed; 0 failed; 0 skipped; finished in 129.95s (284.80s CPU time)
+
+Ran 4 tests for test/DelegatingVestingWallet.invariant.t.sol:DelegatingVestingWallet_TC07_Invariants
+[PASS] invariant_TC07_delegationNoTransfer() (runs: 1000, calls: 200000, reverts: 44626)
+
+╭--------------------------------+-----------------------------+-------+---------+----------╮
+| Contract                       | Selector                    | Calls | Reverts | Discards |
++===========================================================================================+
+| DelegatingVestingWalletHandler | attemptSecondSetForageToken | 49963 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | delegateTo                  | 50041 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | releaseAtTime               | 50029 | 44626   | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | warpForward                 | 49967 | 0       | 0        |
+╰--------------------------------+-----------------------------+-------+---------+----------╯
+
+[PASS] invariant_TC07_forageTokenSetAtMostOnce() (runs: 1000, calls: 200000, reverts: 44634)
+
+╭--------------------------------+-----------------------------+-------+---------+----------╮
+| Contract                       | Selector                    | Calls | Reverts | Discards |
++===========================================================================================+
+| DelegatingVestingWalletHandler | attemptSecondSetForageToken | 49963 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | delegateTo                  | 50041 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | releaseAtTime               | 50029 | 44634   | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | warpForward                 | 49967 | 0       | 0        |
+╰--------------------------------+-----------------------------+-------+---------+----------╯
+
+[PASS] invariant_TC07_releasedMonotonicallyIncreasing() (runs: 1000, calls: 200000, reverts: 44635)
+
+╭--------------------------------+-----------------------------+-------+---------+----------╮
+| Contract                       | Selector                    | Calls | Reverts | Discards |
++===========================================================================================+
+| DelegatingVestingWalletHandler | attemptSecondSetForageToken | 49963 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | delegateTo                  | 50041 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | releaseAtTime               | 50029 | 44635   | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | warpForward                 | 49967 | 0       | 0        |
+╰--------------------------------+-----------------------------+-------+---------+----------╯
+
+[PASS] invariant_TC07_releasedNeverExceedsTotalAllocation() (runs: 1000, calls: 200000, reverts: 44633)
+
+╭--------------------------------+-----------------------------+-------+---------+----------╮
+| Contract                       | Selector                    | Calls | Reverts | Discards |
++===========================================================================================+
+| DelegatingVestingWalletHandler | attemptSecondSetForageToken | 49963 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | delegateTo                  | 50041 | 0       | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | releaseAtTime               | 50029 | 44633   | 0        |
+|--------------------------------+-----------------------------+-------+---------+----------|
+| DelegatingVestingWalletHandler | warpForward                 | 49967 | 0       | 0        |
+╰--------------------------------+-----------------------------+-------+---------+----------╯
+
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 146.19s (33.39s CPU time)
+
+Ran 4 tests for test/EchidnaCrownInvariantsCompile.t.sol:EchidnaCrownInvariantsCompileTest
+[PASS] test_echidnaHarnessExposesCurrentInvariantProperties() (gas: 8758294)
+[PASS] test_echidnaHarnessI1PropertyDetectsForcedInsolvency() (gas: 8757835)
+[PASS] test_echidnaHarnessI2PropertyDetectsOutflowBeforeBurn() (gas: 8743065)
+[PASS] test_echidnaHarnessI4PropertyDetectsBackingPerShareDecrease() (gas: 8759097)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 265.10s (2.27ms CPU time)
+
+Ran 7 tests for test/VaultRegistry.invariant.t.sol:VaultRegistry_TC12_Invariant
+[PASS] invariant_abbreviationUniqueness() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+[PASS] invariant_perVaultIndependence() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+[PASS] invariant_statusTransitionsOneWay() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+[PASS] invariant_vaultCountConsistency() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+[PASS] invariant_vaultIdMonotonicity() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+[PASS] invariant_viewFunctionsWork() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+[PASS] invariant_yieldSplitBounds() (runs: 1000, calls: 200000, reverts: 0)
+
+╭----------------------+---------------------+-------+---------+----------╮
+| Contract             | Selector            | Calls | Reverts | Discards |
++=========================================================================+
+| VaultRegistryHandler | addVault            | 28387 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeCapacityCap | 28450 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | finalizeYieldSplits | 28737 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | pauseVault          | 28520 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setCapacityCap      | 28780 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | setYieldSplits      | 28439 | 0       | 0        |
+|----------------------+---------------------+-------+---------+----------|
+| VaultRegistryHandler | startWindDown       | 28687 | 0       | 0        |
+╰----------------------+---------------------+-------+---------+----------╯
+
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 315.07s (1293.09s CPU time)
+
+Ran 14 test suites in 315.07s (1522.87s CPU time): 91 tests passed, 0 failed, 0 skipped (91 total tests)

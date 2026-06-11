@@ -1,0 +1,21 @@
+Compiling 2 files with Solc 0.8.24
+Solc 0.8.24 finished in 1.63s
+Compiler run successful!
+
+Ran 3 tests for test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: next call did not revert as expected] test_R8_M01_deployRequiresRegistryRouteToThisBridge() (gas: 725055)
+[FAIL: next call did not revert as expected] test_R8_M01_deployRequiresUnpausedRegistryDestination() (gas: 382211)
+[FAIL: deploy must be recorded against the approved registry destination: 0 != 1000000000000] test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() (gas: 388086)
+Suite result: FAILED. 0 passed; 3 failed; 0 skipped; finished in 3.79ms (691.94µs CPU time)
+
+Ran 1 test suite in 5.55ms (3.79ms CPU time): 0 tests passed, 3 failed, 0 skipped (3 total tests)
+
+Failing tests:
+Encountered 3 failing tests in test/hyperliquid/HLTradingBridge.target.t.sol:HLTradingBridge_TargetCustody
+[FAIL: next call did not revert as expected] test_R8_M01_deployRequiresRegistryRouteToThisBridge() (gas: 725055)
+[FAIL: next call did not revert as expected] test_R8_M01_deployRequiresUnpausedRegistryDestination() (gas: 382211)
+[FAIL: deploy must be recorded against the approved registry destination: 0 != 1000000000000] test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() (gas: 388086)
+
+Encountered a total of 3 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 3 failed tests

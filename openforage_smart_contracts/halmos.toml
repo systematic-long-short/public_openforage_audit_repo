@@ -1,0 +1,15 @@
+# OPENFORAGE_AUDIT_GATE_HALMOS_R37
+# Formal crown invariant scope: I-1 solvency, I-2 burn-before-withdraw,
+# and RISKUSDVault I-4 backing/share monotonicity.
+# atRISKUSD and StakingQueue I-4 coverage lives in
+# test/Round4BackingPerShareMonotonicity.t.sol and audit-foundry.
+# Target harness contracts:
+# - Halmos_I1_Solvency
+# - Halmos_I2_BurnBeforeWithdraw
+# - Halmos_I2_BurnBeforeWithdraw_AtRISKUSD
+# - Halmos_I4_BackingPerShareMonotonic
+[global]
+function = "check_"
+storage-layout = "solidity"
+loop = 4
+solver-timeout-assertion = 0

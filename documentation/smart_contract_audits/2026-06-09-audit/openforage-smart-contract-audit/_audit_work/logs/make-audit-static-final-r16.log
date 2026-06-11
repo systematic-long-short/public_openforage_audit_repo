@@ -1,0 +1,243 @@
+node script/check_i15_setters.js
+I-15 critical-setter lint passed (12 trust-boundary setters checked; 12 production finalize delay>=2d; 12 cancel surfaces; 0 guardian-CANCEL surfaces; 0 registry/allowlist re-checks).
+rm -f /tmp/openforage-slither-results.json
+.venv/bin/slither . --config-file slither.config.json --json /tmp/openforage-slither-results.json || node script/check_slither_suppressions.js /tmp/openforage-slither-results.json slither_suppressions.json
+'forge clean' running (wd: openforage_smart_contracts)
+'forge config --json' running
+'forge build --build-info --skip ./test/** ./script/** --force' running (wd: openforage_smart_contracts)
+
+Detector: reentrancy-balance
+Reentrancy in HLTradingBridge.deployToHyperLiquid(uint256) (src/hyperliquid/HLTradingBridge.sol#200-219):
+	External call allowing reentrancy:
+	- IRISKUSDVaultCustodyPort(riskusdVault).deployCapital(usdcE6) (src/hyperliquid/HLTradingBridge.sol#211)
+	Balance read before the call:
+	- balanceBefore = token.balanceOf(address(this)) (src/hyperliquid/HLTradingBridge.sol#210)
+	Possible stale balance used after the call in a condition:
+	- token.balanceOf(address(this)) - balanceBefore != usdcE6 (src/hyperliquid/HLTradingBridge.sol#212)
+		- stale variable `balanceBefore`
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities
+
+Detector: uninitialized-state
+RISKUSDVault._vaultWindingDown (src/RISKUSDVault.sol#196) is never initialized. It is used in:
+	- RISKUSDVault.vaultWindingDown() (src/RISKUSDVault.sol#1240-1242)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-state-variables
+
+Detector: divide-before-multiply
+RISKUSDVault._enforceWeeklyCap(uint256) (src/RISKUSDVault.sol#1468-1494) performs a multiplication on the result of a division:
+	- elapsed = (block.timestamp - _weeklyRedemptionWindowStart) / WEEKLY_WINDOW (src/RISKUSDVault.sol#1476)
+	- _weeklyRedemptionWindowStart += elapsed * WEEKLY_WINDOW (src/RISKUSDVault.sol#1477)
+RISKUSDVault._enforceDailyRedemptionCap(uint256) (src/RISKUSDVault.sol#1496-1512) performs a multiplication on the result of a division:
+	- elapsed = (block.timestamp - _dailyRedemptionWindowStart) / DAILY_WINDOW (src/RISKUSDVault.sol#1501)
+	- _dailyRedemptionWindowStart += elapsed * DAILY_WINDOW (src/RISKUSDVault.sol#1502)
+RISKUSDVault._enforceWeeklyMintCap(uint256) (src/RISKUSDVault.sol#1534-1560) performs a multiplication on the result of a division:
+	- elapsed = (block.timestamp - _weeklyMintWindowStart) / WEEKLY_WINDOW (src/RISKUSDVault.sol#1539)
+	- _weeklyMintWindowStart += elapsed * WEEKLY_WINDOW (src/RISKUSDVault.sol#1540)
+RISKUSDVault._enforceDailyMintCap(uint256) (src/RISKUSDVault.sol#1562-1589) performs a multiplication on the result of a division:
+	- elapsed = (block.timestamp - _dailyMintWindowStart) / DAILY_WINDOW (src/RISKUSDVault.sol#1567)
+	- _dailyMintWindowStart += elapsed * DAILY_WINDOW (src/RISKUSDVault.sol#1568)
+USDCTreasury.returnPnLUSDC(uint256,uint256) (src/USDCTreasury.sol#176-197) performs a multiplication on the result of a division:
+	- foundation = amount * PROTOCOL_SHARE_BPS / 10_000 * _foundationAllocationBps / 10_000 (src/USDCTreasury.sol#181)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
+
+Detector: incorrect-equality
+DelegatingVestingWallet.release() (src/DelegatingVestingWallet.sol#151-165) uses a dangerous strict equality:
+	- amount == 0 (src/DelegatingVestingWallet.sol#157)
+DelegatingVestingWallet.setForageToken(address) (src/DelegatingVestingWallet.sol#125-149) uses a dangerous strict equality:
+	- IERC20(forageToken_).balanceOf(address(this)) == 0 (src/DelegatingVestingWallet.sol#136)
+RISKUSDVault._custodianNAVUnavailableOrStale() (src/RISKUSDVault.sol#1421-1425) uses a dangerous strict equality:
+	- _lastAttestationTimestamp == 0 (src/RISKUSDVault.sol#1423)
+RISKUSDVault._hasCurrentNAVShortfall() (src/RISKUSDVault.sol#1416-1419) uses a dangerous strict equality:
+	- _lastAttestationTimestamp == 0 || _totalDeployed == 0 (src/RISKUSDVault.sol#1417)
+RISKUSDVault._reduceMintActiveSupply(uint256) (src/RISKUSDVault.sol#1595-1612) uses a dangerous strict equality:
+	- block.number == _mintUsedBlockNumber (src/RISKUSDVault.sol#1602)
+RISKUSDVault.mintUsedThisBlock() (src/RISKUSDVault.sol#1154-1156) uses a dangerous strict equality:
+	- block.number == _mintUsedBlockNumber (src/RISKUSDVault.sol#1155)
+USDCTreasury._resetEarmarkWindowIfExpired(bytes32) (src/USDCTreasury.sol#305-311) uses a dangerous strict equality:
+	- start == 0 || block.timestamp >= start + DAY_SECONDS (src/USDCTreasury.sol#307)
+atRISKUSD._executeWithdrawal(uint256) (src/atRISKUSD.sol#419-471) uses a dangerous strict equality:
+	- riskusdToTransfer == 0 (src/atRISKUSD.sol#438)
+atRISKUSD._popAutoRenewDisabledExpiryHeap() (src/atRISKUSD.sol#1126-1148) uses a dangerous strict equality:
+	- length == 1 (src/atRISKUSD.sol#1128)
+atRISKUSD._refundWeeklyWithdrawalCap(uint256,uint256) (src/atRISKUSD.sol#1208-1212) uses a dangerous strict equality:
+	- assets == 0 || windowStart == 0 || _weeklyWithdrawalWindowStart != windowStart (src/atRISKUSD.sol#1209)
+atRISKUSD._requireNoZeroAssetLegacySupply() (src/atRISKUSD.sol#1033-1035) uses a dangerous strict equality:
+	- totalSupply() != 0 && totalAssets() == 0 (src/atRISKUSD.sol#1034)
+atRISKUSD._resetWeeklyWithdrawalWindowIfExpired() (src/atRISKUSD.sol#1219-1226) uses a dangerous strict equality:
+	- start == 0 || block.timestamp > start + WEEKLY_WITHDRAWAL_WINDOW (src/atRISKUSD.sol#1221)
+atRISKUSD._syncAutoRenewDisabledTracking(address) (src/atRISKUSD.sol#1045-1071) uses a dangerous strict equality:
+	- _lockupPeriod == 0 || (! _autoRenewDisabled[account] && ! trackedExpired) || expiry == 0 || effectiveBalance == 0 (src/atRISKUSD.sol#1050-1051)
+atRISKUSD._weeklyWithdrawalWindowView() (src/atRISKUSD.sol#1185-1193) uses a dangerous strict equality:
+	- start == 0 || block.timestamp > start + WEEKLY_WITHDRAWAL_WINDOW (src/atRISKUSD.sol#1187)
+atRISKUSD.isLockupExpired(address) (src/atRISKUSD.sol#828-831) uses a dangerous strict equality:
+	- _lockExpiry[depositor] == 0 (src/atRISKUSD.sol#829)
+atRISKUSD.redeem(uint256,address,address) (src/atRISKUSD.sol#268-288) uses a dangerous strict equality:
+	- assets == 0 (src/atRISKUSD.sol#283)
+atRISKUSD.redeemForReversion(address,uint256) (src/atRISKUSD.sol#529-559) uses a dangerous strict equality:
+	- assets == 0 (src/atRISKUSD.sol#549)
+atRISKUSD.redeemForUpgrade(address,uint256) (src/atRISKUSD.sol#497-527) uses a dangerous strict equality:
+	- assets == 0 (src/atRISKUSD.sol#517)
+atRISKUSD.requestWithdrawal(uint256) (src/atRISKUSD.sol#372-402) uses a dangerous strict equality:
+	- riskusdAmount == 0 (src/atRISKUSD.sol#384)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+
+Detector: reentrancy-no-eth
+Reentrancy in StakingQueue._processLane(uint256[],uint256,uint8,uint256,uint256,uint256,bool) (src/StakingQueue.sol#441-516):
+	External calls:
+	- _depositQueuedRiskusd(tier,entry.riskusdAmount,entry.depositor) (src/StakingQueue.sol#480)
+		- (success,returnData) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_DEPOSIT,riskusdAmount,depositor)) (src/StakingQueue.sol#1391-1392)
+	- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,entry.depositor,forageToUnlock)) (src/StakingQueue.sol#489-490)
+	State variables written after the call(s):
+	- _forageLockedPerEntry[qId] = 0 (src/StakingQueue.sol#492)
+	StakingQueue._forageLockedPerEntry (src/StakingQueue.sol#205) can be used in cross function reentrancies:
+	- StakingQueue.forageLockedPerEntry(uint256) (src/StakingQueue.sol#1512-1514)
+	- _priorityRiskusdQueued[entry.depositor] -= entry.riskusdAmount (src/StakingQueue.sol#484)
+	StakingQueue._priorityRiskusdQueued (src/StakingQueue.sol#203) can be used in cross function reentrancies:
+	- StakingQueue.priorityRiskusdQueued(address) (src/StakingQueue.sol#1272-1274)
+	- entry.processed = true (src/StakingQueue.sol#482)
+	StakingQueue._queueEntries (src/StakingQueue.sol#196) can be used in cross function reentrancies:
+	- StakingQueue.compactQueue(uint8,bool) (src/StakingQueue.sol#959-1010)
+	- StakingQueue.getQueueEntry(uint256) (src/StakingQueue.sol#1305-1307)
+	- _totalQueuedRiskusd -= entry.riskusdAmount (src/StakingQueue.sol#498)
+	StakingQueue._totalQueuedRiskusd (src/StakingQueue.sol#193) can be used in cross function reentrancies:
+	- StakingQueue.totalQueuedRiskusd() (src/StakingQueue.sol#1240-1242)
+Reentrancy in StakingQueue.adminCancelQueue(uint256,address) (src/StakingQueue.sol#1014-1044):
+	External calls:
+	- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,depositor,forageToUnlock)) (src/StakingQueue.sol#1033)
+	State variables written after the call(s):
+	- _forageLockedPerEntry[entryId] = 0 (src/StakingQueue.sol#1035)
+	StakingQueue._forageLockedPerEntry (src/StakingQueue.sol#205) can be used in cross function reentrancies:
+	- StakingQueue.forageLockedPerEntry(uint256) (src/StakingQueue.sol#1512-1514)
+Reentrancy in StakingQueue.cancelQueue(uint256) (src/StakingQueue.sol#381-411):
+	External calls:
+	- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,entry.depositor,forageToUnlock)) (src/StakingQueue.sol#400)
+	State variables written after the call(s):
+	- _forageLockedPerEntry[queueId] = 0 (src/StakingQueue.sol#402)
+	StakingQueue._forageLockedPerEntry (src/StakingQueue.sol#205) can be used in cross function reentrancies:
+	- StakingQueue.forageLockedPerEntry(uint256) (src/StakingQueue.sol#1512-1514)
+Reentrancy in FORAGETreasury.distributePartnership(address,address,uint256,uint64,uint64,uint64) (src/FORAGETreasury.sol#141-161):
+	External calls:
+	- DelegatingVestingWallet(wallet).setInitialDelegatee(delegatee) (src/FORAGETreasury.sol#155)
+	- DelegatingVestingWallet(wallet).precommitForageToken(address(_forageToken)) (src/FORAGETreasury.sol#157)
+	- DelegatingVestingWallet(wallet).setForageToken(address(_forageToken)) (src/FORAGETreasury.sol#158)
+	State variables written after the call(s):
+	- totalPartnershipDistributed += amount (src/FORAGETreasury.sol#159)
+	FORAGETreasury.totalPartnershipDistributed (src/FORAGETreasury.sol#60) can be used in cross function reentrancies:
+	- FORAGETreasury.totalPartnershipDistributed (src/FORAGETreasury.sol#60)
+Reentrancy in StakingQueue.processQueue(uint8,uint256) (src/StakingQueue.sol#413-439):
+	External calls:
+	- processed = _processLane(_tierPriorityQueue[tier],_tierPriorityHead[tier],tier,maxEntries,avail,tierAvail,true) (src/StakingQueue.sol#425-426)
+		- (success,returnData) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_DEPOSIT,riskusdAmount,depositor)) (src/StakingQueue.sol#1391-1392)
+		- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,entry.depositor,forageToUnlock)) (src/StakingQueue.sol#489-490)
+	State variables written after the call(s):
+	- _tierPriorityHead[tier] = _advanceHead(_tierPriorityQueue[tier],_tierPriorityHead[tier],maxEntries) (src/StakingQueue.sol#428)
+	StakingQueue._tierPriorityHead (src/StakingQueue.sol#199) can be used in cross function reentrancies:
+	- StakingQueue.compactQueue(uint8,bool) (src/StakingQueue.sol#959-1010)
+	- StakingQueue.tierPriorityHead(uint8) (src/StakingQueue.sol#1297-1299)
+Reentrancy in StakingQueue.processQueue(uint8,uint256) (src/StakingQueue.sol#413-439):
+	External calls:
+	- processed = _processLane(_tierPriorityQueue[tier],_tierPriorityHead[tier],tier,maxEntries,avail,tierAvail,true) (src/StakingQueue.sol#425-426)
+		- (success,returnData) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_DEPOSIT,riskusdAmount,depositor)) (src/StakingQueue.sol#1391-1392)
+		- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,entry.depositor,forageToUnlock)) (src/StakingQueue.sol#489-490)
+	- _processLane(_tierStandardQueue[tier],_tierStandardHead[tier],tier,maxEntries - processed,avail,tierAvail,false) (src/StakingQueue.sol#434-436)
+		- (success,returnData) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_DEPOSIT,riskusdAmount,depositor)) (src/StakingQueue.sol#1391-1392)
+		- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,entry.depositor,forageToUnlock)) (src/StakingQueue.sol#489-490)
+	State variables written after the call(s):
+	- _processLane(_tierStandardQueue[tier],_tierStandardHead[tier],tier,maxEntries - processed,avail,tierAvail,false) (src/StakingQueue.sol#434-436)
+		- _forageLockedPerEntry[qId] = 0 (src/StakingQueue.sol#492)
+	StakingQueue._forageLockedPerEntry (src/StakingQueue.sol#205) can be used in cross function reentrancies:
+	- StakingQueue.forageLockedPerEntry(uint256) (src/StakingQueue.sol#1512-1514)
+	- _processLane(_tierStandardQueue[tier],_tierStandardHead[tier],tier,maxEntries - processed,avail,tierAvail,false) (src/StakingQueue.sol#434-436)
+		- _priorityRiskusdQueued[entry.depositor] -= entry.riskusdAmount (src/StakingQueue.sol#484)
+	StakingQueue._priorityRiskusdQueued (src/StakingQueue.sol#203) can be used in cross function reentrancies:
+	- StakingQueue.priorityRiskusdQueued(address) (src/StakingQueue.sol#1272-1274)
+	- _processLane(_tierStandardQueue[tier],_tierStandardHead[tier],tier,maxEntries - processed,avail,tierAvail,false) (src/StakingQueue.sol#434-436)
+		- entry.processed = true (src/StakingQueue.sol#482)
+	StakingQueue._queueEntries (src/StakingQueue.sol#196) can be used in cross function reentrancies:
+	- StakingQueue.compactQueue(uint8,bool) (src/StakingQueue.sol#959-1010)
+	- StakingQueue.getQueueEntry(uint256) (src/StakingQueue.sol#1305-1307)
+	- _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier],_tierStandardHead[tier],maxEntries) (src/StakingQueue.sol#437)
+	StakingQueue._tierStandardHead (src/StakingQueue.sol#200) can be used in cross function reentrancies:
+	- StakingQueue.compactQueue(uint8,bool) (src/StakingQueue.sol#959-1010)
+	- StakingQueue.tierStandardHead(uint8) (src/StakingQueue.sol#1301-1303)
+	- _processLane(_tierStandardQueue[tier],_tierStandardHead[tier],tier,maxEntries - processed,avail,tierAvail,false) (src/StakingQueue.sol#434-436)
+		- _totalQueuedRiskusd -= entry.riskusdAmount (src/StakingQueue.sol#498)
+	StakingQueue._totalQueuedRiskusd (src/StakingQueue.sol#193) can be used in cross function reentrancies:
+	- StakingQueue.totalQueuedRiskusd() (src/StakingQueue.sol#1240-1242)
+Reentrancy in StakingQueue.retryForageUnlock(uint256) (src/StakingQueue.sol#1090-1114):
+	External calls:
+	- (unlockSuccess,None) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK,entry.depositor,forageToUnlock)) (src/StakingQueue.sol#1108)
+	State variables written after the call(s):
+	- _forageLockedPerEntry[queueId] = 0 (src/StakingQueue.sol#1110)
+	StakingQueue._forageLockedPerEntry (src/StakingQueue.sol#205) can be used in cross function reentrancies:
+	- StakingQueue.forageLockedPerEntry(uint256) (src/StakingQueue.sol#1512-1514)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-2
+
+Detector: uninitialized-local
+ForageToken.burn(address,uint256).reduced (src/ForageToken.sol#167) is a local variable never initialized
+StakingQueue.joinQueue(uint256,uint8).isPriority (src/StakingQueue.sol#339) is a local variable never initialized
+StakingQueue._combinedBackingPerShareRay().totalShares (src/StakingQueue.sol#1416) is a local variable never initialized
+StakingQueue.syncTierVaults().newTierVaults (src/StakingQueue.sol#893) is a local variable never initialized
+VaultRegistry.getActiveVaults().count (src/VaultRegistry.sol#415) is a local variable never initialized
+ForageToken.setLockExempt(address,bool).reconciledSum (src/ForageToken.sol#314) is a local variable never initialized
+StakingQueue.combinedStaked().total (src/StakingQueue.sol#1199) is a local variable never initialized
+StakingQueue._syncTierVaultsFromRegistry().needsSync (src/StakingQueue.sol#721) is a local variable never initialized
+StakingQueue._processLane(uint256[],uint256,uint8,uint256,uint256,uint256,bool).scanned (src/StakingQueue.sol#452) is a local variable never initialized
+VaultRegistry.getActiveVaults().idx (src/VaultRegistry.sol#426) is a local variable never initialized
+StakingQueue.compactQueue(uint8,bool).writeIdx (src/StakingQueue.sol#981) is a local variable never initialized
+StakingQueue._combinedBackingPerShareRay().totalBackingAssets (src/StakingQueue.sol#1415) is a local variable never initialized
+GuardianModule.guardianExecuteEmergency(address[],uint256[],bytes[]).failureCount (src/GuardianModule.sol#246) is a local variable never initialized
+StakingQueue.compactQueue(uint8,bool).activeCount (src/StakingQueue.sol#968) is a local variable never initialized
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables
+
+Detector: unused-return
+ForageToken.burn(address,uint256) (src/ForageToken.sol#150-225) ignores return value by _accountLockers[from].remove(locker_scope_2) (src/ForageToken.sol#208)
+ForageToken.lock(address,uint256) (src/ForageToken.sol#251-271) ignores return value by _accountLockers[account].add(msg.sender) (src/ForageToken.sol#266)
+ForageToken.unlock(address,uint256) (src/ForageToken.sol#273-289) ignores return value by _accountLockers[account].remove(msg.sender) (src/ForageToken.sol#286)
+ForageToken.emergencyUnlock(address,address) (src/ForageToken.sol#332-343) ignores return value by _accountLockers[account].remove(locker) (src/ForageToken.sol#341)
+ForageToken.unlockBatch(address[],uint256[]) (src/ForageToken.sol#345-363) ignores return value by _accountLockers[accounts[i]].remove(msg.sender) (src/ForageToken.sol#359)
+GuardianModule.guardianCancel(uint256) (src/GuardianModule.sol#187-209) ignores return value by IForageGovernorMinimal(governor).cancel(targets,values,calldatas,descriptionHash) (src/GuardianModule.sol#206)
+RISKUSD.setTransferExempt(address,bool) (src/RISKUSD.sol#232-242) ignores return value by _exemptAddressSet.add(account) (src/RISKUSD.sol#237)
+RISKUSD.setTransferExempt(address,bool) (src/RISKUSD.sol#232-242) ignores return value by _exemptAddressSet.remove(account) (src/RISKUSD.sol#239)
+StakingQueue._tryActiveForagePriceUsd() (src/StakingQueue.sol#1321-1349) ignores return value by (roundId,answer,updatedAt,answeredInRound) = IForagePriceOracle(oracle).latestRoundData() (src/StakingQueue.sol#1331-1348)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+
+Detector: cache-array-length
+Loop condition i < _guardianList.length (src/GuardianModule.sol#469) should use cached array length instead of referencing `length` member of the storage array.
+ Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#cache-array-length
+
+Detector: constable-states
+RISKUSDVault._vaultWindingDown (src/RISKUSDVault.sol#196) should be constant 
+VaultRegistry._deprecated_vaultCount (src/VaultRegistry.sol#81) should be constant 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#state-variables-that-could-be-declared-constant
+. analyzed (109 contracts with 63 detectors), 59 result(s) found
+OPENFORAGE_SLITHER_SUPPRESSION_GATE_R37_PASS detectors=59 suppressions=59
+node script/check_semgrep_rule_coverage.js .semgrep/openforage.yml
+OPENFORAGE_SEMGREP_RULE_COVERAGE_GLOB glob=**/src/**/*.sol matches=19
+OPENFORAGE_SEMGREP_RULE_COVERAGE_GLOB glob=**/src/**/*.sol matches=19
+OPENFORAGE_SEMGREP_RULE_COVERAGE_GLOB glob=**/src/RISKUSDVault.sol matches=1
+OPENFORAGE_SEMGREP_RULE_COVERAGE_PASS config=.semgrep/openforage.yml
+.venv/bin/semgrep --config .semgrep/openforage.yml --error
+               
+               
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 55 files tracked by git with 4 Code rules:
+  Scanning 55 files with 4 <multilang> rules.
+                
+                
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+✅ Scan completed successfully.
+ • Findings: 0 (0 blocking)
+ • Rules run: 4
+ • Targets scanned: 55
+ • Parsed lines: ~100.0%
+ • Scan skipped: 
+   ◦ Files matching .semgrepignore patterns: 192
+ • Scan was limited to files tracked by git
+ • For a detailed list of skipped files and lines, run semgrep with the --verbose flag
+Ran 4 rules on 55 files: 0 findings.
+If Semgrep missed a finding, please send us feedback to let us know!
+See https://semgrep.dev/docs/reporting-false-negatives/
