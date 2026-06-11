@@ -1,7 +1,7 @@
-# OpenForage Smart Contract Audit Snapshot
+# OpenForage Public Smart Contract Audit Snapshot
 
-This repository is a selective source snapshot for external review of the
-OpenForage smart contracts. It is not the private monorepo and is not a
+This public repository is a selective source snapshot for external review of
+the OpenForage smart contracts. It is not the private monorepo and is not a
 deployment repository.
 
 Agent export rules live in `AGENTS.md`. Any future refresh must be built as a
