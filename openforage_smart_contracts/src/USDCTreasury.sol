@@ -14,6 +14,12 @@ interface IUSDCTreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
 }
 
+interface IRISKUSDVaultLossSettlement {
+    function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external;
+    function coverAndBurnForLoss(uint256 vaultId, uint256 riskusdAmount, uint256 coverUsdcAmount) external;
+    function replenish(uint256 usdcAmount) external;
+}
+
 /// @title USDCTreasury
 /// @notice Single protocol-USDC router for target accounting and returned-cash earmarks.
 contract USDCTreasury is
@@ -171,6 +177,33 @@ contract USDCTreasury is
         if (amount == 0) revert ZeroAmount();
         totalPrincipalReturned += amount;
         emit PrincipalReturned(amount);
+    }
+
+    function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyOwner nonReentrant {
+        IRISKUSDVaultLossSettlement(riskusdVault).burnForLoss(vaultId, riskusdAmount);
+    }
+
+    function coverAndBurnForLoss(uint256 vaultId, uint256 riskusdAmount, uint256 coverUsdcAmount)
+        external
+        onlyOwner
+        nonReentrant
+    {
+        if (coverUsdcAmount != 0) {
+            _usdc.safeTransferFrom(msg.sender, address(this), coverUsdcAmount);
+            _usdc.forceApprove(riskusdVault, coverUsdcAmount);
+        }
+        IRISKUSDVaultLossSettlement(riskusdVault).coverAndBurnForLoss(vaultId, riskusdAmount, coverUsdcAmount);
+        if (coverUsdcAmount != 0) {
+            _usdc.forceApprove(riskusdVault, 0);
+        }
+    }
+
+    function replenish(uint256 usdcAmount) external onlyOwner nonReentrant {
+        if (usdcAmount == 0) revert ZeroAmount();
+        _usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+        _usdc.forceApprove(riskusdVault, usdcAmount);
+        IRISKUSDVaultLossSettlement(riskusdVault).replenish(usdcAmount);
+        _usdc.forceApprove(riskusdVault, 0);
     }
 
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external nonReentrant {

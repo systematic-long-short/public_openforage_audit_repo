@@ -18,6 +18,6 @@ Confirmed findings from this pass and Codex adversarial review:
 | R6-H-01 | High | Principal return path bypassed vault return accounting | Fixed |
 | P12-H-01 | High | Pre-existing unreconciled bridge dust could be misclassified as a new withdrawal arrival | Fixed |
 
-Supplemental pashov-style Codex MCP review thread `019eae1e-ed33-7491-bcf3-9d7dee4e8a0b` returned `AUDIT_RESULT: PASS` with no new C/H/M/L findings. Transcript summary is retained in `pashov-supplement.md`.
+Supplemental pashov-style Codex review under public reference pashov-review-A returned `AUDIT_RESULT: PASS` with no new C/H/M/L findings. Transcript summary is retained in `pashov-supplement.md`.
 
 No open Critical, High, Medium, or Low pattern findings remain in the current working set.

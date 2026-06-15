@@ -28,6 +28,9 @@ interface IRISKUSDVaultNAVPort {
 
 interface ICustodianRegistryAccountingPort {
     function HYPERLIQUID_CUSTODIAN_ID() external view returns (bytes32);
+    function ROLE_EXECUTOR() external view returns (bytes32);
+    function guardianModule() external view returns (address);
+    function hasCustodianRole(bytes32 id, bytes32 role, address account) external view returns (bool);
     function paused() external view returns (bool);
     function recordDeployment(bytes32 id, uint256 amount) external;
     function recordReturn(bytes32 id, uint256 amount) external;
@@ -73,6 +76,7 @@ contract HLTradingBridge is
     error BlocklistUnavailable(address blocklist);
     error RenounceOwnershipDisabled();
     error GuardianCannotLoosen();
+    error UnauthorizedVault(address caller);
 
     uint256 public constant DAY_SECONDS = 1 days;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
@@ -225,11 +229,8 @@ contract HLTradingBridge is
     {
         _requireKeeper();
         _requireNotBlocked(msg.sender);
-        if (block.timestamp > observedAt + DAY_SECONDS) revert StaleNAV();
-        if (_directionalFreeze && rawNav > _appliedNAV) revert DirectionFrozen();
 
-        uint256 maxUp = bookValue + (bookValue * 1_000 / BPS_DENOMINATOR);
-        uint256 applied = rawNav > maxUp ? maxUp : rawNav;
+        uint256 applied = _normalizeCustodianNAV(bookValue, rawNav, observedAt, _appliedNAV, true);
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
         _lastNAVObservedAt = observedAt;
@@ -346,7 +347,7 @@ contract HLTradingBridge is
 
     function setDirectionalFreeze(bool frozen) external {
         _requireGuardianModuleOrOwner();
-        if (msg.sender == guardianModule && !frozen) revert GuardianCannotLoosen();
+        if (msg.sender == _liveGuardianModule() && !frozen) revert GuardianCannotLoosen();
         _setDirectionalFreeze(frozen);
     }
 
@@ -356,7 +357,7 @@ contract HLTradingBridge is
     }
 
     function pause() external {
-        if (msg.sender != guardianModule && msg.sender != owner()) revert UnauthorizedPause();
+        if (msg.sender != _liveGuardianModule() && msg.sender != owner()) revert UnauthorizedPause();
         _pause();
     }
 
@@ -467,7 +468,7 @@ contract HLTradingBridge is
     }
 
     function _requireGuardianModuleOrOwner() internal view {
-        if (msg.sender != guardianModule && msg.sender != owner()) revert UnauthorizedPause();
+        if (msg.sender != _liveGuardianModule() && msg.sender != owner()) revert UnauthorizedPause();
     }
 
     function renounceOwnership() public view override onlyOwner {
@@ -590,6 +591,31 @@ contract HLTradingBridge is
         return _reconciledReturnLiquidity;
     }
 
+    function normalizeManualCustodianNAV(uint256, uint256 nav, uint256) external view returns (bool, uint256) {
+        if (msg.sender != riskusdVault) revert UnauthorizedVault(msg.sender);
+
+        uint256 observedAt = _lastNAVObservedAt;
+        uint256 bookValue = _lastNAVBookValue;
+
+        uint256 normalizedNav = _normalizeCustodianNAV(bookValue, nav, observedAt, _appliedNAV, false);
+        return (true, normalizedNav);
+    }
+
+    function _normalizeCustodianNAV(
+        uint256 bookValue,
+        uint256 rawNav,
+        uint256 observedAt,
+        uint256 currentAppliedNAV,
+        bool allowZeroBaseline
+    ) internal view returns (uint256) {
+        if (!allowZeroBaseline && (observedAt == 0 || bookValue == 0)) revert StaleNAV();
+        if (block.timestamp > observedAt + DAY_SECONDS) revert StaleNAV();
+        if (_directionalFreeze && rawNav > currentAppliedNAV) revert DirectionFrozen();
+
+        uint256 maxUp = bookValue + (bookValue * 1_000 / BPS_DENOMINATOR);
+        return rawNav > maxUp ? maxUp : rawNav;
+    }
+
     function _enforceDeployCaps(uint256 usdcE6) internal {
         if (block.number != _deployUsedBlockNum) {
             _deployUsedBlockNum = block.number;
@@ -668,7 +694,10 @@ contract HLTradingBridge is
     }
 
     function _requireExecutor() internal view {
-        if (msg.sender != _custodianExecutor) revert UnauthorizedExecutor();
+        ICustodianRegistryAccountingPort registry = ICustodianRegistryAccountingPort(custodianRegistry);
+        if (!registry.hasCustodianRole(registry.HYPERLIQUID_CUSTODIAN_ID(), registry.ROLE_EXECUTOR(), msg.sender)) {
+            revert UnauthorizedExecutor();
+        }
     }
 
     function _requireKeeper() internal view {
@@ -683,6 +712,12 @@ contract HLTradingBridge is
         } catch {
             revert BlocklistUnavailable(blocklist_);
         }
+    }
+
+    function _liveGuardianModule() internal view returns (address) {
+        address liveGuardianModule = ICustodianRegistryAccountingPort(custodianRegistry).guardianModule();
+        if (liveGuardianModule == address(0)) revert UnauthorizedPause();
+        return liveGuardianModule;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

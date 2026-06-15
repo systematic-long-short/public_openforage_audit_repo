@@ -1,16 +1,16 @@
 {
   "openforage_sentinel": "OPENFORAGE_SLITHER_SUPPRESSIONS_R37",
-  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-09 for the target smart-contract buildout; stale predecessor-contract suppressions removed and current target findings re-keyed by Slither ID.",
+  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-15 during Phase 17 final-run repair; accepted findings re-keyed by current Slither ID and newly surfaced equivalent zero-initialization/idempotent-return leads documented with rationales.",
   "max_suppression_days": 180,
   "suppressions": [
     {
       "detector": "cache-array-length",
       "file": "src/GuardianModule.sol",
       "name": "i < _guardianList.length",
-      "id": "b62b478954c029094589d2831f814b58a1f464c62e62e8ca2cd38ace1345bcc9",
+      "id": "bdb3a8204a5e5e7840e45eee3c46ec01c338042be483955b6b3efc707ea034a7",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. This is an optimization-only finding on the bounded seven-guardian list in a non-hot emergency validation path; guardian quorum and rotation tests cover the behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. This is an optimization-only finding on the bounded seven-guardian list in a non-hot emergency validation path; guardian quorum and rotation tests cover the behavior.",
       "owner": "OpenForage security"
     },
     {
@@ -77,10 +77,10 @@
       "detector": "divide-before-multiply",
       "file": "src/USDCTreasury.sol",
       "name": "returnPnLUSDC",
-      "id": "e225175b740828ab4ac6851c7aa9f74ba3308591c5ccb2bd9e3c39060ce21da0",
+      "id": "934662a64f70311aa5820040b10d7ecba836ca7c59d5bc599dc64189a8eab8f9",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Basis-point PnL allocation intentionally uses integer truncation and retained remainder accounting; USDCTreasury tests cover the protocol/Foundation split and cap behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Basis-point PnL allocation intentionally uses integer truncation and retained remainder accounting; USDCTreasury tests cover the protocol/Foundation split and cap behavior.",
       "owner": "OpenForage security"
     },
     {
@@ -267,17 +267,17 @@
       "detector": "incorrect-equality",
       "file": "src/USDCTreasury.sol",
       "name": "_resetEarmarkWindowIfExpired",
-      "id": "94bf4bf9dde678a79331bb50b3d56f8012783ef45e3b50ab72a1d1120747fa62",
+      "id": "3e08caca03c65cd549d0a6665ec5ebf8551971b6b9266913947e5e00de4cb75f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-balance",
       "file": "src/hyperliquid/HLTradingBridge.sol",
       "name": "deployToHyperLiquid",
-      "id": "46a401c336b0a3e963eabd8a0bdce84018bf98da55779358cf5382cfe84aa2c7",
+      "id": "646078da64bb3ed2ccf72a9818f946573aa3ca6a7495d0567ed7129b2b43584c",
       "created": "2026-06-09",
       "expires": "2026-12-06",
       "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh and refreshed after R8-M-01/R9-M-01. The bridge deploy path is nonReentrant, records the approved registry destination before measuring the vault transfer, calls the timelocked RISKUSDVault deploy port, requires an exact USDC balance delta, forwards that verified delta to the configured cold account, and updates deployed accounting only after the transfer succeeds.",
@@ -287,70 +287,70 @@
       "detector": "reentrancy-no-eth",
       "file": "src/FORAGETreasury.sol",
       "name": "distributePartnership",
-      "id": "8ed45361ef340ebb66b014f7f61f49e03afab4db600863bad1082ce8c1174441",
+      "id": "f9fb1b6b16c4b0edcd7080f39025fed5b25dbbed9949f173c7655af3f299e1ad",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Partnership distribution creates and configures a dedicated vesting wallet before recording aggregate distribution, and the wallet/token calls are to retained internal ports; FORAGETreasury target tests cover caps, blocklist, delegation, and distribution accounting.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Partnership distribution creates and configures a dedicated vesting wallet before recording aggregate distribution, and the wallet/token calls are to retained internal ports; FORAGETreasury target tests cover caps, blocklist, delegation, and distribution accounting.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "_processLane",
-      "id": "35433319d4fb66afe1f6c8bb9de2b5ab73b02ff1d7c9fecbcd0ab12a8c5ae930",
+      "id": "f284aa4698757dcbb30b524fca7b4c7b921415571529739b970e83521119b9fc",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "adminCancelQueue",
-      "id": "bef515308779c305fbb74316ff2ab6fece9f73663e76b1627075a468679f5863",
+      "id": "2774b3857ae022b0d19514fdc8659d1015279d27993a3a2de19d4193cdb9affd",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "cancelQueue",
-      "id": "21ac71223f0f03526b1b4468406bd6ea8a890acc92fda70f1b718392cc6b839a",
+      "id": "b036782ae0e96cc53f07de92d8b53d1b11661b7e0d95a73dad7d1e774a186bed",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "34e5e14bce8f5f252f62a596b81a6d1c0c78636dd0c8182f95a7ca3b61d40048",
+      "id": "10fe2fb8a959f093d2d719a36ec56d10d7d32923aae157b8baaeba3699324108",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "dfd58069f527ff2b81e2d7b92c694a68b14b5b67ba8822542dc1ab79e8ee34a3",
+      "id": "f1a13e306b012281d70b2b80b9abb7f2e177f2eabbf15ae035c2581a19d1352b",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "retryForageUnlock",
-      "id": "e0a3c1bc066cfd534690067e77a438127a47cf68437ff1e0b387c0928f541f05",
+      "id": "7b24ac325bab0bc40aaafa0e119378cae2f72d6bd77b8e0a9465970732ea12b3",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
@@ -375,12 +375,42 @@
     },
     {
       "detector": "uninitialized-local",
+      "file": "src/ForageToken.sol",
+      "name": "trackedActiveVotes",
+      "id": "7a47d00859dbc5b2c419235f2c888d2ccc0312cfa2e85ee16179288dad292fa1",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. Solidity zero-initialization is intentional for the active delegated-vote accumulator before the loop sums current source balances; ForageToken vote/blocklist tests cover live and historical vote adjustment paths.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "uninitialized-local",
+      "file": "src/ForageToken.sol",
+      "name": "trackedHistoricalVotes",
+      "id": "2de189974ba89aae869049f2c65b0640a858445fb5e1770e022034bfc7a36ff8",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. Solidity zero-initialization is intentional for the historical delegated-vote accumulator before the loop sums source checkpoints; ForageToken vote/blocklist tests cover live and historical vote adjustment paths.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "uninitialized-local",
       "file": "src/GuardianModule.sol",
       "name": "failureCount",
       "id": "806f4a86ab089d2acf00801321e00f4af29b03391d0ef1303f1be7f50862038f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
       "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Solidity zero-initialization is relied on intentionally for counters, flags, arrays, and aggregate totals inside deterministic loops; tests cover the affected queue, registry, governor, and token paths.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "uninitialized-local",
+      "file": "src/RISKUSDVault.sol",
+      "name": "offset",
+      "id": "546c8c16f7c2901b21f9352af88e9c18d0dc23420f110bec130239b49e35ee03",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. Solidity zero-initialization is intentional for the vault-registry pagination offset before scanning active tier assets; deployment-buffer tests cover the registered-tier scan path.",
       "owner": "OpenForage security"
     },
     {
@@ -397,10 +427,10 @@
       "detector": "uninitialized-local",
       "file": "src/StakingQueue.sol",
       "name": "isPriority",
-      "id": "aa1046a144db296d280f4a6dd9837f5b2ea9f1be6d00f4d27307201c7668b673",
+      "id": "81d4f32b0a25228ddf2ae010d30ce27c95e557f6b0966a3b246dccd268b62401",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Solidity zero-initialization is relied on intentionally for counters, flags, arrays, and aggregate totals inside deterministic loops; tests cover the affected queue, registry, governor, and token paths.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Solidity zero-initialization is relied on intentionally for counters, flags, arrays, and aggregate totals inside deterministic loops; tests cover the affected queue, registry, governor, and token paths.",
       "owner": "OpenForage security"
     },
     {
@@ -506,61 +536,131 @@
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
+      "name": "_setDelegateSource",
+      "id": "5ab1d0e59708b9b1e1e1cdc0857a392a39d1ecb5fd2111c110c211bd36ab426b",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_setDelegateSource",
+      "id": "7e4e8ba8f1fde3e41e46ca068fbe2e4dca48ed8ec153a5a02d42face33a8ed5b",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_setDelegateSource",
+      "id": "b481ac4bf3d2777647c920bf1cf769334ee0ba1dc9239285a333408857852195",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_setDelegateSource",
+      "id": "f8bf60157bccf40c19258f67b3af7032ef2a4217cc9f95cf0a1fa6abdff37e99",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_syncDelegateSourceContribution",
+      "id": "049b744ad117e892aa6c95b3adc00b372800e6b5ddc341736b5622399664de03",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add operations while delegate-source checkpoint writing enforces the intended post-state; ForageToken delegation/blocklist tests cover this path.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_syncDelegateSourceContribution",
+      "id": "3d89673fc34d626f5e663d5e7f93592ae4e90c7888933b4520035b6acc8b6070",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add operations while delegate-source checkpoint writing enforces the intended post-state; ForageToken delegation/blocklist tests cover this path.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_writeDelegateSourceCheckpoint",
+      "id": "e536517096321664587bc35ec09a14bf28b300ef3cd449ec9e1b695769f5cf03",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is the checkpoint library return value; the side effect is the checkpoint append itself, covered by ForageToken historical vote tests.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
       "name": "burn",
-      "id": "2ff551103aa637b6da947f9288a7fa8e4de109871c179db42e3a59f650cba125",
+      "id": "0cb8e18122ee6385e1e44881c720ed942609501d05be601f507e1fdfe1d2025d",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "emergencyUnlock",
-      "id": "c86e78dee4f4299e538eeb1d0c73052022a94252af495c9ada723b750ca543e1",
+      "id": "a1821f5c5cf663487492c3ac0a234d7aab764902da2122f443f6d3b4edaafaa5",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "lock",
-      "id": "edbf319049a2a1eac8bc2687d0fcf883d6ed9f6f77d8e1bede463140b5430f89",
+      "id": "6536f8e92ea25b56e06c67d4a2a4a62219bac0741cad6be11de8ae2b3f1870fa",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "unlock",
-      "id": "8c7a33633f3edacf00af3b25d4d5352adcf23a28af86364f5dc741add1319d7a",
+      "id": "178bc6f0e5630e98a8bc33bad9aa5948f44e352a5a24b1b1efed065fb22888b9",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "unlockBatch",
-      "id": "8a623a7af7e3c350daf59b12ef471ff12cd12e216c0db93bfe345272b4c6baae",
+      "id": "8ce6229f58296c8d5b0010a50411c49eabecdb6547f614744d4ebe787448411f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The ignored return is from an idempotent EnumerableSet add/remove operation where the desired post-state is enforced by surrounding token logic and tests.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/GuardianModule.sol",
       "name": "guardianCancel",
-      "id": "e99dc46f01da0fb321c115a096a8d0cc55436733af27c8b327614864de44d2ad",
+      "id": "3ed5b266236afd2871a844afe69bfabdc3344413dda57030a779f654291d240c",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Governor cancel either reverts or completes through the typed governor port; guardian cancellation tests cover the retained behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Governor cancel either reverts or completes through the typed governor port; guardian cancellation tests cover the retained behavior.",
       "owner": "OpenForage security"
     },
     {
@@ -587,10 +687,10 @@
       "detector": "unused-return",
       "file": "src/StakingQueue.sol",
       "name": "_tryActiveForagePriceUsd",
-      "id": "8e40013c970f9b536a940559ffbcb342c1ebe1b59b1f0443debcea675e0fe4cd",
+      "id": "332dcde3e40c95c424f5e444fd5651aa214802311c75c3f223ad5f43d689d359",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path.",
       "owner": "OpenForage security"
     }
   ]

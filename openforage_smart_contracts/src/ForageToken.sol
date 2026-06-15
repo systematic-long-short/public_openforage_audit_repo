@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20VotesUpg
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./interfaces/IBlocklist.sol";
 
@@ -16,6 +17,7 @@ contract ForageToken is
     ERC20VotesUpgradeable,
     UUPSUpgradeable
 {
+    using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // Custom errors
@@ -65,9 +67,12 @@ contract ForageToken is
     mapping(address => mapping(address => uint256)) internal _lockerBalances;
     mapping(address => EnumerableSet.AddressSet) private _accountLockers;
     address internal _blocklist;
+    mapping(address => EnumerableSet.AddressSet) private _delegateSources;
+    mapping(address => EnumerableSet.AddressSet) private _historicalDelegateSources;
+    mapping(address => mapping(address => Checkpoints.Trace208)) private _delegateSourceCheckpoints;
 
     /// @dev Reserved storage gap for future upgrades
-    uint256[47] private __gap;
+    uint256[44] private __gap;
 
     // ── OF-001: Timestamp-based clock for Arbitrum L2 compatibility ──
     // OZ default uses block.number, but Arbitrum produces blocks at ~250ms,
@@ -121,7 +126,18 @@ contract ForageToken is
         if (delegatee != address(0)) {
             _requireNotBlocked(delegatee);
         }
+        address oldDelegate = delegates(account);
         super.delegate(delegatee);
+        _setDelegateSource(account, oldDelegate, delegatee);
+    }
+
+    function getVotes(address account) public view override returns (uint256) {
+        return _liveUnblockedVotes(account, super.getVotes(account));
+    }
+
+    function getPastVotes(address account, uint256 timepoint) public view override returns (uint256) {
+        uint256 checkpointVotes = super.getPastVotes(account, timepoint);
+        return _pastUnblockedVotes(account, timepoint, checkpointVotes);
     }
 
     function delegateBySig(
@@ -137,6 +153,19 @@ contract ForageToken is
         override
     {
         revert DelegationBySignatureDisabled();
+    }
+
+    /// @notice Seeds delegate-source trackers for delegations that existed before this implementation.
+    /// @dev Pre-upgrade delegated votes fail closed while source tracking is missing or incomplete.
+    /// Sources are intentionally allowed to already be blocked.
+    function syncDelegateSources(address[] calldata sources) external onlyOwner {
+        for (uint256 i; i < sources.length;) {
+            if (sources[i] == address(0)) revert ZeroAddress();
+            _syncDelegateSourceContribution(sources[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// @notice OF-16-003: CRITICAL INTEGRATION REQUIREMENT — When burn causes balance < locked,
@@ -415,6 +444,9 @@ contract ForageToken is
         }
 
         super._update(from, to, value);
+
+        _syncDelegateSourceContribution(from);
+        _syncDelegateSourceContribution(to);
     }
 
     function renounceOwnership() public pure override {
@@ -428,5 +460,104 @@ contract ForageToken is
         if (blocklist_ != address(0) && IBlocklist(blocklist_).isBlocked(account)) {
             revert BlockedAddress(account);
         }
+    }
+
+    function _setDelegateSource(address source, address oldDelegate, address newDelegate) internal {
+        if (oldDelegate != address(0)) {
+            _delegateSources[oldDelegate].remove(source);
+            _historicalDelegateSources[oldDelegate].add(source);
+            _writeDelegateSourceCheckpoint(oldDelegate, source, 0);
+        }
+        if (newDelegate != address(0)) {
+            _delegateSources[newDelegate].add(source);
+            _historicalDelegateSources[newDelegate].add(source);
+            _writeDelegateSourceCheckpoint(newDelegate, source, balanceOf(source));
+        }
+    }
+
+    function _syncDelegateSourceContribution(address source) internal {
+        if (source == address(0)) return;
+        address delegatee = delegates(source);
+        if (delegatee == address(0)) return;
+
+        _delegateSources[delegatee].add(source);
+        _historicalDelegateSources[delegatee].add(source);
+        _writeDelegateSourceCheckpoint(delegatee, source, balanceOf(source));
+    }
+
+    function _writeDelegateSourceCheckpoint(address delegatee, address source, uint256 votes) internal {
+        _delegateSourceCheckpoints[delegatee][source].push(clock(), uint208(votes));
+    }
+
+    function _delegateSourcePastVotes(address delegatee, address source, uint256 timepoint)
+        internal
+        view
+        returns (uint256)
+    {
+        return _delegateSourceCheckpoints[delegatee][source].upperLookupRecent(uint48(timepoint));
+    }
+
+    function _liveUnblockedVotes(address delegatee, uint256 checkpointVotes) internal view returns (uint256) {
+        address blocklist_ = _blocklist;
+        if (blocklist_ == address(0)) return checkpointVotes;
+        if (IBlocklist(blocklist_).isBlocked(delegatee)) return 0;
+
+        EnumerableSet.AddressSet storage sources = _delegateSources[delegatee];
+        uint256 sourceCount = sources.length();
+        if (sourceCount == 0) return 0;
+
+        uint256 adjustedVotes = checkpointVotes;
+        uint256 trackedActiveVotes;
+        for (uint256 i; i < sourceCount;) {
+            address source = sources.at(i);
+            if (delegates(source) == delegatee) {
+                uint256 sourceVotes = balanceOf(source);
+                trackedActiveVotes += sourceVotes;
+                if (IBlocklist(blocklist_).isBlocked(source)) {
+                    if (sourceVotes >= adjustedVotes) {
+                        return 0;
+                    }
+                    adjustedVotes -= sourceVotes;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        if (trackedActiveVotes < adjustedVotes) return trackedActiveVotes;
+        return adjustedVotes;
+    }
+
+    function _pastUnblockedVotes(address delegatee, uint256 timepoint, uint256 checkpointVotes)
+        internal
+        view
+        returns (uint256)
+    {
+        address blocklist_ = _blocklist;
+        if (blocklist_ == address(0)) return checkpointVotes;
+        if (IBlocklist(blocklist_).isBlocked(delegatee)) return 0;
+
+        EnumerableSet.AddressSet storage sources = _historicalDelegateSources[delegatee];
+        uint256 sourceCount = sources.length();
+        if (sourceCount == 0) return 0;
+
+        uint256 adjustedVotes = checkpointVotes;
+        uint256 trackedHistoricalVotes;
+        for (uint256 i; i < sourceCount;) {
+            address source = sources.at(i);
+            uint256 sourceVotes = _delegateSourcePastVotes(delegatee, source, timepoint);
+            trackedHistoricalVotes += sourceVotes;
+            if (IBlocklist(blocklist_).isBlocked(source)) {
+                if (sourceVotes >= adjustedVotes) {
+                    return 0;
+                }
+                adjustedVotes -= sourceVotes;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        if (trackedHistoricalVotes < adjustedVotes) return trackedHistoricalVotes;
+        return adjustedVotes;
     }
 }

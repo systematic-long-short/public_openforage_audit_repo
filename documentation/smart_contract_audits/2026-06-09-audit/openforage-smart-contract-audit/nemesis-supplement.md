@@ -1,24 +1,22 @@
 # Supplemental Nemesis-Style Review
 
-Reviewer surface: official Codex MCP, read-only sandbox.
+Reviewer surface: public supplemental review, read-only sandbox.
 
-Thread: `019eae28-c0de-7c23-a2f4-f0e813e06dcf`.
+Public review reference: `public-review-2026-06-09-nemesis`.
 
-Prompt basis: apply `.claude/skills/nemesis-auditor/SKILL.md`, including the
-Feynman/state-inconsistency feedback loop, and
-`.claude/skills/openforage-smart-contract-audit/references/audit-discipline.md`
-to the current worktree.
+Review profile: nemesis-style supplemental deep-logic review with
+state-inconsistency analysis and OpenForage audit discipline.
 
 Result:
 
 ```json
 {
-  "task_id": "T-SCMA-NEMESIS-SUPPLEMENT",
+  "review_id": "public-review-2026-06-09-nemesis",
   "verdict": "PASS",
   "reason": "No new in-scope Critical/High/Medium/Low deep-logic issue was found. Bridge, vault, and treasury accounting now separate deployed principal, reconciled return liquidity, unreconciled dust, principal returns, and PnL returns; stale or loss-pending NAV blocks further deployment; principal return updates vault deployed accounting before treasury bookkeeping; reconciliation is checkpointed against unreconciled balance so pre-existing dust is not mistaken for a new arrival.",
   "findings": [],
   "conditions": [],
-  "model_effort": "Codex MCP runtime; exact model and reasoning-effort setting were not exposed to this session; no model/effort downgrade was set by the reviewer."
+  "execution_note": "Public summary retains the review role, verdict, and residual trust boundaries without internal thread or prompt-path identifiers."
 }
 ```
 

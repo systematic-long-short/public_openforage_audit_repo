@@ -42,7 +42,7 @@ Current evidence:
 - R16-M-02 has red/green expiry-ordering proof in `_audit_work/logs/red-r16-m02-mainnet-config-finalizes-before-expiry.log` and `_audit_work/logs/green-r16-m02-mainnet-config-finalizes-before-expiry.log`; the latest deploy-mainnet target suite passes 6 tests in `_audit_work/logs/forge-test-deploy-mainnet-target-r16-m02.log`.
 - R10-L-01/R10-L-02 are fixed by the target-design update and recaptured static-analysis log.
 - R11-L-01 is fixed by the K-13 user-journey projection update.
-- Final Codex Round 13 after the R16-M02 fix returned `AUDIT_RESULT` PASS with no findings on thread `019eb0bd-a47d-7db1-a6c8-923ad77db635`; post-M02 Phase 13 security, Phase 9 reuse, and Phase 8 architecture re-reviews also passed on threads `019eb0c5-fc57-76e0-aa4e-bc9d37e1ee25`, `019eb0cb-2081-7c90-8d22-f8aab90e01b9`, and `019eb0ce-f16a-76c1-a143-16b8ea89a2d8`.
+- Final Codex Round 13 after the R16-M02 fix returned `AUDIT_RESULT` PASS with no findings under public review reference R13; post-M02 Phase 13 security, Phase 9 reuse, and Phase 8 architecture re-reviews also passed under public review references post-M02-security, post-M02-reuse, and post-M02-architecture.
 
 ## Conclusion
 

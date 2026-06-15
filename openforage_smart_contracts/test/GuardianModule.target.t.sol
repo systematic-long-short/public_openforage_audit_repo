@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import "../src/CustodianRegistry.sol";
 import "../src/GuardianModule.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
 import "./mocks/MockUSDC.sol";
@@ -27,6 +28,7 @@ contract TargetGovernorForGuardian {
 contract GuardianModule_TargetRecovery is Test {
     GuardianModule internal guardianModule;
     HLTradingBridge internal bridge;
+    CustodianRegistry internal custodianRegistry;
     MockUSDC internal usdc;
     TargetPausableForGuardian internal pausableTarget;
     TargetGovernorForGuardian internal governor;
@@ -43,7 +45,6 @@ contract GuardianModule_TargetRecovery is Test {
     address internal executor = makeAddr("executor");
     address internal riskusdVault = makeAddr("riskusd-vault");
     address internal usdcTreasury = makeAddr("usdc-treasury");
-    address internal custodianRegistry = makeAddr("custodian-registry");
     address[7] internal guardians;
 
     function setUp() public {
@@ -64,6 +65,11 @@ contract GuardianModule_TargetRecovery is Test {
         guardianModule = GuardianModule(address(proxy));
         governor.setGuardianModule(address(guardianModule));
 
+        CustodianRegistry registryImplementation = new CustodianRegistry();
+        bytes memory registryInit =
+            abi.encodeCall(CustodianRegistry.initialize, (timelock, address(governor), address(guardianModule)));
+        custodianRegistry = CustodianRegistry(address(new ERC1967Proxy(address(registryImplementation), registryInit)));
+
         pausableTarget = new TargetPausableForGuardian();
 
         usdc = new MockUSDC();
@@ -74,7 +80,7 @@ contract GuardianModule_TargetRecovery is Test {
                 address(usdc),
                 riskusdVault,
                 usdcTreasury,
-                custodianRegistry,
+                address(custodianRegistry),
                 timelock,
                 keeper,
                 executor,

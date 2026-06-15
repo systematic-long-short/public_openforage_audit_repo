@@ -1,23 +1,22 @@
 # OpenForage Audit Snapshot Agent Guide
 
 This repository is a public-safe smart-contract audit snapshot. It must never
-be refreshed by copying broad private-monorepo directories or by preserving
-private history.
+be refreshed by copying broad private-monorepo directories or by importing
+private history. Refreshes are append-only through pull requests so reviewers
+can audit the diff, scans, and merge trace.
 
 ## Refresh Procedure
 
 1. Start from a fresh clone of the private OpenForage source repository and a
    fresh clone of this audit repository.
-2. Back up the current private audit-repo refs before any history replacement.
-   Store that backup outside any public repository.
-3. Build the audit repository as a fresh orphan/single-commit snapshot. Do not
-   preserve earlier audit-repo commits.
-4. Stage only the allowlisted paths below. Do not use `git add -A` from a
+2. Create a named refresh branch from the current `origin/main`.
+3. Stage only the allowlisted paths below. Do not use `git add -A` from a
    private-monorepo checkout.
-5. Run the disclosure scans below against both the working tree and all refs in
-   the replacement snapshot.
-6. Push the replacement only after `git rev-list --count HEAD` returns `1` and
-   the forbidden-path scans return no matches.
+4. Run the disclosure scans below against the branch working tree and commit.
+5. Push the branch, open a pull request, and put the scan/test evidence in the
+   PR body or a PR comment.
+6. Merge the PR only after the forbidden-path scans return no matches and the
+   public diff has been reviewed. Do not force-push or rewrite `main`.
 
 ## Allowlist
 
@@ -36,6 +35,8 @@ Only these paths may be present in the public snapshot:
 - `documentation/smart_contract/`
 - `documentation/smart_contract_audits/2026-06-09-audit/`, with private
   absolute paths scrubbed from retained logs
+- `documentation/smart_contract_audits/2026-06-12-external-audit/`, with
+  external-audit triage and overlap analysis only
 
 ## Never Export
 
@@ -63,15 +64,16 @@ submodule pins only.
 Run these before pushing a refreshed snapshot:
 
 ```bash
-git rev-list --count HEAD
+git status --short
 git ls-tree -r --name-only HEAD | rg '^(openforage_library|web|plans|projects|\\.claude|\\.codex)(/|$)'
 rg -n --pcre2 '0x[a-fA-F0-9]{40}' openforage_smart_contracts/script
-rg -n --hidden --glob '!**/.git/**' --glob '!AGENTS.md' '(/home/[^[:space:]]+|private_openforage|\\.claude/worktrees)' .
-rg -n --hidden --glob '!**/.git/**' --glob '!AGENTS.md' --pcre2 "(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|ya29\\.[0-9A-Za-z_-]+|xox[baprs]-[0-9A-Za-z-]{20,}|ghp_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}|sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|postgres(?:ql)?://[^[:space:]\"']+|eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,})" .
+rg -n --hidden --glob '!**/.git/**' --glob '!AGENTS.md' --glob '!openforage_smart_contracts/lib/**' '(/home/[^[:space:]]+|private_openforage|\\.claude/worktrees)' .
+rg -n --hidden --glob '!**/.git/**' --glob '!AGENTS.md' --glob '!openforage_smart_contracts/lib/**' --pcre2 "(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|ya29\\.[0-9A-Za-z_-]+|xox[baprs]-[0-9A-Za-z-]{20,}|ghp_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}|sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|postgres(?:ql)?://[^[:space:]\"']+|eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,})" .
 ```
 
-Expected result: the history count is `1`; the tree-path scan returns no
-matches; the script address scan returns no raw deployed-address literals; the
-content and secret scans outside `AGENTS.md` return no live-looking private
-source, local path, credential, or token material. Example credentials in
-documentation should be placeholders only.
+Expected result: the working tree contains only the intended refresh diff; the
+tree-path scan returns no matches; the script address scan returns no raw
+deployed-address literals; the content and secret scans outside `AGENTS.md`
+and outside pinned third-party submodules return no live-looking private source,
+local path, credential, or token material. Example credentials in documentation
+should be placeholders only.
