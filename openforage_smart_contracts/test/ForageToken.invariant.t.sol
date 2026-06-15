@@ -129,8 +129,7 @@ contract ForageToken_TC12_Invariants is Test {
 
         ForageToken impl = new ForageToken();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner))
+            address(impl), abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner))
         );
         token = ForageToken(address(proxy));
 
@@ -205,10 +204,7 @@ contract ForageToken_TC12_Invariants is Test {
 
     /// @dev R-10: Allocation constants sum to TOTAL_SUPPLY
     function invariant_allocationSumMatchesTotalSupply() public view {
-        assertEq(
-            token.TEAM_VESTING_ALLOCATION() + token.FORAGE_TREASURY_ALLOCATION(),
-            token.TOTAL_SUPPLY()
-        );
+        assertEq(token.TEAM_VESTING_ALLOCATION() + token.FORAGE_TREASURY_ALLOCATION(), token.TOTAL_SUPPLY());
         assertEq(
             token.AGENT_ALLOCATION() + token.DEPOSITOR_ALLOCATION() + token.PARTNERSHIP_ALLOCATION(),
             token.FORAGE_TREASURY_ALLOCATION()

@@ -153,6 +153,7 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
 
         wallet = address(new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this)));
         DelegatingVestingWallet(wallet).setInitialDelegatee(delegatee);
+        DelegatingVestingWallet(wallet).setBlocklist(blocklist);
         _forageToken.safeTransfer(wallet, amount);
         DelegatingVestingWallet(wallet).precommitForageToken(address(_forageToken));
         DelegatingVestingWallet(wallet).setForageToken(address(_forageToken));

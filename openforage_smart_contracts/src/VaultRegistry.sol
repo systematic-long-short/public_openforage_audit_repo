@@ -440,6 +440,31 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         return _allVaultIds;
     }
 
+    function getVaultsPage(uint256 offset, uint256 limit)
+        external
+        view
+        returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
+    {
+        total = _allVaultIds.length;
+        if (offset >= total || limit == 0) {
+            return (new uint256[](0), total, total);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        ids = new uint256[](end - offset);
+        for (uint256 i; i < ids.length;) {
+            ids[i] = _allVaultIds[offset + i];
+            unchecked {
+                ++i;
+            }
+        }
+        nextOffset = end;
+    }
+
     function vaultCount() external view returns (uint256) {
         return _allVaultIds.length;
     }

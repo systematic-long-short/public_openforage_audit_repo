@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../../src/VaultRegistry.sol";
+import "../../src/interfaces/IVaultRegistry.sol";
 
 /// @title MockVaultRegistry — Test mock for VaultRegistry
 /// @notice Provides a writable mock that stores vault configs in memory for test setup.
 ///         Uses `addTestVault` (not `addVault`) to avoid name collision with the real interface.
-contract MockVaultRegistry {
-    // Re-export types from VaultRegistry
+contract MockVaultRegistry is IVaultRegistry {
+    // Re-export types from IVaultRegistry.
     using {_toConfig} for VaultConfig;
 
     mapping(uint256 => VaultConfig) private _vaults;
@@ -66,7 +66,7 @@ contract MockVaultRegistry {
 
     // ── View functions matching VaultRegistry interface ──
 
-    function getVault(uint256 vaultId_) external view returns (VaultConfig memory) {
+    function getVault(uint256 vaultId_) external view override returns (VaultConfig memory) {
         require(_vaults[vaultId_].vaultId != 0, "MockVaultRegistry: invalid vault id");
         return _vaults[vaultId_];
     }
@@ -88,9 +88,34 @@ contract MockVaultRegistry {
         return result;
     }
 
-    function getAllVaults() external view returns (uint256[] memory) {
+    function getAllVaults() external view override returns (uint256[] memory) {
         return _allVaultIds;
     }
+
+    function getVaultsPage(uint256 offset, uint256 limit)
+        external
+        view
+        override
+        returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
+    {
+        total = _allVaultIds.length;
+        if (offset >= total || limit == 0) {
+            return (new uint256[](0), total, total);
+        }
+
+        uint256 end = offset + limit;
+        if (end > total) end = total;
+        ids = new uint256[](end - offset);
+        for (uint256 i; i < ids.length;) {
+            ids[i] = _allVaultIds[offset + i];
+            unchecked {
+                ++i;
+            }
+        }
+        nextOffset = end;
+    }
+
+    function notifyLossResolved() external override {}
 
     function vaultCount() external view returns (uint256) {
         return _allVaultIds.length;

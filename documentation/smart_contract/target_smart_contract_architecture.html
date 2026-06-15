@@ -1505,8 +1505,9 @@
       This section now separates the historical grounding that shaped the target from the
       current implementation proof. The old source files named below explain what was
       consolidated; the current authority is the merged production source under
-      <code>openforage_smart_contracts/src/</code> and the retained audit evidence in
-      <code>documentation/smart_contract_audits/2026-06-09-audit/</code>.
+      <code>openforage_smart_contracts/src/</code>, the Arbitrum Sepolia deployment manifest,
+      and the A25 testnet proof captured in
+      <code>projects/target-sc-gap-buildout-2026-06-08/implementation-notes.md</code>.
     </p>
     <table>
       <thead>
@@ -1516,7 +1517,7 @@
         <tr><td><strong>24 → 14 contracts</strong> (16 Arbitrum + 8 HL → 13 + 1)</td><td><code>openforage_smart_contracts/src/</code> now contains the target contract set, including <code>USDCTreasury.sol</code>, <code>FORAGETreasury.sol</code>, and <code>hyperliquid/HLTradingBridge.sol</code>. The old treasury and HyperEVM/CCIP production contracts are absent from active source.</td></tr>
         <tr><td><strong>USDCTreasury</strong> = ProtocolTreasury + FundingTreasury</td><td>Implemented in <code>openforage_smart_contracts/src/USDCTreasury.sol</code>. It carries the deliberate redesign: accounting/cash split, <code>returnPrincipalUSDC</code>, <code>returnPnLUSDC</code>, purpose-keyed <code>disburse</code>, failover wallets, and the 50%-of-protocol-share Foundation rule.</td></tr>
         <tr><td><strong>FORAGETreasury</strong> = RewardPool + DepositorPool + Partnerships</td><td>Implemented in <code>openforage_smart_contracts/src/FORAGETreasury.sol</code>. It holds the 80M non-team FORAGE treasury and runs agent Merkle, depositor Merkle, partnership distribution, sweep, and delegation flows.</td></tr>
-        <tr><td><strong>FORAGE allocations &amp; team-direct mint</strong> (80M → FORAGETreasury, 20M → team wallet)</td><td>Implemented through <code>ForageToken</code> and the target deployment path. Deployment manifests and addresses are intentionally omitted from this public-safe snapshot.</td></tr>
+        <tr><td><strong>FORAGE allocations &amp; team-direct mint</strong> (80M → FORAGETreasury, 20M → team wallet)</td><td>Implemented through <code>ForageToken</code> and the target deployment manifest; Arbitrum Sepolia maps <code>forageTreasury</code> to <code>0xCc847C14d848057Ee6c89c62500a888DCb729eBb</code>.</td></tr>
         <tr><td><strong>HL 8 → 1; trading off-chain</strong></td><td>Implemented in <code>openforage_smart_contracts/src/hyperliquid/HLTradingBridge.sol</code>. The old <code>HLTradingVault</code>, modules, executor proxy, CCIP sender, and bridge adapter are absent from active production source.</td></tr>
         <tr><td><strong>The caps that bound the off-chain desk (preserved)</strong></td><td><code>HLTradingBridge.sol</code> enforces $1M/block and $5M/day deploy caps, 10% NAV-upside clamp, 24h staleness, 10% return caps, arrival reconciliation, and directional freeze.</td></tr>
         <tr><td><strong>EOA custody is required (contract withdraw3 rejected)</strong></td><td><code>documentation/runbooks/hl_wet_eoa_custodian_authority.md</code> and project memory (HyperLiquid rejects contract-account <code>withdraw3</code>: "Vault may not perform this action").</td></tr>
@@ -1527,9 +1528,9 @@
     </table>
     <div class="note" style="margin-top:16px">
       <p><strong>On status and addresses.</strong> This is now an <strong>implemented target</strong>
-      document for the repository and Arbitrum Sepolia. Testnet deployment
-      manifests and addresses are intentionally omitted from this public-safe
-      snapshot. The latest A25 proof completed the deposit/deploy/off-chain-trade-boundary/keeper-NAV/settle/return/rotate/freeze
+      document for the repository and Arbitrum Sepolia. Testnet addresses live in
+      <code>openforage_smart_contracts/deployments/arbitrum-sepolia/latest.json</code>.
+      The latest A25 proof completed the deposit/deploy/off-chain-trade-boundary/keeper-NAV/settle/return/rotate/freeze
       path and left the Sepolia deployment intentionally post-tail frozen. Mainnet addresses are still absent because
       external audit sign-off and mainnet deployment remain later steps.</p>
     </div>

@@ -53,6 +53,8 @@ contract StakingQueue is
         bool processed;
         bool cancelled;
         bool priority;
+        uint256 minimumShares;
+        uint256 deadline;
     }
 
     struct TierDepositCap {
@@ -172,6 +174,9 @@ contract StakingQueue is
         uint256 indexed entryId, address indexed depositor, address indexed recipient, uint256 amount
     );
     event QueueEntrySkippedBlocked(uint256 indexed entryId, address indexed depositor);
+    event QueueEntryBoundsUpdated(
+        uint256 indexed queueId, address indexed depositor, uint256 minimumShares, uint256 deadline
+    );
     event ForageUnlockFailed(address indexed depositor, uint256 amount);
     event TierVaultsSynced(address[4] newTierVaults); // OF-13-027
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
@@ -320,6 +325,42 @@ contract StakingQueue is
     // -- State-changing functions --
 
     function joinQueue(uint256 riskusdAmount, uint8 tier) external whenNotPaused nonReentrant {
+        _joinQueue(riskusdAmount, tier, 0, 0);
+    }
+
+    function joinQueueWithBounds(uint256 riskusdAmount, uint8 tier, uint256 minimumShares, uint256 deadline)
+        external
+        whenNotPaused
+        nonReentrant
+    {
+        if (minimumShares == 0) revert ZeroAmount();
+        if (deadline < block.timestamp) revert InvalidQueueEntry();
+        _joinQueue(riskusdAmount, tier, minimumShares, deadline);
+    }
+
+    function setQueueEntryBounds(uint256 queueId, uint256 minimumShares, uint256 deadline)
+        external
+        whenNotPaused
+        nonReentrant
+    {
+        if (minimumShares == 0) revert ZeroAmount();
+        if (deadline < block.timestamp) revert InvalidQueueEntry();
+        QueueEntry storage entry = _queueEntries[queueId];
+        if (entry.depositor == address(0)) revert InvalidQueueEntry();
+        if (msg.sender != entry.depositor) revert NotQueueEntryDepositor();
+        if (entry.processed) revert QueueEntryAlreadyProcessed();
+        if (entry.cancelled) revert QueueEntryAlreadyCancelled();
+        if (entry.priority) revert InvalidQueueEntry();
+        _requireNotBlocked(msg.sender);
+
+        entry.minimumShares = minimumShares;
+        entry.deadline = deadline;
+        _rewindStandardHeadToEntry(entry.tier, queueId);
+
+        emit QueueEntryBoundsUpdated(queueId, msg.sender, minimumShares, deadline);
+    }
+
+    function _joinQueue(uint256 riskusdAmount, uint8 tier, uint256 minimumShares, uint256 deadline) internal {
         if (riskusdAmount == 0) revert ZeroAmount();
         if (tier >= 4) revert InvalidTier();
         if (_vaultId == 0) revert VaultIdNotSet();
@@ -327,6 +368,11 @@ contract StakingQueue is
         {
             VaultConfig memory config = VaultRegistry(_vaultRegistry).getVault(_vaultId);
             if (config.status != VaultStatus.Active) revert VaultNotActive();
+        }
+        if (minimumShares == 0) {
+            minimumShares = _minimumDepositShares(_tierVaults[tier], riskusdAmount);
+            if (minimumShares == 0) minimumShares = 1;
+            deadline = type(uint256).max;
         }
 
         _riskusd.safeTransferFrom(msg.sender, address(this), riskusdAmount);
@@ -363,7 +409,9 @@ contract StakingQueue is
             entryTimestamp: block.timestamp,
             processed: false,
             cancelled: false,
-            priority: isPriority
+            priority: isPriority,
+            minimumShares: minimumShares,
+            deadline: deadline
         });
 
         if (isPriority) {
@@ -425,7 +473,7 @@ contract StakingQueue is
         uint256 processed =
             _processLane(_tierPriorityQueue[tier], _tierPriorityHead[tier], tier, maxEntries, avail, tierAvail, true);
         // OF-M04: Cap head advancement to prevent DoS via dead entry accumulation
-        _tierPriorityHead[tier] = _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], maxEntries);
+        _tierPriorityHead[tier] = _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], maxEntries, false);
 
         avail = _availableCapacityForCap(config.capacityCap);
         tierAvail = _availableTierDepositCapacityForCap(tier, config.capacityCap);
@@ -434,7 +482,7 @@ contract StakingQueue is
             _processLane(
                 _tierStandardQueue[tier], _tierStandardHead[tier], tier, maxEntries - processed, avail, tierAvail, false
             );
-            _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], maxEntries);
+            _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], maxEntries, true);
         }
     }
 
@@ -468,6 +516,20 @@ contract StakingQueue is
                 }
                 continue;
             }
+            if (!isPriorityLane && !_hasDepositorBounds(entry)) {
+                unchecked {
+                    ++i;
+                    ++scanned;
+                }
+                continue;
+            }
+            if (_isExpired(entry)) {
+                unchecked {
+                    ++i;
+                    ++scanned;
+                }
+                continue;
+            }
             if (_isBlocked(entry.depositor)) {
                 emit QueueEntrySkippedBlocked(lane[i], entry.depositor);
                 unchecked {
@@ -477,7 +539,7 @@ contract StakingQueue is
                 continue;
             }
 
-            _depositQueuedRiskusd(tier, entry.riskusdAmount, entry.depositor);
+            _depositQueuedRiskusd(tier, entry.riskusdAmount, entry.depositor, entry.minimumShares);
 
             entry.processed = true;
             if (isPriorityLane) {
@@ -516,7 +578,7 @@ contract StakingQueue is
     }
 
     /// @dev OF-M04: Iteration cap prevents DoS via dead entry accumulation.
-    function _advanceHead(uint256[] storage lane, uint256 head, uint256 maxScan)
+    function _advanceHead(uint256[] storage lane, uint256 head, uint256 maxScan, bool requireDepositorBounds)
         internal
         view
         returns (uint256 newHead)
@@ -526,12 +588,29 @@ contract StakingQueue is
         uint256 scanned;
         while (newHead < length && scanned < maxScan) {
             QueueEntry storage entry = _queueEntries[lane[newHead]];
-            if (!entry.processed && !entry.cancelled && !_isBlocked(entry.depositor)) {
-                break;
+            if (!entry.processed && !entry.cancelled && !_isExpired(entry) && !_isBlocked(entry.depositor)) {
+                if (!requireDepositorBounds || _hasDepositorBounds(entry)) {
+                    break;
+                }
             }
             unchecked {
                 ++newHead;
                 ++scanned;
+            }
+        }
+    }
+
+    function _rewindStandardHeadToEntry(uint8 tier, uint256 queueId) internal {
+        uint256 currentHead = _tierStandardHead[tier];
+        uint256[] storage lane = _tierStandardQueue[tier];
+        uint256 length = lane.length;
+        for (uint256 i; i < currentHead && i < length;) {
+            if (lane[i] == queueId) {
+                _tierStandardHead[tier] = i;
+                return;
+            }
+            unchecked {
+                ++i;
             }
         }
     }
@@ -968,7 +1047,7 @@ contract StakingQueue is
         uint256 activeCount;
         for (uint256 i = head; i < length;) {
             QueueEntry storage entry = _queueEntries[lane[i]];
-            if (!entry.processed && !entry.cancelled) {
+            if (!entry.processed && !entry.cancelled && !_isExpired(entry)) {
                 unchecked {
                     ++activeCount;
                 }
@@ -981,7 +1060,7 @@ contract StakingQueue is
         uint256 writeIdx;
         for (uint256 i = head; i < length;) {
             QueueEntry storage entry = _queueEntries[lane[i]];
-            if (!entry.processed && !entry.cancelled) {
+            if (!entry.processed && !entry.cancelled && !_isExpired(entry)) {
                 lane[writeIdx] = lane[i];
                 unchecked {
                     ++writeIdx;
@@ -1092,6 +1171,9 @@ contract StakingQueue is
         if (entry.depositor == address(0)) revert InvalidQueueEntry();
         if (!entry.processed && !entry.cancelled) revert InvalidQueueEntry();
         uint256 forageToUnlock = _forageLockedPerEntry[queueId];
+        if (forageToUnlock != 0 && _priorityRiskusdQueued[entry.depositor] != 0) {
+            revert InvalidQueueEntry();
+        }
         if (forageToUnlock == 0) {
             if (_priorityRiskusdQueued[entry.depositor] != 0) revert ZeroAmount();
             (bool balanceKnown, uint256 actualLockerBalance) = _queueLockerBalance(entry.depositor);
@@ -1381,9 +1463,14 @@ contract StakingQueue is
         return Math.mulDiv(riskusdAmount, supplyBefore, assetsBefore);
     }
 
-    function _depositQueuedRiskusd(uint8 tier, uint256 riskusdAmount, address depositor) internal {
+    function _depositQueuedRiskusd(uint8 tier, uint256 riskusdAmount, address depositor, uint256 depositorMinimumShares)
+        internal
+    {
         address tierVaultAddr = _tierVaults[tier];
         uint256 minimumShares = _minimumDepositShares(tierVaultAddr, riskusdAmount);
+        if (depositorMinimumShares > minimumShares) {
+            minimumShares = depositorMinimumShares;
+        }
 
         // OF-M10: use forceApprove instead of bare approve
         _riskusd.forceApprove(tierVaultAddr, riskusdAmount);
@@ -1402,6 +1489,14 @@ contract StakingQueue is
 
         // OF-M10: reset allowance
         _riskusd.forceApprove(tierVaultAddr, 0);
+    }
+
+    function _hasDepositorBounds(QueueEntry storage entry) internal view returns (bool) {
+        return entry.minimumShares != 0 && entry.deadline != 0;
+    }
+
+    function _isExpired(QueueEntry storage entry) internal view returns (bool) {
+        return entry.deadline != 0 && block.timestamp > entry.deadline;
     }
 
     function _queueLockerBalance(address depositor) internal view returns (bool success, uint256 balance) {

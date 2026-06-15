@@ -4,15 +4,12 @@ This public repository is a selective source snapshot for external review of
 the OpenForage smart contracts. It is not the private monorepo and is not a
 deployment repository.
 
-Agent export rules live in `AGENTS.md`. Any future refresh must be built as a
-fresh single-commit snapshot from the allowlist in that file, not by pushing
-private-monorepo history or by pruning paths from an existing public branch.
+Agent export rules live in `AGENTS.md`. Refreshes are built on a public pull
+request branch from the allowlist in that file, with scan and review evidence
+attached to the PR before merge.
 
 Smart-contract source and audit documentation surface copied from private
-OpenForage commit `a2ec106acab846ef766dffc58b54fbd54bddd4ab`
-(`T-SCMA close merge-push evidence row`). The private repository HEAD at export
-time was `4b192e60ba1a08a12a83a17ad203a51af4e0de19`; there were no later
-changes to the exported smart-contract/audit surface.
+OpenForage commit `675c8a3d17f211d37a593b05cde534d5cdb2d88b`.
 
 ## Readiness Status
 
@@ -33,6 +30,10 @@ reconciliation proves bridge-held USDC availability, while HyperLiquid
 withdrawal provenance remains an off-chain keeper/trust boundary. This snapshot
 does not perform or authorize a mainnet broadcast.
 
+The June 12, 2026 external-audit triage package records Cantina and Octane
+findings review, accepted true-positive overlap, and focused Foundry
+reproductions for the live overlap roots carried in this snapshot.
+
 This scoped audit repository intentionally excludes surrounding private-monorepo
 web/keeper/config paths. Because of that, the wholesale `forge test --summary`
 command has one known export-scope failure in
@@ -49,6 +50,8 @@ the private audit package retains the full source-environment `forge test
   dependencies.
 - `documentation/smart_contract_audits/2026-06-09-audit/`: latest audit report,
   finding consolidation, conformance, retest, review, and validation evidence.
+- `documentation/smart_contract_audits/2026-06-12-external-audit/`: external
+  audit triage, overlap analysis, and reviewer-facing findings context.
 - `documentation/smart_contract/`: target smart-contract architecture and
   user-journey projections used by the conformance review.
 - `documentation/cantina_v12_remediation.md`: historical remediation summary for

@@ -1,6 +1,6 @@
 # Consolidated Findings
 
-Current status: all known Critical/High/Medium/Low findings are fixed in source, tests, and audit artifacts. Codex Round 12 passed after the Round 11 user-journey projection fix; post-R12 phase/security review then found R16-M-01 and R16-M-02, both fixed with red/green deploy evidence and post-R16-M02 validation logs. Fresh post-M02 confirmatory Codex Round 13 (`019eb0bd-a47d-7db1-a6c8-923ad77db635`) returned PASS with zero findings.
+Current status: all known Critical/High/Medium/Low findings are fixed in source, tests, and audit artifacts. Codex Round 12 passed after the Round 11 user-journey projection fix; post-R12 phase/security review then found R16-M-01 and R16-M-02, both fixed with red/green deploy evidence and post-R16-M02 validation logs. Fresh post-M02 confirmatory Codex Round 13 under public review reference R13 returned PASS with zero findings.
 
 | ID | Severity | Status | Fix evidence |
 | --- | --- | --- | --- |

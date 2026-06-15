@@ -1,12 +1,11 @@
 # Supplemental Pashov-Style Review
 
-Reviewer surface: official Codex MCP, read-only sandbox.
+Reviewer surface: public supplemental review, read-only sandbox.
 
-Thread: `019eae1e-ed33-7491-bcf3-9d7dee4e8a0b`.
+Public review reference: `public-review-2026-06-09-pashov`.
 
-Prompt basis: apply `.claude/skills/pashov-auditor/SKILL.md` and
-`.claude/skills/openforage-smart-contract-audit/references/audit-discipline.md`
-to the current worktree, covering first-party Solidity contracts under
+Review profile: pashov-style supplemental adversarial review plus OpenForage
+audit discipline, covering first-party Solidity contracts under
 `openforage_smart_contracts/src/` and the deploy/support surfaces needed for the
 mainnet-readiness findings.
 
@@ -14,12 +13,12 @@ Result:
 
 ```json
 {
-  "task_id": "T-SCMA-PASHOV-SUPPLEMENT",
+  "review_id": "public-review-2026-06-09-pashov",
   "verdict": "PASS",
   "reason": "Read-only supplemental pashov-style review found no new in-scope Critical/High/Medium/Low issue.",
   "findings": [],
   "conditions": [],
-  "model_effort": "Observed config only: Codex config set model=gpt-5.5 and model_reasoning_effort=xhigh; runtime did not expose a direct current-model variable; no subagents were spawned in this Codex surface."
+  "execution_note": "Public summary retains the review role, verdict, and residual trust boundaries without internal thread or prompt-path identifiers."
 }
 ```
 

@@ -1,6 +1,6 @@
-env PATH=openforage_smart_contracts/.venv/bin:<user-nvm-path>:<user-codex-path>:<user-nvm-path>:<user-gcloud-sdk-bin>:<user-local-bin>:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:<user-foundry-bin>:<user-foundry-bin> .venv/bin/echidna test/echidna/EchidnaCrownInvariants.sol --contract EchidnaCrownInvariants --config echidna.yaml --test-limit 50000
+env PATH=<private-worktree> .venv/bin/echidna test/echidna/EchidnaCrownInvariants.sol --contract EchidnaCrownInvariants --config echidna.yaml --test-limit 50000
 [2026-06-10 16:29:55.52] Compiling `test/echidna/EchidnaCrownInvariants.sol`... Done! (1.125278188s)
-Analyzing contract: openforage_smart_contracts/test/echidna/EchidnaCrownInvariants.sol:EchidnaCrownInvariants
+Analyzing contract: <private-worktree>
 [2026-06-10 16:29:56.82] Running slither on `test/echidna/EchidnaCrownInvariants.sol`... Done! (1.047283872s)
 Loaded 1 transaction sequences from echidna-corpus/reproducers
 Loaded 10 transaction sequences from echidna-corpus/coverage

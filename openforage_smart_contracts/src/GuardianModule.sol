@@ -117,9 +117,10 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     mapping(bytes32 => Rotation) internal _rotations;
     mapping(bytes32 => mapping(address => bool)) internal _rotationApprovals;
     mapping(bytes32 => uint256) internal _rotationApprovalCount;
+    mapping(bytes32 => uint256) internal _acceleratedRotationGenerations;
 
     /// @dev Reserved storage gap for future upgrades.
-    uint256[36] private __gap;
+    uint256[35] private __gap;
 
     // ── Constructor ──────────────────────────────────────────────────────
 
@@ -341,7 +342,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     function proposeAcceleratedRotation(bytes32 slot, address current, address successor) external returns (bytes32) {
         _requireGuardian(msg.sender);
         if (preCommittedSuccessor[slot][current] != successor) revert SuccessorNotPreCommitted();
-        bytes32 operationId = keccak256(abi.encode("accelerated", slot, current, successor));
+        bytes32 tupleId = keccak256(abi.encode("accelerated", slot, current, successor));
+        uint256 generation = _acceleratedRotationGenerations[tupleId];
+        bytes32 operationId = generation == 0 ? tupleId : keccak256(abi.encode(tupleId, generation));
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists) {
             rotation.slot = slot;
@@ -379,8 +382,14 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         if (rotation.readyAt == 0 || block.timestamp < rotation.readyAt || rotation.executed) {
             revert RotationNotReady();
         }
+        if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) {
+            revert SuccessorNotPreCommitted();
+        }
         rotation.executed = true;
         activeSlotHolder[rotation.slot] = rotation.successor;
+        _acceleratedRotationGenerations[
+                keccak256(abi.encode("accelerated", rotation.slot, rotation.current, rotation.successor))
+            ] += 1;
         if (rotation.slot == SLOT_GUARDIAN_SEAT) {
             _replaceGuardianSeat(rotation.current, rotation.successor);
         }

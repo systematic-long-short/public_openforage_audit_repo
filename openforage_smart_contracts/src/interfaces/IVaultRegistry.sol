@@ -30,6 +30,10 @@ struct VaultConfig {
 interface IVaultRegistry {
     function getVault(uint256 vaultId) external view returns (VaultConfig memory);
     function getAllVaults() external view returns (uint256[] memory);
+    function getVaultsPage(uint256 offset, uint256 limit)
+        external
+        view
+        returns (uint256[] memory ids, uint256 nextOffset, uint256 total);
     /// @dev OF-16-002: Notify VaultRegistry that a loss has been resolved for cooldown tracking.
     function notifyLossResolved() external;
 }

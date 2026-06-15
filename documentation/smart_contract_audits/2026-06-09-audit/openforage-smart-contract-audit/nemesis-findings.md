@@ -21,6 +21,6 @@ This file records the manual Feynman/state-machine/data-flow pass plus the suppl
 - PnL return funding is idempotent per vault claim by tracking `fundedDepositorClaim`.
 - Deployment under stale/loss-pending NAV now fails before further principal leaves the vault.
 
-Supplemental nemesis-style Codex MCP review thread `019eae28-c0de-7c23-a2f4-f0e813e06dcf` returned `AUDIT_RESULT: PASS` with no new C/H/M/L findings. Transcript summary is retained in `nemesis-supplement.md`.
+Supplemental nemesis-style Codex review under public reference nemesis-review-A returned `AUDIT_RESULT: PASS` with no new C/H/M/L findings. Transcript summary is retained in `nemesis-supplement.md`.
 
 Open deep-logic findings: none known after the checkpoint remediation and current green gates.

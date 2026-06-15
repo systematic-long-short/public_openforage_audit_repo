@@ -105,12 +105,7 @@ contract FORAGETreasury_TargetPrograms is Test {
     function test_TSCGB_A11_partnershipDistributionCreatesDelegatingVestingWallet() public {
         vm.prank(owner);
         address wallet = treasury.distributePartnership(
-            partner,
-            partnerDelegate,
-            40e18,
-            uint64(block.timestamp + 1 days),
-            uint64(4 * 365 days),
-            uint64(365 days)
+            partner, partnerDelegate, 40e18, uint64(block.timestamp + 1 days), uint64(4 * 365 days), uint64(365 days)
         );
 
         assertEq(forage.balanceOf(wallet), 40e18, "partnership allocation must fund vesting wallet");
@@ -295,8 +290,7 @@ contract FORAGETreasury_TargetPrograms is Test {
         uint256[] memory agentAmounts = new uint256[](1);
         agentAmounts[0] = 1e18;
         bytes32 agentRoot = MerkleTreeHelper.computeRoot(address(treasury), 8, agents, agentAmounts);
-        bytes32[] memory agentProof =
-            MerkleTreeHelper.getProof(address(treasury), 8, agents, agentAmounts, agent, 1e18);
+        bytes32[] memory agentProof = MerkleTreeHelper.getProof(address(treasury), 8, agents, agentAmounts, agent, 1e18);
 
         address[] memory depositors = new address[](1);
         depositors[0] = depositor;
@@ -328,20 +322,14 @@ contract FORAGETreasury_TargetPrograms is Test {
             abi.encodeWithSelector(FORAGETreasury.BlocklistUnavailable.selector, address(revertingBlocklist))
         );
         treasury.distributePartnership(
-            partner,
-            partnerDelegate,
-            1e18,
-            uint64(block.timestamp + 1 days),
-            uint64(365 days),
-            uint64(30 days)
+            partner, partnerDelegate, 1e18, uint64(block.timestamp + 1 days), uint64(365 days), uint64(30 days)
         );
     }
 
     function test_TSCGB_A11_missingBlocklistFailsLoudBeforeClaims() public {
         FORAGETreasury implementation = new FORAGETreasury();
         bytes memory initData = abi.encodeCall(FORAGETreasury.initialize, (address(forage), owner));
-        FORAGETreasury unwiredTreasury =
-            FORAGETreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        FORAGETreasury unwiredTreasury = FORAGETreasury(address(new ERC1967Proxy(address(implementation), initData)));
         forage.mint(address(unwiredTreasury), 10e18);
 
         address[] memory agents = new address[](1);

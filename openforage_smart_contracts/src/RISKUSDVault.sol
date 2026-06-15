@@ -694,8 +694,8 @@ contract RISKUSDVault is
     function _requireVaultRegistryInterface(address vaultRegistry_) private view {
         if (vaultRegistry_.code.length == 0) revert InvalidVaultRegistryInterface(vaultRegistry_);
         (bool ok, bytes memory data) =
-            vaultRegistry_.staticcall(abi.encodeWithSelector(IVaultRegistry.getAllVaults.selector));
-        if (!ok || data.length < 64) revert InvalidVaultRegistryInterface(vaultRegistry_);
+            vaultRegistry_.staticcall(abi.encodeWithSelector(IVaultRegistry.getVaultsPage.selector, 0, 1));
+        if (!ok || data.length < 96) revert InvalidVaultRegistryInterface(vaultRegistry_);
     }
 
     /// @notice OF-H02: setCustodian now only proposes — no instant effect.
@@ -1621,28 +1621,45 @@ contract RISKUSDVault is
     }
 
     function _activeRegisteredTierAssets() internal view returns (uint256 assets) {
-        uint256[] memory vaultIds = _vaultRegistry.getAllVaults();
-        uint256 limit = vaultIds.length < DEPLOYMENT_BUFFER_SCAN_LIMIT ? vaultIds.length : DEPLOYMENT_BUFFER_SCAN_LIMIT;
-        for (uint256 i; i < limit;) {
-            try _vaultRegistry.getVault(vaultIds[i]) returns (VaultConfig memory vc) {
-                if (vc.status == VaultStatus.Active) {
-                    for (uint256 j; j < 4;) {
-                        address tierVault = vc.tierVaults[j];
-                        if (tierVault != address(0)) {
-                            try IERC4626TotalAssets(tierVault).totalAssets() returns (uint256 tierAssets) {
-                                assets += tierAssets;
-                            } catch {}
-                        }
-                        unchecked {
-                            ++j;
-                        }
+        uint256 offset;
+        uint256 scanned;
+        while (scanned < DEPLOYMENT_BUFFER_SCAN_LIMIT) {
+            uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT - scanned;
+            try _vaultRegistry.getVaultsPage(offset, pageLimit) returns (
+                uint256[] memory vaultIds, uint256 nextOffset, uint256 total
+            ) {
+                if (vaultIds.length == 0) break;
+                for (uint256 i; i < vaultIds.length && scanned < DEPLOYMENT_BUFFER_SCAN_LIMIT;) {
+                    assets += _activeVaultTierAssets(vaultIds[i]);
+                    unchecked {
+                        ++i;
+                        ++scanned;
                     }
                 }
-            } catch {}
-            unchecked {
-                ++i;
+                if (nextOffset >= total || nextOffset <= offset) break;
+                offset = nextOffset;
+            } catch {
+                break;
             }
         }
+    }
+
+    function _activeVaultTierAssets(uint256 vaultId) internal view returns (uint256 assets) {
+        try _vaultRegistry.getVault(vaultId) returns (VaultConfig memory vc) {
+            if (vc.status == VaultStatus.Active) {
+                for (uint256 j; j < 4;) {
+                    address tierVault = vc.tierVaults[j];
+                    if (tierVault != address(0)) {
+                        try IERC4626TotalAssets(tierVault).totalAssets() returns (uint256 tierAssets) {
+                            assets += tierAssets;
+                        } catch {}
+                    }
+                    unchecked {
+                        ++j;
+                    }
+                }
+            }
+        } catch {}
     }
 
     function _assertBackingMarginNotDecreased(uint256 backingAssetsBefore, uint256 riskusdSupplyBefore) internal view {

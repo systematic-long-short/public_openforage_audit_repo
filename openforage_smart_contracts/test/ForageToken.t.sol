@@ -49,10 +49,7 @@ contract ForageToken_TC01_Initialization is ForageTokenTestBase {
     }
 
     function test_TC01_constantAllocationsSumToTotal() public view {
-        assertEq(
-            token.TEAM_VESTING_ALLOCATION() + token.FORAGE_TREASURY_ALLOCATION(),
-            token.TOTAL_SUPPLY()
-        );
+        assertEq(token.TEAM_VESTING_ALLOCATION() + token.FORAGE_TREASURY_ALLOCATION(), token.TOTAL_SUPPLY());
         assertEq(
             token.AGENT_ALLOCATION() + token.DEPOSITOR_ALLOCATION() + token.PARTNERSHIP_ALLOCATION(),
             token.FORAGE_TREASURY_ALLOCATION()
@@ -90,37 +87,27 @@ contract ForageToken_TC01_Initialization is ForageTokenTestBase {
     function test_TC01_zeroTeamVestingReverts() public {
         ForageToken impl = new ForageToken();
         vm.expectRevert(ForageToken.ZeroAddress.selector);
-        new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ForageToken.initialize, (address(0), forageTreasury, owner))
-        );
+        new ERC1967Proxy(address(impl), abi.encodeCall(ForageToken.initialize, (address(0), forageTreasury, owner)));
     }
 
     function test_TC01_zeroForageTreasuryReverts() public {
         ForageToken impl = new ForageToken();
         vm.expectRevert(ForageToken.ZeroAddress.selector);
-        new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ForageToken.initialize, (teamVesting, address(0), owner))
-        );
+        new ERC1967Proxy(address(impl), abi.encodeCall(ForageToken.initialize, (teamVesting, address(0), owner)));
     }
 
     function test_TC01_zeroOwnerReverts() public {
         ForageToken impl = new ForageToken();
         vm.expectRevert(ForageToken.ZeroAddress.selector);
         new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, address(0)))
+            address(impl), abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, address(0)))
         );
     }
 
     function test_TC01_initTransferEvents() public {
         ForageToken impl = new ForageToken();
         vm.recordLogs();
-        new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner))
-        );
+        new ERC1967Proxy(address(impl), abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner)));
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 transferSig = keccak256("Transfer(address,address,uint256)");

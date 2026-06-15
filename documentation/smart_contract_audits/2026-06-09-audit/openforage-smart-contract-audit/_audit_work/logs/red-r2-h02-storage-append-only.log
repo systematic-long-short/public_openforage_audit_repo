@@ -5,7 +5,7 @@ ___________ test_remediation_storage_is_appended_for_uups_contracts ____________
     def test_remediation_storage_is_appended_for_uups_contracts() -> None:
         bridge_source = (CONTRACT_ROOT / "src" / "hyperliquid" / "HLTradingBridge.sol").read_text()
         treasury_source = (CONTRACT_ROOT / "src" / "USDCTreasury.sol").read_text()
-    
+
         bridge_withdrawal_intents = bridge_source.index("mapping(bytes32 => WithdrawalIntent) internal _withdrawalIntents;")
         bridge_cold_account = bridge_source.index("address public coldAccount;")
         bridge_reconciled_cash = bridge_source.index("uint256 internal _reconciledReturnLiquidity;")
@@ -17,8 +17,8 @@ E       assert 4631 > 4663
 tests/harness/test_smart_contract_mainnet_audit_gate.py:102: AssertionError
 =============================== warnings summary ===============================
 ../../../../.cache/uv/archive-v0/WY1eDNbhGWKyrM5I/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
-  <user-uv-cache>/python-package-path PytestConfigWarning: Unknown config option: asyncio_mode
-  
+  <local-path> PytestConfigWarning: Unknown config option: asyncio_mode
+
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html

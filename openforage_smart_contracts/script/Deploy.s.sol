@@ -20,6 +20,12 @@ import "../src/VaultRegistry.sol";
 import "../src/atRISKUSD.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
 
+interface IForageGovernorWiredTarget {
+    function FINALIZE_DELAY() external view returns (uint256);
+    function setForageGovernor(address forageGovernor_) external;
+    function finalizeForageGovernor() external;
+}
+
 /// @title Deploy
 /// @notice Target-only deployer for the fourteen-contract OpenForage smart-contract stack.
 /// @dev This deployer is intentionally limited to local dry-runs and Arbitrum Sepolia.
@@ -608,6 +614,8 @@ contract Deploy is Script {
 
         StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);
 
+        _wireForageGovernorPauseControls();
+
         _wireAtRisk(deployedAtRiskTier0);
         _wireAtRisk(deployedAtRiskTier1);
         _wireAtRisk(deployedAtRiskTier2);
@@ -629,6 +637,10 @@ contract Deploy is Script {
         _registerPausableTarget(deployedRiskusd);
         _registerPausableTarget(deployedRiskusdVault);
         _registerPausableTarget(deployedStakingQueue);
+        _registerPausableTarget(deployedAtRiskTier0);
+        _registerPausableTarget(deployedAtRiskTier1);
+        _registerPausableTarget(deployedAtRiskTier2);
+        _registerPausableTarget(deployedAtRiskTier3);
         _registerPausableTarget(deployedHLTradingBridge);
         _registerPausableTarget(deployedCustodianRegistry);
     }
@@ -658,6 +670,42 @@ contract Deploy is Script {
     }
 
     function _afterInitialCustodianConfigProposed() internal virtual {}
+
+    function _wireForageGovernorPauseControls() internal {
+        address[7] memory targets = [
+            deployedRiskusd,
+            deployedRiskusdVault,
+            deployedStakingQueue,
+            deployedAtRiskTier0,
+            deployedAtRiskTier1,
+            deployedAtRiskTier2,
+            deployedAtRiskTier3
+        ];
+
+        uint256 readyAt = block.timestamp;
+        for (uint256 i; i < targets.length;) {
+            IForageGovernorWiredTarget target = IForageGovernorWiredTarget(targets[i]);
+            target.setForageGovernor(deployedForageGovernor);
+            uint256 targetReadyAt = block.timestamp + target.FINALIZE_DELAY() + 1;
+            if (targetReadyAt > readyAt) {
+                readyAt = targetReadyAt;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        if (block.timestamp < readyAt) {
+            vm.warp(readyAt);
+        }
+
+        for (uint256 i; i < targets.length;) {
+            IForageGovernorWiredTarget(targets[i]).finalizeForageGovernor();
+            unchecked {
+                ++i;
+            }
+        }
+    }
 
     function _registerPausableTarget(address target) internal {
         bytes memory data = abi.encodeCall(GuardianModule.setPausableTarget, (target, true));

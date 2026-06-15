@@ -1,0 +1,1178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Contract Architecture — OpenForage</title>
+  <style>
+    :root {
+      --bg: #0f1211;
+      --panel: #151917;
+      --panel-2: #1b211e;
+      --ink: #e8ece8;
+      --muted: #a7b2aa;
+      --soft: #8b958e;
+      --line: #2a332e;
+      --line-2: #3a4740;
+      --sage: #7fb39a;
+      --sage-2: #9ecab3;
+      --gold: #d2b36c;
+      --red: #d07a74;
+      --blue: #7ca8c9;
+      --violet: #b09ad5;
+      --code: #101412;
+      --shadow: rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      line-height: 1.55;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(180deg, rgba(127, 179, 154, 0.07), transparent 340px),
+        radial-gradient(circle at 8% 0%, rgba(124, 168, 201, 0.08), transparent 280px),
+        var(--bg);
+    }
+
+    a {
+      color: var(--sage-2);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(127, 179, 154, 0.45);
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 34px 22px 72px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+      gap: 28px;
+      align-items: end;
+      padding: 34px 0 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 900px;
+      font-size: clamp(32px, 5.2vw, 66px);
+      line-height: 1.0;
+    }
+
+    h2 {
+      font-size: clamp(21px, 2.6vw, 32px);
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    h3 {
+      font-size: 16px;
+      line-height: 1.25;
+      color: var(--sage-2);
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+    }
+
+    strong { color: var(--ink); font-weight: 600; }
+
+    .lede {
+      margin-top: 22px;
+      max-width: 860px;
+      font-size: clamp(15px, 1.5vw, 18px);
+      color: #d5ddd6;
+    }
+
+    .meta-grid {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: rgba(21, 25, 23, 0.78);
+      box-shadow: 0 12px 30px var(--shadow);
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .meta-row strong { color: var(--ink); font-weight: 600; }
+
+    .section {
+      padding: 40px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .section-num {
+      flex: none;
+      color: var(--sage);
+      font-size: clamp(21px, 2.6vw, 32px);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .section-sub {
+      margin: -2px 0 0;
+      color: var(--soft);
+      font-size: 13px;
+    }
+
+    .card {
+      min-height: 100%;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+
+    .card p:last-child,
+    .note p:last-child,
+    .callout p:last-child { margin-bottom: 0; }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      padding: 2px 8px;
+      margin-bottom: 12px;
+      border: 1px solid var(--line-2);
+      color: var(--sage-2);
+      background: rgba(127, 179, 154, 0.07);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border: 1px solid var(--line-2);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.02);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .tag.good { color: var(--sage-2); border-color: rgba(127, 179, 154, 0.52); }
+    .tag.warn { color: var(--gold); border-color: rgba(210, 179, 108, 0.5); }
+    .tag.risk { color: var(--red); border-color: rgba(208, 122, 116, 0.5); }
+    .tag.info { color: var(--blue); border-color: rgba(124, 168, 201, 0.5); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: rgba(16, 20, 18, 0.76);
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      color: var(--ink);
+      background: rgba(127, 179, 154, 0.08);
+      font-weight: 650;
+      text-align: left;
+    }
+
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+
+    code, .mono {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #dfe7e1;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 1px 4px;
+      overflow-wrap: anywhere;
+    }
+
+    .callout {
+      padding: 16px;
+      border: 1px solid rgba(127, 179, 154, 0.5);
+      background: rgba(127, 179, 154, 0.08);
+    }
+
+    .callout.danger { border-color: rgba(208, 122, 116, 0.55); background: rgba(208, 122, 116, 0.08); }
+    .callout.warning { border-color: rgba(210, 179, 108, 0.55); background: rgba(210, 179, 108, 0.08); }
+    .callout.info { border-color: rgba(124, 168, 201, 0.5); background: rgba(124, 168, 201, 0.08); }
+
+    .note {
+      padding: 14px;
+      border-left: 2px solid var(--sage);
+      background: rgba(127, 179, 154, 0.06);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    ul { margin: 0; padding-left: 18px; }
+    li { margin-bottom: 8px; color: var(--muted); }
+
+    .small { font-size: 12px; color: var(--muted); }
+
+    /* Contract mini-card */
+    .ccard {
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--sage);
+      background: linear-gradient(180deg, rgba(27, 33, 30, 0.96), rgba(18, 22, 20, 0.96));
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    .ccard.hl { border-left-color: var(--blue); }
+    .ccard h3 { color: var(--ink); font-size: 15.5px; margin-bottom: 4px; }
+    .ccard .sol { color: var(--soft); font-size: 11.5px; margin-bottom: 10px; }
+    .ccard p { font-size: 13px; margin-bottom: 8px; }
+    .ccard .tags { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .why-line { color: var(--soft); font-size: 12.5px; }
+    .why-line .glabel { color: var(--sage-2); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 8px; font-size: 11px; }
+
+    .grouplabel {
+      margin: 26px 0 12px;
+      color: var(--sage-2);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+    }
+
+    /* Diagrams */
+    pre.diagram {
+      margin: 0;
+      padding: 16px 18px;
+      background: var(--code);
+      border: 1px solid var(--line);
+      color: #cdd6cf;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre;
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+    pre.diagram b { color: var(--sage-2); font-weight: 650; }
+    pre.diagram .h { color: var(--gold); }
+    pre.diagram .l { color: var(--blue); }
+
+    .colophon {
+      padding-top: 28px;
+      color: var(--soft);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      main { padding: 24px 16px 56px; }
+      .hero, .two-col { grid-template-columns: 1fr; }
+      .meta-row { grid-template-columns: 96px minmax(0, 1fr); }
+    }
+
+    @media print {
+      body { background: #fff; color: #111; }
+      main { max-width: none; }
+      .card, .callout, .note, .ccard, table, .meta-grid, pre.diagram {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+
+  <section class="hero">
+    <div>
+      <div class="kicker">OpenForage · Smart Contracts</div>
+      <h1>How the smart contracts come together</h1>
+      <p class="lede">
+        A plain-English map of every contract OpenForage has, what each one does,
+        and how a single dollar travels from a depositor's wallet, through the
+        vault and the trading desk, and back again as profit or loss. Written for a
+        reader who does not read Solidity.
+      </p>
+    </div>
+    <aside class="meta-grid" aria-label="document metadata">
+      <div class="meta-row"><strong>Drafted</strong><span>2026-06-03</span></div>
+      <div class="meta-row"><strong>Audience</strong><span>Executive / internal</span></div>
+      <div class="meta-row"><strong>Scope</strong><span>24 production contracts (Arbitrum + HyperLiquid)</span></div>
+      <div class="meta-row"><strong>Stage</strong><span>Pre-mainnet (test networks)</span></div>
+      <div class="meta-row"><strong>Status</strong><span>Living documentation</span></div>
+    </aside>
+  </section>
+
+  <!-- EXECUTIVE BOX -->
+  <section class="section" id="exec">
+    <div class="callout info">
+      <h3 style="color:var(--ink);margin-bottom:10px">What you most need to know — in 60 seconds</h3>
+      <ul>
+        <li><strong>What it is.</strong> A set of on-chain "vault" programs that take in
+          dollars (USDC), hand them to a market-neutral trading operation, and share
+          the profits and losses back to depositors by fixed rules no single person
+          can override.</li>
+        <li><strong>What protects depositors.</strong> Every movement of money is bounded
+          by hard-coded caps; an emergency "brake" (the Guardian) can only ever
+          <em>slow things down</em>, never speed them up or move funds out; and any
+          change to the rules sits in an <strong>8-day public waiting room</strong> before
+          it can take effect.</li>
+        <li><strong>The tier idea.</strong> Depositors pick one of four tiers. Longer lock-up
+          = bigger share of the profits. Losses work differently: they are shared
+          <strong>pro-rata across all four tiers</strong> — every tier takes the same
+          percentage hit at once, so a longer lock-up buys more upside, not loss
+          protection.</li>
+        <li><strong>Where trading happens.</strong> Capital is deployed to a trading desk
+          that operates on <strong>HyperLiquid</strong>; the two blockchains coordinate over
+          an audited industry bridge (Chainlink CCIP).</li>
+        <li><strong>Stage.</strong> <span class="tag warn">Pre-mainnet</span> The system runs and
+          is heavily tested on test networks; it is <strong>not yet live on mainnet</strong>.
+          Independently reviewed; no open critical or high-severity findings in the
+          latest internal review.</li>
+        <li><strong>Size at launch.</strong> The vault is capped at <strong>$10M</strong> of
+          deposits to start.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- §1 -->
+  <section class="section" id="what">
+    <div class="section-head">
+      <span class="section-num">§1</span>
+      <div>
+        <h2>What this is, and why it exists</h2>
+        <p class="section-sub">A programmable vault for a market-neutral trading fund.</p>
+      </div>
+    </div>
+    <p>
+      OpenForage is, at heart, an automated fund. Depositors put in dollars; the
+      protocol deploys that capital to a trading operation that aims to make money
+      regardless of which way markets move ("market-neutral"); and the gains or
+      losses are distributed back to depositors automatically.
+    </p>
+    <p>
+      The difference from a traditional fund is that the rule-book is written as
+      <strong>smart contracts</strong> — programs that live on a blockchain and execute
+      exactly as written, the same way every time, with every action permanently
+      recorded and publicly auditable. Nobody can quietly change a payout, skim a
+      balance, or move money in a way the code does not allow. The contracts in
+      this document <em>are</em> that rule-book.
+    </p>
+    <p>
+      The job of the rule-book is to answer four questions safely and
+      automatically: <strong>(1)</strong> how do dollars get in and out;
+      <strong>(2)</strong> how does capital reach the trading desk and come back;
+      <strong>(3)</strong> how are profits and losses shared; and <strong>(4)</strong> who
+      is allowed to change anything, and under what limits. The sections below walk
+      each of those in turn.
+    </p>
+  </section>
+
+  <!-- §2 -->
+  <section class="section" id="glance">
+    <div class="section-head">
+      <span class="section-num">§2</span>
+      <div>
+        <h2>The system at a glance</h2>
+        <p class="section-sub">24 contracts, two blockchains, four jobs.</p>
+      </div>
+    </div>
+    <p>
+      There are <strong>24 production contracts</strong>. That sounds like a lot, but they
+      fall into just <strong>four jobs</strong>, spread across <strong>two blockchains</strong>:
+      <strong>Arbitrum</strong> (where the money, accounting and governance live — 16
+      contracts) and <strong>HyperLiquid</strong> (where the actual trading happens — 8
+      contracts). You only need to hold the four jobs in your head:
+    </p>
+
+    <pre class="diagram" aria-label="system overview diagram">          <b>ARBITRUM</b>  (the bank + the rule-book)                       <b>HYPERLIQUID</b>  (the trading floor)
+   ┌───────────────────────────────────────────────┐            ┌──────────────────────────────────┐
+   │  <span class="l">①  TOKENS &amp; CAPITAL</span>                            │            │  <span class="h">④  THE TRADING ENGINE</span>             │
+   │     RISKUSD · atRISKUSD tiers · the Vault      │  deploy     │     HLTradingBridge → HLTrading   │
+   │                                                │ ─────────▶  │     Vault → HyperLiquid markets   │
+   │  <span class="l">②  TREASURY &amp; DISTRIBUTION</span>                     │  capital    │                                  │
+   │     ProtocolTreasury · pools · staking         │  ◀───────── │     profit / loss &amp; NAV report   │
+   │                                                │  settle     │                                  │
+   │  <span class="l">③  GOVERNANCE &amp; SAFETY</span>                         │ ··········▶ │     ExecutorProxy (receives      │
+   │     Governor · Guardian · registries           │  commands   │     governance over CCIP)        │
+   └───────────────────────────────────────────────┘   (CCIP)    └──────────────────────────────────┘</pre>
+
+    <div class="two-col" style="margin-top:16px">
+      <div class="card">
+        <h3>① Tokens &amp; capital</h3>
+        <p class="small">The dollars come in here and become tradeable units. The
+          <strong>Vault</strong> holds the cash; <strong>RISKUSD</strong> is the dollar receipt;
+          the four <strong>atRISKUSD tiers</strong> are the staking options depositors choose.</p>
+      </div>
+      <div class="card">
+        <h3>② Treasury &amp; distribution</h3>
+        <p class="small">Where profit and loss are routed. The
+          <strong>ProtocolTreasury</strong> shares gains to the tiers and absorbs losses;
+          the pools and staking queue handle rewards and token distribution.</p>
+      </div>
+      <div class="card">
+        <h3>③ Governance &amp; safety</h3>
+        <p class="small">Who is allowed to change anything. The <strong>Governor</strong> runs
+          token-holder votes; the <strong>Guardian</strong> is the emergency brake;
+          registries and the blocklist enforce who/what is trusted.</p>
+      </div>
+      <div class="card">
+        <h3>④ The trading engine</h3>
+        <p class="small">The HyperLiquid side. Capital is bridged over, traded, and the
+          resulting value is reported back. The two chains talk over <strong>Chainlink
+          CCIP</strong>, an audited cross-chain messaging service.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- §3 -->
+  <section class="section" id="key">
+    <div class="section-head">
+      <span class="section-num">§3</span>
+      <div>
+        <h2>The few pieces you actually need to know</h2>
+        <p class="section-sub">Six contracts carry most of the story; the full catalog is in §8–§9.</p>
+      </div>
+    </div>
+    <p>
+      Before the complete tour, here are the six load-bearing contracts. If you
+      remember only these, you can follow everything else.
+    </p>
+
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The Vault</h3>
+        <div class="sol">RISKUSDVault · Arbitrum</div>
+        <p>The single door every dollar enters and leaves through. It holds the USDC,
+          hands out the dollar receipt, enforces the deposit/withdrawal caps, sends
+          capital to the trading desk, and continuously proves it can still pay
+          everyone back.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the
+          financial heart — and the place the safety checks are enforced.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">core</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The dollar receipt</h3>
+        <div class="sol">RISKUSD · Arbitrum</div>
+        <p>A token worth exactly one dollar, backed 1-for-1 by the USDC sitting in
+          the Vault. You get RISKUSD when you deposit and hand it back to redeem.
+          Only the Vault can create or destroy it.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the unit
+          of account everything else is measured in.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The tier shares</h3>
+        <div class="sol">atRISKUSD · Arbitrum · 4 copies (Tiers 0–3)</div>
+        <p>When you stake your dollar receipt you receive a tier share. There are
+          four tiers, each a standard "vault share" whose value grows as profits
+          accrue. Your tier decides your lock-up, your profit share, and your place
+          in the loss line.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>This is the
+          product the depositor actually chooses (see §5).</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">token</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The profit-and-loss router</h3>
+        <div class="sol">ProtocolTreasury · Arbitrum</div>
+        <p>When trading earns or loses money, this contract decides where it goes:
+          it shares gains to the tiers by their split, takes the protocol's fee, and
+          spreads losses across the tiers in proportion to each tier's assets — the
+          same percentage from every tier.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the
+          engine of who-gets-paid and who-takes-the-hit.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The voting system</h3>
+        <div class="sol">ForageGovernor · Arbitrum</div>
+        <p>The democratic layer. Holders of the FORAGE token vote on proposals to
+          change parameters or upgrade contracts. Approved proposals do not take
+          effect immediately — they pass through an 8-day timelock first.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is "who has
+          the keys," and the answer is: a token-holder vote, on a delay (see §6).</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag warn">governance</span></div>
+      </div>
+
+      <div class="ccard">
+        <h3>The emergency brake</h3>
+        <div class="sol">GuardianModule · Arbitrum</div>
+        <p>A fast-acting safety device for emergencies. It can pause activity,
+          tighten caps, freeze attestations, and cancel a malicious proposal — but
+          it is built so it can <strong>only ever make the rules stricter</strong>, never
+          looser, and it can never move funds.</p>
+        <div class="why-line"><span class="glabel">Why it matters</span>It is the single
+          most reassuring control: a brake that cannot become an accelerator.</div>
+        <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §4 -->
+  <section class="section" id="flow">
+    <div class="section-head">
+      <span class="section-num">§4</span>
+      <div>
+        <h2>How money flows through it</h2>
+        <p class="section-sub">Follow one dollar, top to bottom. The rule that bounds each step is on the right.</p>
+      </div>
+    </div>
+
+    <pre class="diagram" aria-label="money flow diagram">
+                    ┌────────────────────────────┐
+  <b>1  DEPOSIT</b>         │   Depositor's USDC         │
+                    └─────────────┬──────────────┘
+                                  │   1 USDC ──▶ 1 RISKUSD          <span class="h">cap: per-block 20% /</span>
+                                  ▼                                 <span class="h">daily 20% / weekly 200% mint</span>
+                    ┌────────────────────────────┐
+  <b>2  THE VAULT</b>       │   RISKUSDVault             │   holds the cash, issues the receipt
+                    └─────────────┬──────────────┘
+                                  │   stake into a tier
+                                  ▼
+       ┌──────────────────────────────────────────────────────────┐
+  <b>3  STAKE</b>           │  atRISKUSD —  Tier 0   Tier 1   Tier 2   Tier 3          │
+                   │  lock-up        0d      90d      180d     360d          │
+                   │  your split     50%     55%      60%      65%           │
+                   └────────────────────────────┬─────────────────────────┘
+                                                │   up to 95% deployed         <span class="h">cap: ≥5% kept</span>
+                                                ▼                              <span class="h">in reserve</span>
+                    ┌────────────────────────────┐
+  <b>4  DEPLOY</b>          │  Trading desk (custodian)  │   = HLTradingBridge
+                    └─────────────┬──────────────┘
+                                  │   bridged to HyperLiquid     <span class="l">via Chainlink CCIP</span>
+                                  ▼
+                    ┌────────────────────────────┐
+  <b>5  TRADE</b>           │  HyperLiquid markets       │   market-neutral profit / loss
+                    └─────────────┬──────────────┘
+                                  │   value reported back (NAV)
+                                  ▼
+                    ┌────────────────────────────┐
+  <b>6  SETTLE</b>          │  ProtocolTreasury          │
+                    └─────────────┬──────────────┘
+              ┌──────────────────┴───────────────────┐
+              ▼  <b>GAINS</b>                               ▼  <b>LOSSES</b>
+     shared to tiers by split          shared pro-rata: <span class="h">same % from every tier</span>
+              │                                        │
+              └────────────────────┬───────────────────┘
+                                   ▼
+  <b>7  REDEEM</b>          dollar receipt ──▶ USDC back out        <span class="h">cap: 5% of supply per week</span>
+</pre>
+
+    <div class="callout info" style="margin-top:16px">
+      <p><strong>The key idea.</strong> At every single hop, a hard-coded cap limits how
+      fast money can move — how fast it can be created, how much can leave for
+      trading, and how much can be withdrawn in a week. In normal operation
+      <strong>no human can widen these limits on the spot</strong>; loosening any of them
+      requires a token-holder vote and the 8-day delay (§6).</p>
+    </div>
+
+    <h3 style="margin-top:22px">The seven steps in words</h3>
+    <ul>
+      <li><strong>1 · Deposit.</strong> A depositor sends USDC to the Vault and receives an
+        equal amount of RISKUSD. To stop a runaway or an exploit minting unlimited
+        receipts, the Vault throttles how much can be created per block, per day,
+        and per week.</li>
+      <li><strong>2 · The Vault.</strong> The Vault is the cash reserve. It now holds the USDC
+        and has issued matching RISKUSD, and from this moment it keeps proving a
+        solvency rule: the cash on hand plus the conservative value of money out
+        trading must always cover every receipt in existence.</li>
+      <li><strong>3 · Stake.</strong> The depositor stakes RISKUSD into one of four tiers and
+        gets tier shares. The tier sets the lock-up and the profit split; losses are
+        shared pro-rata across all tiers, the same for every tier (§5).</li>
+      <li><strong>4 · Deploy.</strong> The Vault sends up to <strong>95%</strong> of its capital to the
+        trading desk (the "custodian"), always keeping at least a <strong>5%</strong> buffer
+        on hand so routine withdrawals never wait on the trading floor.</li>
+      <li><strong>5 · Trade.</strong> On HyperLiquid, the desk runs the market-neutral
+        strategy. The capital's current worth is periodically reported back to the
+        Vault as a "NAV" (net asset value) attestation.</li>
+      <li><strong>6 · Settle.</strong> Gains and losses flow to the ProtocolTreasury, which
+        shares profit to the tiers by their split (and takes the protocol fee), or
+        spreads a loss across all tiers in proportion to their assets.</li>
+      <li><strong>7 · Redeem.</strong> A depositor hands back the receipt and gets USDC out —
+        but no more than <strong>5% of the total</strong> can be redeemed in any one week, so
+        a panic cannot drain the vault faster than capital can be recalled from
+        trading.</li>
+    </ul>
+  </section>
+
+  <!-- §5 -->
+  <section class="section" id="tiers">
+    <div class="section-head">
+      <span class="section-num">§5</span>
+      <div>
+        <h2>The tiers and the economics</h2>
+        <p class="section-sub">Four choices on one dial: lock longer, earn a bigger share of the profit — losses are shared equally across all tiers.</p>
+      </div>
+    </div>
+    <p>
+      The four tiers are the heart of the product. Think of them as
+      <strong>profit-share classes</strong>: the longer you lock your money, the bigger the
+      share of profit you keep. Losses, by contrast, are <strong>not</strong> tranched —
+      they are shared <strong>pro-rata across all four tiers at once</strong>, so every
+      tier takes the same percentage hit. A longer lock-up buys a bigger slice of the
+      upside; it gives no extra protection on the downside, because there is no
+      loss queue.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:34%">&nbsp;</th>
+          <th>Tier 0</th><th>Tier 1</th><th>Tier 2</th><th>Tier 3</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Lock-up</strong> (your money is committed)</td><td>None</td><td>90 days</td><td>180 days</td><td>360 days</td></tr>
+        <tr><td><strong>Your share of the profit</strong></td><td>50%</td><td>55%</td><td>60%</td><td>65%</td></tr>
+        <tr><td><strong>Protocol fee</strong> (the rest)</td><td>20%</td><td>15%</td><td>10%</td><td>5%</td></tr>
+        <tr><td><strong>Loss sharing</strong> (if the desk loses money)</td><td>Equal %</td><td>Equal %</td><td>Equal %</td><td>Equal %</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note" style="margin-top:16px">
+      <p><strong>How a loss is shared.</strong> If the desk loses money, the ProtocolTreasury
+      reduces all four tiers at once, in proportion to how much each holds — so every
+      tier, from Tier 0 to Tier 3, takes the <strong>same percentage</strong> hit. There
+      is no first-loss tier and no loss queue: a longer lock-up earns a bigger share of
+      the profit, but gives no extra protection when the desk loses. Only if a loss is
+      large enough to use up the tiers' capital does the protocol's own retained buffer
+      absorb the remainder.</p>
+    </div>
+    <p class="small" style="margin-top:14px">
+      The percentages above are the launch configuration set when the contracts are
+      deployed; they can be changed later only through the governance process in §6.
+      The vault also opens with a <strong>$10M</strong> total-deposit cap.
+    </p>
+  </section>
+
+  <!-- §6 -->
+  <section class="section" id="gov">
+    <div class="section-head">
+      <span class="section-num">§6</span>
+      <div>
+        <h2>Governance — who has the keys</h2>
+        <p class="section-sub">A token-holder vote, behind a mandatory 8-day waiting period.</p>
+      </div>
+    </div>
+    <p>
+      The natural question for any fund is "who can touch the money or change the
+      rules?" For OpenForage the answer is a chain of checks, with a deliberate delay
+      built in so nothing can change by surprise.
+    </p>
+
+    <div class="note" style="margin-top:4px">
+      <p><strong>Forward pointer.</strong> This page is the <em>as-is</em> architecture — what is
+        deployed and tested today, where each guardian holds individual permission bits (pause,
+        cancel, emergency, propose) and there is <strong>no several-of-many threshold</strong>: a
+        single permitted guardian acts alone. A planned redesign reshapes guardian authority into a
+        three-lane model (single-guardian stop · a 4-of-7 recovery quorum that <em>accelerates</em>
+        governance, never replaces it · governance) with a pre-committed successor list, alongside
+        moving trading off-chain. That is described in the companion
+        <code>target_smart_contract_architecture.html</code> (§6) and is <strong>not yet
+        built</strong>.</p>
+    </div>
+
+    <pre class="diagram" aria-label="governance chain diagram">   FORAGE holders        ForageGovernor            TimelockController         the contracts
+   ──────────────   ──▶  ───────────────    ──▶    ──────────────────   ──▶   ─────────────
+   propose &amp; vote        tallies the vote          holds the approved        change takes
+   (need 1% to            (need 4% quorum,          change for <b>8 days</b>          effect only
+    propose)               5-day voting)            in public view             after the wait</pre>
+
+    <p style="margin-top:16px">
+      Even a winning vote cannot change the system instantly. An approved change is
+      parked in the <strong>timelock</strong> — a glass-walled waiting room — for <strong>8 days</strong>
+      before it can execute. Anyone who disagrees can see it coming and exit first.
+      This is what makes "upgradeable" contracts safe rather than a back door.
+    </p>
+
+    <h3 style="margin-top:8px">Who can do what</h3>
+    <p>The point of the table below is the number of "No" answers. Most actors are
+      tightly boxed in.</p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:26%">Actor</th>
+          <th>Deposit / redeem?</th>
+          <th>Move funds to trade?</th>
+          <th>Change a parameter?</th>
+          <th>Loosen a cap?</th>
+          <th>Extract funds?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>A depositor</strong></td><td>Yes (their own)</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td><strong>FORAGE voters + 8-day timelock</strong></td><td>—</td><td>No</td><td>Yes, on the delay</td><td>Yes, on the delay</td><td>No</td></tr>
+        <tr><td><strong>Guardian (emergency)</strong></td><td>—</td><td>No</td><td>Tighten only</td><td><strong>No — never</strong></td><td>No</td></tr>
+        <tr><td><strong>Trading desk / custodian</strong></td><td>—</td><td>Receives deployed capital within caps</td><td>No</td><td>No</td><td>No (returns capital to the Vault)</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:22px">Can the contracts be changed after launch?</h3>
+    <p>
+      Most contracts are <strong>upgradeable</strong> — their logic can be improved later —
+      but only through the vote-plus-8-day-timelock path above, never unilaterally.
+      A few things are deliberately fixed: the 1-for-1 dollar backing, the four-tier
+      structure, and the safety invariants. One contract, the
+      <strong>vesting wallet</strong> for team/partner tokens, is <strong>not upgradeable at all</strong>
+      by design, so a vesting schedule cannot be quietly rewritten.
+    </p>
+  </section>
+
+  <!-- §7 -->
+  <section class="section" id="safety">
+    <div class="section-head">
+      <span class="section-num">§7</span>
+      <div>
+        <h2>How it's kept safe</h2>
+        <p class="section-sub">Roughly 46 documented controls, layered so one failure is caught by the next.</p>
+      </div>
+    </div>
+    <p>
+      Safety here is not one feature but layers — the contracts carry around
+      <strong>46 documented defence-in-depth controls</strong> (catalogued internally as
+      R-1 through R-46). You do not need the list; four representative ones convey
+      the philosophy.
+    </p>
+
+    <div class="two-col">
+      <div class="callout">
+        <h3 style="color:var(--ink)">The solvency promise</h3>
+        <p>On every deposit, redemption, and capital deployment, the Vault re-checks
+        a single rule and refuses the action if it would break:</p>
+        <p class="small"><em>"Cash in the vault, plus the conservative value of money out
+          trading, must always cover every dollar-receipt in existence."</em></p>
+        <p class="small">In code that is
+          <code>vaultUSDC + min(bookValue, NAV) ≥ total RISKUSD</code> — the
+          <code>min()</code> means the system always values deployed capital
+          cautiously.</p>
+      </div>
+      <div class="callout warning">
+        <h3 style="color:var(--ink)">The shrink-only brake</h3>
+        <p>The Guardian is like a fuse box that can trip a breaker to cut power but
+        is physically incapable of pushing more current through the wires. In an
+        emergency it can tighten caps, pause, or freeze — its only direction is
+        <strong>more restrictive</strong>. It cannot widen a limit, mint, or move funds.</p>
+      </div>
+      <div class="callout">
+        <h3 style="color:var(--ink)">Speed limits on creation</h3>
+        <p>New dollar-receipts can only be minted so fast — throttled per block, per
+        day, and per week. A bug or an attacker cannot conjure unlimited supply in
+        one transaction; the throttle buys time for the brake to engage.</p>
+      </div>
+      <div class="callout">
+        <h3 style="color:var(--ink)">Two-key changes</h3>
+        <p>The most sensitive settings use <strong>two-step setters</strong>: a change must be
+        proposed and then confirmed in a separate step, so a single fat-fingered or
+        malicious transaction cannot flip a critical parameter.</p>
+      </div>
+    </div>
+
+    <p class="small" style="margin-top:16px">
+      Other controls in the same family: the trading desk can never be over-funded
+      (the 95% / 5%-buffer rule), a stale or missing value report from the trading
+      floor is automatically treated conservatively, tier share-values can never
+      tick down from a yield update, and a blocklist plus a custodian registry
+      constrain exactly which addresses can ever be trusted.
+    </p>
+  </section>
+
+  <!-- §8 -->
+  <section class="section" id="catalog">
+    <div class="section-head">
+      <span class="section-num">§8</span>
+      <div>
+        <h2>The full catalog — Arbitrum side (16 contracts)</h2>
+        <p class="section-sub">Every contract on the money-and-rules chain, in plain English.</p>
+      </div>
+    </div>
+
+    <div class="grouplabel">Tokens — the units of value</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The dollar receipt</h3>
+        <div class="sol">RISKUSD</div>
+        <p>A token worth one dollar, backed 1-for-1 by USDC in the Vault. Created and
+          destroyed only by the Vault as people deposit and redeem.</p>
+        <div class="tags"><span class="tag good">token</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The tier shares</h3>
+        <div class="sol">atRISKUSD — deployed 4× (Tiers 0–3)</div>
+        <p>A standard interest-bearing "vault share." Staking your receipt mints tier
+          shares whose value rises as profit accrues. Four copies, one per tier.</p>
+        <div class="tags"><span class="tag good">token</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The vote token</h3>
+        <div class="sol">ForageToken (FORAGE)</div>
+        <p>The 100-million-supply governance token. Holding it grants votes; it can be
+          delegated, locked, and (by authorised contracts) burned. This is the
+          ownership-and-control layer, separate from the deposited dollars.</p>
+        <div class="tags"><span class="tag good">token</span></div>
+      </div>
+    </div>
+
+    <div class="grouplabel">Core capital — the cash engine</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The Vault</h3>
+        <div class="sol">RISKUSDVault</div>
+        <p>The central USDC pool. Handles 1-for-1 deposits and capped redemptions,
+          deploys capital to the trading desk, records the value reported back,
+          settles losses, and enforces the solvency promise on every move.</p>
+        <div class="tags"><span class="tag good">core</span></div>
+      </div>
+    </div>
+
+    <div class="grouplabel">Treasury &amp; distribution — where value is routed</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The profit-and-loss router</h3>
+        <div class="sol">ProtocolTreasury</div>
+        <p>The allocation hub. Routes trading profit to the four tiers, the
+          foundation, the funding pool, and a retained protocol balance — and spreads
+          losses pro-rata across the tiers (the same percentage from each) when the
+          desk loses money.</p>
+        <div class="tags"><span class="tag good">treasury</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The agent payroll</h3>
+        <div class="sol">FundingTreasury</div>
+        <p>A USDC pool that pays the operators ("agents") who run the system, through
+          an authorised distributor, with per-payment and rolling 24-hour caps so
+          outflows stay bounded.</p>
+        <div class="tags"><span class="tag good">treasury</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The agent reward pool</h3>
+        <div class="sol">RewardPool</div>
+        <p>Holds <strong>40M FORAGE</strong> for quarterly, claim-by-proof ("Merkle") airdrops
+          to agents who contribute to the protocol.</p>
+        <div class="tags"><span class="tag good">treasury</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The depositor reward pool</h3>
+        <div class="sol">DepositorPool</div>
+        <p>Holds <strong>20M FORAGE</strong> for claim-by-proof airdrops to the people who
+          deposit into RISKUSD — aligning depositors with the protocol's success.</p>
+        <div class="tags"><span class="tag good">treasury</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The partnerships treasury</h3>
+        <div class="sol">Partnerships</div>
+        <p>A governance-controlled FORAGE treasury earmarked for partnership deals.
+          Funds move only by the governance process, not at one person's discretion.</p>
+        <div class="tags"><span class="tag good">treasury</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The staking queue</h3>
+        <div class="sol">StakingQueue</div>
+        <p>An orderly, two-lane first-in-first-out line for processing staking
+          requests, so deposits enter the tiers fairly and predictably rather than
+          in a free-for-all.</p>
+        <div class="tags"><span class="tag good">treasury</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The vesting wallet</h3>
+        <div class="sol">DelegatingVestingWallet</div>
+        <p>Per-person FORAGE vesting with a cliff, while still letting the locked
+          tokens vote. Deliberately <strong>not upgradeable</strong>, so a vesting schedule
+          cannot be rewritten after the fact.</p>
+        <div class="tags"><span class="tag good">treasury</span><span class="tag warn">immutable</span></div>
+      </div>
+    </div>
+
+    <div class="grouplabel">Governance &amp; safety — who and what is trusted</div>
+    <div class="two-col">
+      <div class="ccard">
+        <h3>The voting system</h3>
+        <div class="sol">ForageGovernor</div>
+        <p>Runs FORAGE-holder proposals and votes (1% to propose, 4% quorum, 5-day
+          vote), and routes approved changes through the 8-day timelock.</p>
+        <div class="tags"><span class="tag warn">governance</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The emergency brake</h3>
+        <div class="sol">GuardianModule</div>
+        <p>Holds the emergency powers — pause, tighten caps, cancel a malicious
+          proposal, freeze attestations — separated into its own contract and built
+          so it can only ever make the rules stricter.</p>
+        <div class="tags"><span class="tag risk">safety</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The blocklist</h3>
+        <div class="sol">Blocklist</div>
+        <p>An address-level deny-list for emergencies: the Guardian can add an address
+          in one step, while removals are deliberately delayed — fast to protect,
+          slow to release.</p>
+        <div class="tags"><span class="tag risk">safety</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The custodian registry</h3>
+        <div class="sol">CustodianRegistry</div>
+        <p>The approved list of trading custodians the Vault may deploy capital to.
+          Capital can only ever flow to a registered, governance-approved destination.</p>
+        <div class="tags"><span class="tag risk">safety</span></div>
+      </div>
+      <div class="ccard">
+        <h3>The vault registry</h3>
+        <div class="sol">VaultRegistry</div>
+        <p>A central, governance-only directory of all strategy vaults and their
+          configuration — the system's source of truth for which vaults exist.</p>
+        <div class="tags"><span class="tag risk">safety</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §9 -->
+  <section class="section" id="hl">
+    <div class="section-head">
+      <span class="section-num">§9</span>
+      <div>
+        <h2>The cross-chain trading engine — HyperLiquid (8 contracts)</h2>
+        <p class="section-sub">Why a second blockchain exists, and the eight contracts that run the trading floor.</p>
+      </div>
+    </div>
+    <p>
+      The accounting and governance live on <strong>Arbitrum</strong>, but the actual trading
+      happens on <strong>HyperLiquid</strong> — a blockchain purpose-built for fast
+      derivatives trading. So OpenForage spans two chains, and the interesting
+      engineering is keeping them honest with each other.
+    </p>
+    <p>
+      The two halves never trust a raw message. Governance commands and value reports
+      cross between them over <strong>Chainlink CCIP</strong>, an established cross-chain
+      messaging service, and the receiving side only accepts a fixed, pre-approved
+      set of instructions. Picture a diplomatic pouch on a vetted courier: only
+      certain documents are allowed inside, and the recipient checks the seal.
+    </p>
+
+    <pre class="diagram" aria-label="hyperliquid flow diagram">    <b>ARBITRUM</b>                                              <b>HYPERLIQUID (HyperEVM)</b>
+    ─────────                                              ──────────────────────
+    RISKUSDVault ──deploy──▶ HLTradingBridge ──bridge──▶  HLTradingVault ──▶ HyperLiquid markets
+                            (the "custodian")              (the trading account)
+                                                                 ▲   uses
+                                                                 │   ┌─ HLTradingVaultSubmitModule
+                                                                 │   └─ HLTradingVaultWithdrawalModule
+    HLGovernanceCCIPSender ······CCIP commands······▶  ExecutorProxy ──owns/controls──▶ HLTradingVault
+                                                       CoreWriterActionParser checks every instruction</pre>
+
+    <div class="grouplabel" style="margin-top:22px">The eight HyperLiquid contracts</div>
+    <div class="two-col">
+      <div class="ccard hl">
+        <h3>The bridge / custodian</h3>
+        <div class="sol">HLTradingBridge · Arbitrum-side orchestrator</div>
+        <p>The contract the Vault treats as its trading "custodian." It orchestrates
+          sending capital from Arbitrum over to the HyperLiquid side and bringing the
+          proceeds back. This is the hand-off point between the bank and the desk.</p>
+        <div class="tags"><span class="tag info">bridge</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The trading account</h3>
+        <div class="sol">HLTradingVault · on HyperEVM</div>
+        <p>The on-HyperLiquid account that actually places trades. Before it forwards
+          any instruction to the exchange it re-checks the caps, so the trading floor
+          is bounded by the same rules as the rest of the system.</p>
+        <div class="tags"><span class="tag info">trading</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The trade-submit module</h3>
+        <div class="sol">HLTradingVaultSubmitModule</div>
+        <p>A plug-in that holds the logic for <em>submitting</em> a trade. Keeping it in a
+          separate module lets the trade logic be reviewed and upgraded without
+          touching the account that holds value.</p>
+        <div class="tags"><span class="tag info">trading</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The withdrawal module</h3>
+        <div class="sol">HLTradingVaultWithdrawalModule</div>
+        <p>The matching plug-in for <em>withdrawals</em> — the logic for registering an
+          intent to pull capital back off the trading floor, again separated from the
+          account itself for safer review.</p>
+        <div class="tags"><span class="tag info">trading</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The deposit adapter</h3>
+        <div class="sol">HLCustodianBridgeAdapter</div>
+        <p>A small adapter that handles the exact mechanics of HyperLiquid's own
+          official bridge boundary, so deposited capital is credited to the right
+          account on arrival.</p>
+        <div class="tags"><span class="tag info">bridge</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The command sender</h3>
+        <div class="sol">HLGovernanceCCIPSender · Arbitrum</div>
+        <p>The Arbitrum-side outbox. When governance needs to instruct the
+          HyperLiquid side, this contract packages and sends the command across the
+          CCIP bridge.</p>
+        <div class="tags"><span class="tag info">bridge</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The command receiver</h3>
+        <div class="sol">ExecutorProxy · on HyperEVM</div>
+        <p>The HyperLiquid-side inbox that receives governance commands over CCIP and
+          controls the trading account. Crucially, it accepts only an <strong>18-item
+          allow-list</strong> of instructions — nothing outside that fixed set can ever run.</p>
+        <div class="tags"><span class="tag info">bridge</span><span class="tag risk">safety</span></div>
+      </div>
+      <div class="ccard hl">
+        <h3>The instruction checker</h3>
+        <div class="sol">CoreWriterActionParser</div>
+        <p>A helper library that decodes and validates each instruction before it
+          reaches the exchange, so a malformed or unexpected command is rejected
+          rather than executed.</p>
+        <div class="tags"><span class="tag info">trading</span><span class="tag risk">safety</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §10 -->
+  <section class="section" id="maturity">
+    <div class="section-head">
+      <span class="section-num">§10</span>
+      <div>
+        <h2>Maturity and status</h2>
+        <p class="section-sub">Heavily tested, independently reviewed — and not yet on mainnet.</p>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <p><strong>Pre-mainnet.</strong> These contracts are <strong>not yet deployed to a live
+      (mainnet) network</strong>. They run and are exercised on local and test networks
+      only. No real depositor funds are at stake today; "going live" is a separate,
+      later step.</p>
+    </div>
+
+    <div class="two-col" style="margin-top:16px">
+      <div class="card">
+        <h3>Tested</h3>
+        <p class="small">The codebase carries a large automated test suite — on the
+          order of <strong>4,100 passing tests across ~500 suites</strong>, including
+          "fuzzing" (throwing thousands of random inputs at the code) and "invariant"
+          testing (continuously checking the core promises hold). The contracts
+          compile cleanly and pass automated security scanners.</p>
+      </div>
+      <div class="card">
+        <h3>Reviewed</h3>
+        <p class="small">The contracts have been <strong>independently reviewed by multiple
+          external parties</strong> in addition to repeated internal audits. The most
+          recent internal review cycle closed with <strong>no open critical, high, or
+          medium-severity findings</strong>. External auditor sign-off is part of the path
+          to mainnet.</p>
+      </div>
+    </div>
+
+    <p class="small" style="margin-top:16px">
+      In short: the architecture is complete and exercised end-to-end on test
+      networks, with a clean recent review. What remains before real money flows is
+      external audit sign-off and the mainnet deployment itself.
+    </p>
+  </section>
+
+  <!-- §11 -->
+  <section class="section" id="glossary">
+    <div class="section-head">
+      <span class="section-num">§11</span>
+      <div>
+        <h2>Glossary</h2>
+        <p class="section-sub">The recurring terms, in one place.</p>
+      </div>
+    </div>
+    <table>
+      <tbody>
+        <tr><td style="width:22%"><strong>USDC</strong></td><td>A digital dollar ("stablecoin") worth $1, issued by a regulated company. The asset depositors put in.</td></tr>
+        <tr><td><strong>Arbitrum</strong></td><td>A fast, low-cost blockchain built on top of Ethereum. Home of OpenForage's money and governance.</td></tr>
+        <tr><td><strong>HyperLiquid / HyperEVM</strong></td><td>A blockchain specialised for derivatives trading. Where OpenForage's capital is actually traded.</td></tr>
+        <tr><td><strong>Chainlink CCIP</strong></td><td>An established service for sending verified messages between blockchains — the secure pipe between the two chains.</td></tr>
+        <tr><td><strong>NAV</strong> (net asset value)</td><td>The current worth of the capital out on the trading floor, reported back so the Vault can value itself honestly.</td></tr>
+        <tr><td><strong>Market-neutral</strong></td><td>A trading style that aims to profit from relative price moves while hedging out overall market direction.</td></tr>
+        <tr><td><strong>ERC-4626 vault / shares</strong></td><td>An industry-standard recipe for "deposit an asset, hold a share whose value grows." The four tiers use it.</td></tr>
+        <tr><td><strong>Timelock</strong></td><td>A mandatory waiting period (here, 8 days) between approving a change and it taking effect.</td></tr>
+        <tr><td><strong>Basis points (bps)</strong></td><td>Hundredths of a percent. 500 bps = 5%. The contracts express caps in bps.</td></tr>
+        <tr><td><strong>Custodian</strong></td><td>The trusted destination the Vault deploys capital to for trading — here, the HyperLiquid bridge contract.</td></tr>
+        <tr><td><strong>Upgradeable (UUPS)</strong></td><td>A pattern that lets a contract's logic be improved later — under OpenForage, only via the vote-plus-timelock path.</td></tr>
+        <tr><td><strong>Defence-in-depth</strong></td><td>Stacking many independent safety controls so no single failure can break the system.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- §12 -->
+  <section class="section" id="sources" style="border-bottom:none">
+    <div class="section-head">
+      <span class="section-num">§12</span>
+      <div>
+        <h2>Sources &amp; a note on accuracy</h2>
+        <p class="section-sub">Where these facts come from, and one honest caveat.</p>
+      </div>
+    </div>
+    <p>
+      Every figure in this document was read directly from the contract source code
+      and the project's audit records, not from memory or summary. The canonical
+      sources are:
+    </p>
+    <table>
+      <tbody>
+        <tr><td style="width:42%"><code>openforage_smart_contracts/src/</code></td><td>The 24 production contracts themselves — the ultimate source of truth for every behaviour described here.</td></tr>
+        <tr><td><code>openforage_smart_contracts/script/Deploy.s.sol</code></td><td>The launch configuration: tier lock-ups, profit splits, fees, the $10M capacity cap, and governance timings.</td></tr>
+        <tr><td><code>openforage_smart_contracts/test/</code></td><td>The ~270-file automated test suite behind the "tested" claims in §10.</td></tr>
+        <tr><td><code>documentation/smart_contract_audits/</code></td><td>The dated audit and remediation records behind the "reviewed" claims in §10.</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:16px">
+      <p><strong>On deployment addresses.</strong> Because the system is pre-mainnet, there
+      are <strong>no live on-chain contract addresses</strong> to cite, and this document
+      deliberately quotes none. Any specific address presented as a "live OpenForage
+      contract" today would be incorrect — treat the source files above as the
+      authority until a mainnet deployment is formally recorded.</p>
+    </div>
+    <div class="colophon">
+      <p>OpenForage · Smart Contract Architecture · drafted 2026-06-03 · for executive /
+      internal understanding. Self-contained — no external stylesheets, scripts,
+      fonts, or network calls. The contracts in <code>openforage_smart_contracts/</code>
+      are the source of truth; where this document and the code ever disagree, the
+      code wins.</p>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>
