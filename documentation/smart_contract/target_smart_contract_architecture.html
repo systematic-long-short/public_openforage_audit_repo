@@ -393,8 +393,8 @@
         <strong>(1) HyperLiquid:</strong> 8 contracts → 1 (an Arbitrum-side custodian; zero
         HyperEVM contracts), with custody and trading moved off-chain (a single cold master
         account + a fund-less trading key); <strong>(2)
-        Treasuries:</strong> <code>ProtocolTreasury</code> + <code>FundingTreasury</code> →
-        <strong>USDCTreasury</strong>, and <code>RewardPool</code> + <code>DepositorPool</code>
+        Treasuries:</strong> former <code>ProtocolTreasury</code> + <code>FundingTreasury</code> →
+        <strong>USDCTreasury</strong>, and former <code>RewardPool</code> + <code>DepositorPool</code>
         + <code>Partnerships</code> → <strong>FORAGETreasury</strong>. Net implemented state:
         <strong>24 → 14</strong> production contract types.</p>
     </div>
@@ -790,7 +790,7 @@
       tier takes the <strong>same percentage</strong> hit. There is no first-loss tier and no
       loss queue. Only if a loss is large enough to use up the tiers' capital does the
       protocol's own retained buffer absorb the remainder. (This is exactly today's
-      behaviour, now living in USDCTreasury instead of ProtocolTreasury.)</p>
+      behaviour, now living in USDCTreasury instead of the former ProtocolTreasury.)</p>
     </div>
     <p class="small" style="margin-top:14px">
       The percentages above are the launch configuration set when the contracts are
@@ -1182,8 +1182,8 @@
 
     <div class="note" style="margin-bottom:16px">
       <p><strong>Current → target on this chain (16 → 13).</strong> The treasury group shrinks
-        from seven contracts to four: <code>ProtocolTreasury</code> + <code>FundingTreasury</code>
-        merge into <strong>USDCTreasury</strong>, and <code>RewardPool</code> +
+        from seven contracts to four: former <code>ProtocolTreasury</code> + <code>FundingTreasury</code>
+        merge into <strong>USDCTreasury</strong>, and former <code>RewardPool</code> +
         <code>DepositorPool</code> + <code>Partnerships</code> merge into <strong>FORAGETreasury</strong>.
         Everything else on Arbitrum is carried over unchanged.</p>
     </div>
@@ -1515,8 +1515,8 @@
       </thead>
       <tbody>
         <tr><td><strong>24 → 14 contracts</strong> (16 Arbitrum + 8 HL → 13 + 1)</td><td><code>openforage_smart_contracts/src/</code> now contains the target contract set, including <code>USDCTreasury.sol</code>, <code>FORAGETreasury.sol</code>, and <code>hyperliquid/HLTradingBridge.sol</code>. The old treasury and HyperEVM/CCIP production contracts are absent from active source.</td></tr>
-        <tr><td><strong>USDCTreasury</strong> = ProtocolTreasury + FundingTreasury</td><td>Implemented in <code>openforage_smart_contracts/src/USDCTreasury.sol</code>. It carries the deliberate redesign: accounting/cash split, <code>returnPrincipalUSDC</code>, <code>returnPnLUSDC</code>, purpose-keyed <code>disburse</code>, failover wallets, and the 50%-of-protocol-share Foundation rule.</td></tr>
-        <tr><td><strong>FORAGETreasury</strong> = RewardPool + DepositorPool + Partnerships</td><td>Implemented in <code>openforage_smart_contracts/src/FORAGETreasury.sol</code>. It holds the 80M non-team FORAGE treasury and runs agent Merkle, depositor Merkle, partnership distribution, sweep, and delegation flows.</td></tr>
+        <tr><td><strong>USDCTreasury</strong> = former ProtocolTreasury + FundingTreasury</td><td>Implemented in <code>openforage_smart_contracts/src/USDCTreasury.sol</code>. It carries the deliberate redesign: accounting/cash split, <code>returnPrincipalUSDC</code>, <code>returnPnLUSDC</code>, purpose-keyed <code>disburse</code>, failover wallets, and the 50%-of-protocol-share Foundation rule.</td></tr>
+        <tr><td><strong>FORAGETreasury</strong> = former RewardPool + DepositorPool + Partnerships</td><td>Implemented in <code>openforage_smart_contracts/src/FORAGETreasury.sol</code>. It holds the 80M non-team FORAGE treasury and runs agent Merkle, depositor Merkle, partnership distribution, sweep, and delegation flows.</td></tr>
         <tr><td><strong>FORAGE allocations &amp; team-direct mint</strong> (80M → FORAGETreasury, 20M → team wallet)</td><td>Implemented through <code>ForageToken</code> and the target deployment manifest; Arbitrum Sepolia maps <code>forageTreasury</code> to <code>0xCc847C14d848057Ee6c89c62500a888DCb729eBb</code>.</td></tr>
         <tr><td><strong>HL 8 → 1; trading off-chain</strong></td><td>Implemented in <code>openforage_smart_contracts/src/hyperliquid/HLTradingBridge.sol</code>. The old <code>HLTradingVault</code>, modules, executor proxy, CCIP sender, and bridge adapter are absent from active production source.</td></tr>
         <tr><td><strong>The caps that bound the off-chain desk (preserved)</strong></td><td><code>HLTradingBridge.sol</code> enforces $1M/block and $5M/day deploy caps, 10% NAV-upside clamp, 24h staleness, 10% return caps, arrival reconciliation, and directional freeze.</td></tr>

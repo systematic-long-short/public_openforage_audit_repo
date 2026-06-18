@@ -1,6 +1,6 @@
 {
   "openforage_sentinel": "OPENFORAGE_SLITHER_SUPPRESSIONS_R37",
-  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-15 during Phase 17 final-run repair; accepted findings re-keyed by current Slither ID and newly surfaced equivalent zero-initialization/idempotent-return leads documented with rationales.",
+  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-18 during external-audit closeout; avoidable lossNonce and Blocklist return findings were fixed in code, and detector/file/name-equivalent accepted findings were re-keyed by current Slither ID.",
   "max_suppression_days": 180,
   "suppressions": [
     {
@@ -277,10 +277,10 @@
       "detector": "reentrancy-balance",
       "file": "src/hyperliquid/HLTradingBridge.sol",
       "name": "deployToHyperLiquid",
-      "id": "646078da64bb3ed2ccf72a9818f946573aa3ca6a7495d0567ed7129b2b43584c",
+      "id": "0c69131b84890ee6dca6519263e5c7297cb2779f73d76cb00ab51007695312f1",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh and refreshed after R8-M-01/R9-M-01. The bridge deploy path is nonReentrant, records the approved registry destination before measuring the vault transfer, calls the timelocked RISKUSDVault deploy port, requires an exact USDC balance delta, forwards that verified delta to the configured cold account, and updates deployed accounting only after the transfer succeeds.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh and refreshed after R8-M-01/R9-M-01. The bridge deploy path is nonReentrant, records the approved registry destination before measuring the vault transfer, calls the timelocked RISKUSDVault deploy port, requires an exact USDC balance delta, forwards that verified delta to the configured cold account, and updates deployed accounting only after the transfer succeeds. Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
@@ -297,20 +297,20 @@
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "_processLane",
-      "id": "f284aa4698757dcbb30b524fca7b4c7b921415571529739b970e83521119b9fc",
+      "id": "2242e8adca6716d545fb3a3229a28bd46282e371b38de66e2c1df411953b8a18",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "adminCancelQueue",
-      "id": "2774b3857ae022b0d19514fdc8659d1015279d27993a3a2de19d4193cdb9affd",
+      "id": "6a5dc950446fbccdf6845756299d80bca12d91735825900efebf7bf9a97e145a",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
@@ -327,30 +327,30 @@
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "10fe2fb8a959f093d2d719a36ec56d10d7d32923aae157b8baaeba3699324108",
+      "id": "a2ab4225f07d7ce1cf0b2af65375eed160f3f49d1cc4edbfe4264702cf01ccf3",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "f1a13e306b012281d70b2b80b9abb7f2e177f2eabbf15ae035c2581a19d1352b",
+      "id": "ca4cd1c373a5114f65799f8e680ed970300d958b98831c73424da9eb56c1f3ff",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "retryForageUnlock",
-      "id": "7b24ac325bab0bc40aaafa0e119378cae2f72d6bd77b8e0a9465970732ea12b3",
+      "id": "a48892dd27844ac61c9d35425e2edb7ade34792fe29bed6332bba85f6732d432",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
       "owner": "OpenForage security"
     },
     {
@@ -687,10 +687,10 @@
       "detector": "unused-return",
       "file": "src/StakingQueue.sol",
       "name": "_tryActiveForagePriceUsd",
-      "id": "332dcde3e40c95c424f5e444fd5651aa214802311c75c3f223ad5f43d689d359",
+      "id": "edd53db9044cecafe0b740f0d878cb4db7b8c6bb6580fb065c7b2d83b76467a7",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path.",
       "owner": "OpenForage security"
     }
   ]

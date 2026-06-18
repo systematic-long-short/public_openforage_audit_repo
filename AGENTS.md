@@ -37,6 +37,10 @@ Only these paths may be present in the public snapshot:
   absolute paths scrubbed from retained logs
 - `documentation/smart_contract_audits/2026-06-12-external-audit/`, with
   external-audit triage and overlap analysis only
+- `documentation/smart_contract_audits/2026-06-17-external-audit/`, with
+  public-safe assessment, fix attribution, acknowledgment worksheet, and overlap
+  analysis files only; raw portal exports with local reproduction paths or
+  internal provenance discussion stay out of the public snapshot
 
 ## Never Export
 

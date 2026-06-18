@@ -138,6 +138,7 @@ contract HLTradingBridge is
     uint256 internal _withdrawalIntentUsedDayStart;
     uint256 internal _reconciledReturnLiquidity;
     bytes32 internal _openWithdrawalIntentId;
+    uint256 internal _nextLossNonce;
 
     event DeployedToHyperLiquid(uint256 usdcE6, uint256 deployedPrincipal);
     event NAVPosted(uint256 indexed vaultId, uint256 bookValue, uint256 rawNav, uint256 appliedNav, uint256 observedAt);
@@ -238,7 +239,11 @@ contract HLTradingBridge is
         if (_pendingDeployPrincipal != 0 && applied >= _deployedPrincipal) {
             _pendingDeployPrincipal = 0;
         }
-        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, 0);
+        uint256 lossNonce = 0;
+        if (applied < bookValue) {
+            lossNonce = ++_nextLossNonce;
+        }
+        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, lossNonce);
 
         emit NAVPosted(vaultId, bookValue, rawNav, applied, observedAt);
     }
@@ -591,8 +596,16 @@ contract HLTradingBridge is
         return _reconciledReturnLiquidity;
     }
 
-    function normalizeManualCustodianNAV(uint256, uint256 nav, uint256) external view returns (bool, uint256) {
+    function normalizeManualCustodianNAV(uint256, uint256 nav, uint256 lossNonce)
+        external
+        view
+        returns (bool, uint256)
+    {
         if (msg.sender != riskusdVault) revert UnauthorizedVault(msg.sender);
+        if (lossNonce != 0) {
+            if (_directionalFreeze && nav > _appliedNAV) revert DirectionFrozen();
+            return (true, nav);
+        }
 
         uint256 observedAt = _lastNAVObservedAt;
         uint256 bookValue = _lastNAVBookValue;

@@ -534,8 +534,8 @@ contract ForageToken is
         returns (uint256)
     {
         address blocklist_ = _blocklist;
-        if (blocklist_ == address(0)) return checkpointVotes;
-        if (IBlocklist(blocklist_).isBlocked(delegatee)) return 0;
+        bool hasBlocklist = blocklist_ != address(0);
+        if (hasBlocklist && IBlocklist(blocklist_).wasBlockedAt(delegatee, timepoint)) return 0;
 
         EnumerableSet.AddressSet storage sources = _historicalDelegateSources[delegatee];
         uint256 sourceCount = sources.length();
@@ -547,7 +547,7 @@ contract ForageToken is
             address source = sources.at(i);
             uint256 sourceVotes = _delegateSourcePastVotes(delegatee, source, timepoint);
             trackedHistoricalVotes += sourceVotes;
-            if (IBlocklist(blocklist_).isBlocked(source)) {
+            if (hasBlocklist && IBlocklist(blocklist_).wasBlockedAt(source, timepoint)) {
                 if (sourceVotes >= adjustedVotes) {
                     return 0;
                 }

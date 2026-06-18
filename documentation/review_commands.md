@@ -13,6 +13,8 @@ forge test --match-path test/DeployMainnet.target.t.sol
 forge test --match-path test/hyperliquid/HLTradingBridge.target.t.sol
 forge test --match-path test/USDCTreasury.target.t.sol
 forge test --match-path test/audit/external_2026_06_12/ExternalAudit20260612Repros.t.sol
+forge test --match-path test/audit/external_2026_06_17/ExternalAudit20260617Repros.t.sol
+forge test --match-path test/audit/external_2026_06_17/JourneyFulfillment20260617.t.sol
 make audit-static
 make audit-formal
 make audit-fuzz

@@ -348,6 +348,7 @@
       <div class="meta-row"><strong>Scope</strong><span>77 on-chain journeys + 6 Library (off-chain) · 11 actor domains</span></div>
       <div class="meta-row"><strong>Derived from</strong><span>target_smart_contract_architecture.html (the source of truth)</span></div>
       <div class="meta-row"><strong>Lens</strong><span>Coverage of the implemented TARGET — repo + Sepolia; mainnet pending</span></div>
+      <div class="meta-row"><strong>Checker</strong><span><code>scripts/verify_smart_contract_journey_bindings.py</code> validates the 77+6 superset and current source bindings</span></div>
     </aside>
   </section>
 
@@ -819,9 +820,9 @@
         <tr><td><strong>Foundation cut</strong></td><td>30% off the top — default <em>and</em> hard cap in the removed <code>ProtocolTreasury</code> model</td><td>50% of the protocol share = 15% of profit; 50% is the hard cap (<code>TSC:759, 1795-1797</code>)</td></tr>
         <tr><td><strong>Guardian model</strong></td><td>Individual permission bitmask only, no several-of threshold</td><td>Three lanes + 4-of-7 recovery quorum + pre-committed successor list (<code>TSC:824-869</code>)</td></tr>
         <tr><td><strong>Trading</strong></td><td>On-chain HyperLiquid stack — 8 contracts + CCIP (<code>TSC:1349-1350</code>)</td><td>Off-chain custody + fund-less key + one slimmed bridge (<code>TSC:1331-1350</code>)</td></tr>
-        <tr><td><strong>Treasuries</strong></td><td>ProtocolTreasury + FundingTreasury; RewardPool + DepositorPool + Partnerships (5)</td><td>USDCTreasury (merges 2) + FORAGETreasury (merges 3) (<code>TSC:395-398</code>)</td></tr>
+        <tr><td><strong>Treasuries</strong></td><td>former ProtocolTreasury + FundingTreasury; former RewardPool + DepositorPool + Partnerships (5)</td><td>USDCTreasury (merged 2) + FORAGETreasury (merged 3) (<code>TSC:395-398</code>)</td></tr>
         <tr><td><strong>PnL recognition</strong></td><td>Coupled with cash in <code>depositPnL</code> (<code>TSC:1841</code>)</td><td>Accounting separated from cash: <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code> + purpose-keyed <code>disburse</code> (<code>TSC:1773-1789</code>)</td></tr>
-        <tr><td><strong>Token naming</strong></td><td>Code: <code>RISKUSD</code> / <code>atRISKUSD</code></td><td>Docs/UI: <code>RISKUSDC</code> / <code>atRISKUSDC</code> — cosmetic; same contracts</td></tr>
+        <tr><td><strong>Token naming</strong></td><td>Code: <code>RISKUSD</code> / <code>atRISKUSD</code></td><td>Docs/UI: <code>RISKUSD</code> / <code>atRISKUSD</code> — cosmetic; same contracts</td></tr>
       </tbody>
     </table>
   </section>

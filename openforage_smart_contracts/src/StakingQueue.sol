@@ -385,7 +385,7 @@ contract StakingQueue is
         bool isPriority;
         {
             uint256 mult = _priorityMultiplier;
-            if (mult > 0) {
+            if (mult > 0 && _minimumSharesReachable(tier, minimumShares, riskusdAmount)) {
                 (bool priceReady, uint256 price,) = _tryActiveForagePriceUsd();
                 if (priceReady && price > 0) {
                     uint256 forageToLock = Math.ceilDiv(riskusdAmount * 1e18, price * mult);
@@ -473,16 +473,21 @@ contract StakingQueue is
         uint256 processed =
             _processLane(_tierPriorityQueue[tier], _tierPriorityHead[tier], tier, maxEntries, avail, tierAvail, true);
         // OF-M04: Cap head advancement to prevent DoS via dead entry accumulation
-        _tierPriorityHead[tier] = _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], maxEntries, false);
+        _tierPriorityHead[tier] =
+            _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], tier, maxEntries, false);
 
         avail = _availableCapacityForCap(config.capacityCap);
         tierAvail = _availableTierDepositCapacityForCap(tier, config.capacityCap);
 
         if (processed < maxEntries && avail > 0 && tierAvail > 0) {
+            uint256 standardBudget = maxEntries - processed;
+            _tierStandardHead[tier] =
+                _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], tier, standardBudget, true);
             _processLane(
-                _tierStandardQueue[tier], _tierStandardHead[tier], tier, maxEntries - processed, avail, tierAvail, false
+                _tierStandardQueue[tier], _tierStandardHead[tier], tier, standardBudget, avail, tierAvail, false
             );
-            _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], maxEntries, true);
+            _tierStandardHead[tier] =
+                _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], tier, maxEntries, true);
         }
     }
 
@@ -538,6 +543,13 @@ contract StakingQueue is
                 }
                 continue;
             }
+            if (!_depositorMinimumSharesReachable(tier, entry)) {
+                unchecked {
+                    ++i;
+                    ++scanned;
+                }
+                continue;
+            }
 
             _depositQueuedRiskusd(tier, entry.riskusdAmount, entry.depositor, entry.minimumShares);
 
@@ -578,18 +590,23 @@ contract StakingQueue is
     }
 
     /// @dev OF-M04: Iteration cap prevents DoS via dead entry accumulation.
-    function _advanceHead(uint256[] storage lane, uint256 head, uint256 maxScan, bool requireDepositorBounds)
-        internal
-        view
-        returns (uint256 newHead)
-    {
+    function _advanceHead(
+        uint256[] storage lane,
+        uint256 head,
+        uint8 tier,
+        uint256 maxScan,
+        bool requireDepositorBounds
+    ) internal view returns (uint256 newHead) {
         uint256 length = lane.length;
         newHead = head;
         uint256 scanned;
         while (newHead < length && scanned < maxScan) {
             QueueEntry storage entry = _queueEntries[lane[newHead]];
             if (!entry.processed && !entry.cancelled && !_isExpired(entry) && !_isBlocked(entry.depositor)) {
-                if (!requireDepositorBounds || _hasDepositorBounds(entry)) {
+                if (
+                    (!requireDepositorBounds || _hasDepositorBounds(entry))
+                        && _depositorMinimumSharesReachable(tier, entry)
+                ) {
                     break;
                 }
             }
@@ -1493,6 +1510,18 @@ contract StakingQueue is
 
     function _hasDepositorBounds(QueueEntry storage entry) internal view returns (bool) {
         return entry.minimumShares != 0 && entry.deadline != 0;
+    }
+
+    function _depositorMinimumSharesReachable(uint8 tier, QueueEntry storage entry) internal view returns (bool) {
+        return _minimumSharesReachable(tier, entry.minimumShares, entry.riskusdAmount);
+    }
+
+    function _minimumSharesReachable(uint8 tier, uint256 minimumShares, uint256 riskusdAmount)
+        internal
+        view
+        returns (bool)
+    {
+        return minimumShares == 0 || minimumShares <= _minimumDepositShares(_tierVaults[tier], riskusdAmount);
     }
 
     function _isExpired(QueueEntry storage entry) internal view returns (bool) {
