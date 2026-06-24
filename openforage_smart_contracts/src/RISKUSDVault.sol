@@ -1390,6 +1390,13 @@ contract RISKUSDVault is
     // --- Internal ---
 
     function _clearLossPendingAndNotifyRegistry() internal {
+        if (_latestLossVaultId != 0) {
+            if (_latestLossNonce > _settledLossNonce) {
+                _settledLossNonce = _latestLossNonce;
+            }
+            _latestLossVaultId = 0;
+            _latestLossAmount = 0;
+        }
         _lossPendingVaultId = 0; // OF-14-001: clear vault binding
         _lossPending = false;
         _lastLossResolutionBlock = block.number;

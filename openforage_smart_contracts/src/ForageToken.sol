@@ -534,8 +534,8 @@ contract ForageToken is
         returns (uint256)
     {
         address blocklist_ = _blocklist;
-        if (blocklist_ == address(0)) return checkpointVotes;
-        if (IBlocklist(blocklist_).isBlocked(delegatee)) return 0;
+        bool hasBlocklist = blocklist_ != address(0);
+        if (hasBlocklist && _wasEffectivelyBlockedAt(blocklist_, delegatee, timepoint)) return 0;
 
         EnumerableSet.AddressSet storage sources = _historicalDelegateSources[delegatee];
         uint256 sourceCount = sources.length();
@@ -547,7 +547,7 @@ contract ForageToken is
             address source = sources.at(i);
             uint256 sourceVotes = _delegateSourcePastVotes(delegatee, source, timepoint);
             trackedHistoricalVotes += sourceVotes;
-            if (IBlocklist(blocklist_).isBlocked(source)) {
+            if (hasBlocklist && _wasEffectivelyBlockedAt(blocklist_, source, timepoint)) {
                 if (sourceVotes >= adjustedVotes) {
                     return 0;
                 }
@@ -559,5 +559,19 @@ contract ForageToken is
         }
         if (trackedHistoricalVotes < adjustedVotes) return trackedHistoricalVotes;
         return adjustedVotes;
+    }
+
+    function _wasEffectivelyBlockedAt(address blocklist_, address account, uint256 timepoint)
+        internal
+        view
+        returns (bool)
+    {
+        (bool ok, bytes memory data) = blocklist_.staticcall(
+            abi.encodeWithSelector(IBlocklist.wasEffectivelyBlockedAt.selector, account, timepoint)
+        );
+        if (ok && data.length >= 32) {
+            return abi.decode(data, (bool));
+        }
+        return IBlocklist(blocklist_).wasBlockedAt(account, timepoint);
     }
 }

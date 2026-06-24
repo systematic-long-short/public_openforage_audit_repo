@@ -24,6 +24,7 @@ interface IRISKUSDVaultCustodyPort {
 
 interface IRISKUSDVaultNAVPort {
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external;
+    function latestLossNonce() external view returns (uint256);
 }
 
 interface ICustodianRegistryAccountingPort {
@@ -238,7 +239,11 @@ contract HLTradingBridge is
         if (_pendingDeployPrincipal != 0 && applied >= _deployedPrincipal) {
             _pendingDeployPrincipal = 0;
         }
-        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, 0);
+        uint256 lossNonce = 0;
+        if (applied < bookValue) {
+            lossNonce = IRISKUSDVaultNAVPort(riskusdVault).latestLossNonce() + 1;
+        }
+        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, lossNonce);
 
         emit NAVPosted(vaultId, bookValue, rawNav, applied, observedAt);
     }
@@ -591,8 +596,16 @@ contract HLTradingBridge is
         return _reconciledReturnLiquidity;
     }
 
-    function normalizeManualCustodianNAV(uint256, uint256 nav, uint256) external view returns (bool, uint256) {
+    function normalizeManualCustodianNAV(uint256, uint256 nav, uint256 lossNonce)
+        external
+        view
+        returns (bool, uint256)
+    {
         if (msg.sender != riskusdVault) revert UnauthorizedVault(msg.sender);
+        if (lossNonce != 0) {
+            if (_directionalFreeze && nav > _appliedNAV) revert DirectionFrozen();
+            return (true, nav);
+        }
 
         uint256 observedAt = _lastNAVObservedAt;
         uint256 bookValue = _lastNAVBookValue;
