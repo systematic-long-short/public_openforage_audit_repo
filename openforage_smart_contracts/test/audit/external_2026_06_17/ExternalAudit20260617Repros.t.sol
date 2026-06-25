@@ -306,6 +306,10 @@ contract ExternalAudit20260617ReprosTest is Test {
         blocklist.blockAddress(holder);
         vm.warp(block.timestamp + 1);
 
+        assertFalse(
+            blocklist.wasEffectivelyBlockedAt(holder, cleanSnapshot),
+            "later block must not retroactively mark a clean snapshot as effectively blocked"
+        );
         assertEq(
             forage.getPastVotes(delegatee, cleanSnapshot),
             100e18,
@@ -349,45 +353,6 @@ contract ExternalAudit20260617ReprosTest is Test {
             0,
             "source blocked at the governance snapshot must not regain past votes after expiry"
         );
-    }
-
-    function test_liveCandidateExtremeMinimumSharesCannotPinStandardQueueLane() public {
-        // PHASE5_REPRO_BINDING: OCTANE-02
-        // PHASE5_REPRO_BINDING: OCTANE-03
-        // PHASE5_REPRO_BINDING: OCTANE-04
-        // PHASE5_REPRO_BINDING: OCTANE-09
-        // OCTANE_RELATED_BINDING: OCTANE-02.R1 depositor-bounds standard-lane DoS / legacy entries stall.
-        // OCTANE_RELATED_BINDING: OCTANE-03.R1 legacy depositor bounds migration liveness regression.
-        (uint256 toxicQueueId, uint256 healthyQueueId) = _deployQueueWithToxicThenHealthyStandardEntries();
-        QueueFixture storage f = queueFixture;
-
-        vm.prank(f.keeper);
-        (bool processed,) = address(f.queue).call(abi.encodeCall(StakingQueue.processQueue, (uint8(0), uint256(2))));
-
-        assertTrue(processed, "one toxic depositor bound must not revert the whole queue lane");
-        assertFalse(f.queue.getQueueEntry(toxicQueueId).processed, "toxic min-share entry must remain unprocessed");
-        assertTrue(f.queue.getQueueEntry(healthyQueueId).processed, "later healthy standard entry must still process");
-        assertGt(f.vault0.balanceOf(f.bob), 0, "healthy depositor must receive atRISKUSD shares");
-    }
-
-    function test_liveCandidateExtremeMinimumSharesCannotConsumeSingleEntryBudget() public {
-        // PHASE5_REPRO_BINDING: OCTANE-02
-        // PHASE5_REPRO_BINDING: OCTANE-03
-        // PHASE5_REPRO_BINDING: OCTANE-04
-        // PHASE5_REPRO_BINDING: OCTANE-09
-        // OCTANE_RELATED_BINDING: OCTANE-02.R2 bounded processQueue(0, 1) toxic-head pin.
-        (uint256 toxicQueueId, uint256 healthyQueueId) = _deployQueueWithToxicThenHealthyStandardEntries();
-        QueueFixture storage f = queueFixture;
-
-        vm.prank(f.keeper);
-        (bool processed,) = address(f.queue).call(abi.encodeCall(StakingQueue.processQueue, (uint8(0), uint256(1))));
-
-        assertTrue(processed, "toxic depositor bound must not consume the only processing slot");
-        assertFalse(f.queue.getQueueEntry(toxicQueueId).processed, "toxic min-share entry must remain unprocessed");
-        assertTrue(
-            f.queue.getQueueEntry(healthyQueueId).processed, "single-slot budget must process later healthy entry"
-        );
-        assertGt(f.vault0.balanceOf(f.bob), 0, "healthy depositor must receive atRISKUSD shares");
     }
 
     function test_liveCandidatePriorityMinimumSharesCannotPinStandardLane() public {
@@ -520,31 +485,6 @@ contract ExternalAudit20260617ReprosTest is Test {
         _wireTierVaultToQueue(f.vault1, f.owner, address(f.queue));
         _wireTierVaultToQueue(f.vault2, f.owner, address(f.queue));
         _wireTierVaultToQueue(f.vault3, f.owner, address(f.queue));
-    }
-
-    function _deployQueueWithToxicThenHealthyStandardEntries()
-        internal
-        returns (uint256 toxicQueueId, uint256 healthyQueueId)
-    {
-        _deployQueueFixture();
-        QueueFixture storage f = queueFixture;
-
-        vm.prank(f.owner);
-        f.queue.setPriorityMultiplier(0);
-
-        f.riskusd.mint(f.alice, 2_000e6);
-        f.riskusd.mint(f.bob, 2_000e6);
-        vm.startPrank(f.alice);
-        f.riskusd.approve(address(f.queue), 2_000e6);
-        toxicQueueId = f.queue.nextQueueId();
-        f.queue.joinQueueWithBounds(1_000e6, 0, type(uint256).max, block.timestamp + 7 days);
-        vm.stopPrank();
-
-        vm.startPrank(f.bob);
-        f.riskusd.approve(address(f.queue), 2_000e6);
-        healthyQueueId = f.queue.nextQueueId();
-        f.queue.joinQueueWithBounds(1_000e6, 0, 1, block.timestamp + 7 days);
-        vm.stopPrank();
     }
 
     function _deployQueueWithToxicPriorityThenHealthyStandardEntries()

@@ -8,8 +8,8 @@ Agent export rules live in `AGENTS.md`. Refreshes are built on a public pull
 request branch from the allowlist in that file, with scan and review evidence
 attached to the PR before merge.
 
-Smart-contract source and audit documentation surface copied from private
-OpenForage commit `bb4228378ff6ab83066f9d17c82b1b9a9abb747c`.
+Smart-contract source copied from private OpenForage commit
+`34c8793713556453bd5af450b17b215de88f0f45`.
 
 ## Readiness Status
 

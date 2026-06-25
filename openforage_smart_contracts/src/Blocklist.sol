@@ -40,6 +40,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     mapping(address => uint256) public blockedUntil;
     mapping(address => uint256) public pendingUnblock;
     mapping(address => Checkpoints.Trace208) private _blockedUntilCheckpoints;
+    mapping(address => uint256) private _preCheckpointBlockedUntil;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -62,6 +63,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
         uint256 newExpiry = block.timestamp + BLOCK_DURATION;
         uint256 currentExpiry = blockedUntil[account];
+        _recordPreCheckpointLegacyExpiry(account, currentExpiry);
         if (currentExpiry > newExpiry) {
             newExpiry = currentExpiry;
         }
@@ -91,6 +93,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         if (proposedAt == 0) revert NoPendingUnblock();
         _requireProposalReady(proposedAt);
 
+        _recordPreCheckpointLegacyExpiry(account, blockedUntil[account]);
         blockedUntil[account] = 0;
         (uint208 previousExpiry, uint208 writtenExpiry) =
             _blockedUntilCheckpoints[account].push(uint48(block.timestamp), 0);
@@ -159,6 +162,33 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
         uint256 expiry = _blockedUntilCheckpoints[account].upperLookupRecent(uint48(timepoint));
         return expiry != 0 && expiry >= timepoint;
+    }
+
+    /// @notice Migration-aware historical block state for governance vote exclusion.
+    /// @dev `wasBlockedAt` remains checkpoint-only; this function applies the explicit
+    /// legacy `blockedUntil` fallback until an account's first checkpoint becomes authoritative.
+    function wasEffectivelyBlockedAt(address account, uint256 timepoint) public view returns (bool) {
+        if (wasBlockedAt(account, timepoint)) return true;
+        if (timepoint > type(uint48).max) return false;
+
+        Checkpoints.Trace208 storage checkpoints = _blockedUntilCheckpoints[account];
+        uint256 checkpointCount = checkpoints.length();
+        if (checkpointCount != 0) {
+            Checkpoints.Checkpoint208 memory firstCheckpoint = checkpoints.at(0);
+            if (uint48(timepoint) >= firstCheckpoint._key) return false;
+
+            uint256 preCheckpointExpiry = _preCheckpointBlockedUntil[account];
+            return preCheckpointExpiry != 0 && preCheckpointExpiry >= timepoint;
+        }
+
+        uint256 legacyExpiry = blockedUntil[account];
+        return legacyExpiry != 0 && legacyExpiry >= timepoint;
+    }
+
+    function _recordPreCheckpointLegacyExpiry(address account, uint256 legacyExpiry) private {
+        if (legacyExpiry != 0 && _blockedUntilCheckpoints[account].length() == 0) {
+            _preCheckpointBlockedUntil[account] = legacyExpiry;
+        }
     }
 
     function _requireProposalReady(uint256 proposedAt) private view {

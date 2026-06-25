@@ -8,7 +8,7 @@ This snapshot is limited to one component tree:
 
 The source files are copied from the current working tree of the private
 OpenForage repository's smart-contract/audit surface at commit
-`bb4228378ff6ab83066f9d17c82b1b9a9abb747c`. Local generated artifacts,
+`34c8793713556453bd5af450b17b215de88f0f45`. Local generated artifacts,
 environment files, and unrelated private monorepo trees are intentionally
 omitted.
 

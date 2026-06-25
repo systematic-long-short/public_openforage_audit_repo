@@ -1,6 +1,6 @@
 {
   "openforage_sentinel": "OPENFORAGE_SLITHER_SUPPRESSIONS_R37",
-  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-18 during external-audit closeout; avoidable lossNonce and Blocklist return findings were fixed in code, and detector/file/name-equivalent accepted findings were re-keyed by current Slither ID.",
+  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-24 during Octane TP CI closeout; obsolete HLTradingBridge _nextLossNonce storage was removed in code, the stale StakingQueue activeCount suppression was removed after compactQueue simplification, and detector/file/name-equivalent accepted findings were re-keyed by current Slither ID.",
   "max_suppression_days": 180,
   "suppressions": [
     {
@@ -37,40 +37,40 @@
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceDailyMintCap",
-      "id": "f769c53d803cfdefba1f94a4f1074ba71b246ec9927787834527215a676edbbf",
+      "id": "3ac480848c697e79acdee36db6ae95ebf84bbad452f09f690f8bcc7c67147432",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceDailyRedemptionCap",
-      "id": "75efca64aa82f47452083098bd518ddff3056210f1ec6a9c36aec0412c35c007",
+      "id": "cbcc52f9ed214fff424a08d98c9b2e4c663156873c31adbaaffbdfd63ad28ca9",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceWeeklyCap",
-      "id": "7fcc2c4470331bde726213f9bf646b79e324515d3a5afeeaa80723829d6e6d74",
+      "id": "a1dc28550c8c8cdd73bee87cc0defc28825bdc3aa3c8b3605ed17b422a0fb416",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceWeeklyMintCap",
-      "id": "90fd03b0fdedb74387e4f8905c97ff3af645355cf4ccb08e4f6d439e438e7433",
+      "id": "7e8bfc47df4af2505c138238dd04ea0d12b41dbc656c23b8226cb344596e2cb2",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
@@ -227,30 +227,30 @@
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "_custodianNAVUnavailableOrStale",
-      "id": "df1b57ff7949c9c90d33239189c32298bb1a2368418260435090fb50b3abe607",
+      "id": "af87b58cd933d2350662cd6eff42f146ff13952ddf942cc9e18fd77e3fcb8b41",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "_hasCurrentNAVShortfall",
-      "id": "8e8f1d366b39a57cd5b71ace27a5876bb694b037fb9b41ef2bac154d462de757",
+      "id": "02f66586edc9483396529952e122f2a17cf95e0ba0418cac32600f6b8df71fcf",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "_reduceMintActiveSupply",
-      "id": "1287c25e9aaac7b91fc8b1f46b1b6d68f40dea94f678d43ff7d02918badb2213",
+      "id": "ab3ca028011ec71fd78d1e9a1ccd7b9c3c8a98057bd07d10fbce23298b72eaf1",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
@@ -297,60 +297,60 @@
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "_processLane",
-      "id": "2242e8adca6716d545fb3a3229a28bd46282e371b38de66e2c1df411953b8a18",
+      "id": "f87cf578d7d5751d9eccc278db85242a20f24aeed5144f0803d2e8817108e02f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "adminCancelQueue",
-      "id": "6a5dc950446fbccdf6845756299d80bca12d91735825900efebf7bf9a97e145a",
+      "id": "bd1b833d53988dce8a54a55fc8e329211f071d93bf56660b7a58f8e68c64039f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "cancelQueue",
-      "id": "b036782ae0e96cc53f07de92d8b53d1b11661b7e0d95a73dad7d1e774a186bed",
+      "id": "e870f61ac9d354548433d69f39d9114989991f4e3885dc305bbb029880d76735",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "a2ab4225f07d7ce1cf0b2af65375eed160f3f49d1cc4edbfe4264702cf01ccf3",
+      "id": "54fa630d87b9e5ac6e61b4bce499099a0d7d7d383adccc817c6a94fa95a24217",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "ca4cd1c373a5114f65799f8e680ed970300d958b98831c73424da9eb56c1f3ff",
+      "id": "d87a8918ac85afbd262574407d277839640139d6ef8150c372c76ff4c3ac4caa",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "retryForageUnlock",
-      "id": "a48892dd27844ac61c9d35425e2edb7ade34792fe29bed6332bba85f6732d432",
+      "id": "fb98485ce851637dddf9757834989ff5e01f308bf36100bc8a03d93bd299ab10",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     },
     {
@@ -411,16 +411,6 @@
       "created": "2026-06-15",
       "expires": "2026-12-12",
       "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. Solidity zero-initialization is intentional for the vault-registry pagination offset before scanning active tier assets; deployment-buffer tests cover the registered-tier scan path.",
-      "owner": "OpenForage security"
-    },
-    {
-      "detector": "uninitialized-local",
-      "file": "src/StakingQueue.sol",
-      "name": "activeCount",
-      "id": "16a18a2020bf8642eb887182170e96638286cf000f119403ef56f1b9184cf965",
-      "created": "2026-06-09",
-      "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Solidity zero-initialization is relied on intentionally for counters, flags, arrays, and aggregate totals inside deterministic loops; tests cover the affected queue, registry, governor, and token paths.",
       "owner": "OpenForage security"
     },
     {
@@ -687,10 +677,10 @@
       "detector": "unused-return",
       "file": "src/StakingQueue.sol",
       "name": "_tryActiveForagePriceUsd",
-      "id": "edd53db9044cecafe0b740f0d878cb4db7b8c6bb6580fb065c7b2d83b76467a7",
+      "id": "e8da1634ca11c4e8b61e4476717bf29ef2154037864bd8e2498c7ca03dcb5338",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
       "owner": "OpenForage security"
     }
   ]

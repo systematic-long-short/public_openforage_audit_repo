@@ -24,6 +24,7 @@ interface IRISKUSDVaultCustodyPort {
 
 interface IRISKUSDVaultNAVPort {
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external;
+    function latestLossNonce() external view returns (uint256);
 }
 
 interface ICustodianRegistryAccountingPort {
@@ -241,7 +242,7 @@ contract HLTradingBridge is
         }
         uint256 lossNonce = 0;
         if (applied < bookValue) {
-            lossNonce = ++_nextLossNonce;
+            lossNonce = IRISKUSDVaultNAVPort(riskusdVault).latestLossNonce() + 1;
         }
         IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, lossNonce);
 

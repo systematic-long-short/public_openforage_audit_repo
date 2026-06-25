@@ -186,6 +186,7 @@ contract StakingQueue is
     uint256 public constant MAX_FIXED_FORAGE_PRICE_USD = 1_000_000e6;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
+    uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
 
     // -- Storage --
     IERC20 private _riskusd;
@@ -385,7 +386,7 @@ contract StakingQueue is
         bool isPriority;
         {
             uint256 mult = _priorityMultiplier;
-            if (mult > 0 && _minimumSharesReachable(tier, minimumShares, riskusdAmount)) {
+            if (mult > 0) {
                 (bool priceReady, uint256 price,) = _tryActiveForagePriceUsd();
                 if (priceReady && price > 0) {
                     uint256 forageToLock = Math.ceilDiv(riskusdAmount * 1e18, price * mult);
@@ -473,21 +474,18 @@ contract StakingQueue is
         uint256 processed =
             _processLane(_tierPriorityQueue[tier], _tierPriorityHead[tier], tier, maxEntries, avail, tierAvail, true);
         // OF-M04: Cap head advancement to prevent DoS via dead entry accumulation
-        _tierPriorityHead[tier] =
-            _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], tier, maxEntries, false);
+        _tierPriorityHead[tier] = _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], maxEntries);
 
         avail = _availableCapacityForCap(config.capacityCap);
         tierAvail = _availableTierDepositCapacityForCap(tier, config.capacityCap);
 
         if (processed < maxEntries && avail > 0 && tierAvail > 0) {
             uint256 standardBudget = maxEntries - processed;
-            _tierStandardHead[tier] =
-                _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], tier, standardBudget, true);
+            _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], standardBudget);
             _processLane(
                 _tierStandardQueue[tier], _tierStandardHead[tier], tier, standardBudget, avail, tierAvail, false
             );
-            _tierStandardHead[tier] =
-                _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], tier, maxEntries, true);
+            _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], maxEntries);
         }
     }
 
@@ -502,11 +500,12 @@ contract StakingQueue is
     ) internal returns (uint256 processedCount) {
         /// @dev OF-M04: Cap total iterations (dead + live) to prevent DoS via dead entry accumulation.
         /// Without this, a long dead-entry prefix forces O(deadEntries) gas per processQueue call.
+        uint256 scanLimit = _processScanLimit(budget, isPriorityLane);
         uint256 scanned;
-        for (uint256 i = head; i < lane.length && processedCount < budget && scanned < budget;) {
+        for (uint256 i = head; i < lane.length && processedCount < budget && scanned < scanLimit;) {
             QueueEntry storage entry = _queueEntries[lane[i]];
 
-            if (entry.processed || entry.cancelled) {
+            if (entry.processed || entry.cancelled || _isExpired(entry)) {
                 unchecked {
                     ++i;
                     ++scanned;
@@ -515,6 +514,7 @@ contract StakingQueue is
             }
 
             if (entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity) {
+                if (!isPriorityLane) break;
                 unchecked {
                     ++i;
                     ++scanned;
@@ -522,21 +522,11 @@ contract StakingQueue is
                 continue;
             }
             if (!isPriorityLane && !_hasDepositorBounds(entry)) {
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
-            }
-            if (_isExpired(entry)) {
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
+                break;
             }
             if (_isBlocked(entry.depositor)) {
                 emit QueueEntrySkippedBlocked(lane[i], entry.depositor);
+                if (!isPriorityLane) break;
                 unchecked {
                     ++i;
                     ++scanned;
@@ -544,6 +534,7 @@ contract StakingQueue is
                 continue;
             }
             if (!_depositorMinimumSharesReachable(tier, entry)) {
+                if (!isPriorityLane) break;
                 unchecked {
                     ++i;
                     ++scanned;
@@ -590,31 +581,31 @@ contract StakingQueue is
     }
 
     /// @dev OF-M04: Iteration cap prevents DoS via dead entry accumulation.
-    function _advanceHead(
-        uint256[] storage lane,
-        uint256 head,
-        uint8 tier,
-        uint256 maxScan,
-        bool requireDepositorBounds
-    ) internal view returns (uint256 newHead) {
+    function _advanceHead(uint256[] storage lane, uint256 head, uint256 maxScan)
+        internal
+        view
+        returns (uint256 newHead)
+    {
         uint256 length = lane.length;
         newHead = head;
         uint256 scanned;
         while (newHead < length && scanned < maxScan) {
             QueueEntry storage entry = _queueEntries[lane[newHead]];
-            if (!entry.processed && !entry.cancelled && !_isExpired(entry) && !_isBlocked(entry.depositor)) {
-                if (
-                    (!requireDepositorBounds || _hasDepositorBounds(entry))
-                        && _depositorMinimumSharesReachable(tier, entry)
-                ) {
-                    break;
-                }
+            if (!entry.processed && !entry.cancelled && !_isExpired(entry)) {
+                break;
             }
             unchecked {
                 ++newHead;
                 ++scanned;
             }
         }
+    }
+
+    function _processScanLimit(uint256 budget, bool isPriorityLane) internal pure returns (uint256) {
+        if (!isPriorityLane) return budget;
+        uint256 lookahead = PRIORITY_LOOKAHEAD_SCAN_LIMIT;
+        if (budget > type(uint256).max - lookahead) return type(uint256).max;
+        return budget + lookahead;
     }
 
     function _rewindStandardHeadToEntry(uint8 tier, uint256 queueId) internal {
@@ -1056,26 +1047,12 @@ contract StakingQueue is
         if (tier >= 4) revert InvalidTier();
 
         uint256[] storage lane = priority ? _tierPriorityQueue[tier] : _tierStandardQueue[tier];
-        uint256 head = priority ? _tierPriorityHead[tier] : _tierStandardHead[tier];
         uint256 length = lane.length;
 
         if (length == 0) revert EmptyQueue();
 
-        uint256 activeCount;
-        for (uint256 i = head; i < length;) {
-            QueueEntry storage entry = _queueEntries[lane[i]];
-            if (!entry.processed && !entry.cancelled && !_isExpired(entry)) {
-                unchecked {
-                    ++activeCount;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
         uint256 writeIdx;
-        for (uint256 i = head; i < length;) {
+        for (uint256 i; i < length;) {
             QueueEntry storage entry = _queueEntries[lane[i]];
             if (!entry.processed && !entry.cancelled && !_isExpired(entry)) {
                 lane[writeIdx] = lane[i];
