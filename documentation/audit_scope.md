@@ -8,7 +8,7 @@ This snapshot is limited to one component tree:
 
 The source files are copied from the current working tree of the private
 OpenForage repository's smart-contract/audit surface at commit
-`675c8a3d17f211d37a593b05cde534d5cdb2d88b`. Local generated artifacts,
+`bb4228378ff6ab83066f9d17c82b1b9a9abb747c`. Local generated artifacts,
 environment files, and unrelated private monorepo trees are intentionally
 omitted.
 
@@ -24,6 +24,10 @@ Included documentation is scoped to:
   `documentation/smart_contract_audits/2026-06-09-audit/`;
 - the June 12, 2026 external-audit triage package under
   `documentation/smart_contract_audits/2026-06-12-external-audit/`;
+- the June 17, 2026 external-audit closeout package under
+  `documentation/smart_contract_audits/2026-06-17-external-audit/`, limited to
+  public-safe assessments, fix records, acknowledgment worksheets, and overlap
+  analysis;
 - the target architecture and target user-journey projections used by that
   audit's design-conformance pass;
 - the historical Cantina V12 remediation summary.
@@ -54,6 +58,8 @@ smart contracts.
 - Internal planning material and strategic documentation unrelated to this
   smart-contract audit campaign.
 - Internal project/spec/tasklist/prompt artifacts.
+- Raw external portal exports containing local reproduction paths or internal
+  provenance discussion.
 - Deployment manifests, keeper configuration, public cloud resource names, and
   generated broadcast output.
 - Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.

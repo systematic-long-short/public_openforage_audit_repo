@@ -426,7 +426,7 @@
    │     RISKUSD · atRISKUSD tiers · the Vault      │  deploy     │     HLTradingBridge → HLTrading   │
    │                                                │ ─────────▶  │     Vault → HyperLiquid markets   │
    │  <span class="l">②  TREASURY &amp; DISTRIBUTION</span>                     │  capital    │                                  │
-   │     ProtocolTreasury · pools · staking         │  ◀───────── │     profit / loss &amp; NAV report   │
+   │     USDCTreasury · pools · staking             │  ◀───────── │     profit / loss &amp; NAV report   │
    │                                                │  settle     │                                  │
    │  <span class="l">③  GOVERNANCE &amp; SAFETY</span>                         │ ··········▶ │     ExecutorProxy (receives      │
    │     Governor · Guardian · registries           │  commands   │     governance over CCIP)        │
@@ -442,7 +442,7 @@
       <div class="card">
         <h3>② Treasury &amp; distribution</h3>
         <p class="small">Where profit and loss are routed. The
-          <strong>ProtocolTreasury</strong> shares gains to the tiers and absorbs losses;
+          <strong>USDCTreasury</strong> shares gains to the tiers and absorbs losses;
           the pools and staking queue handle rewards and token distribution.</p>
       </div>
       <div class="card">
@@ -512,7 +512,7 @@
 
       <div class="ccard">
         <h3>The profit-and-loss router</h3>
-        <div class="sol">ProtocolTreasury · Arbitrum</div>
+        <div class="sol">USDCTreasury · Arbitrum</div>
         <p>When trading earns or loses money, this contract decides where it goes:
           it shares gains to the tiers by their split, takes the protocol's fee, and
           spreads losses across the tiers in proportion to each tier's assets — the
@@ -586,7 +586,7 @@
                                   │   value reported back (NAV)
                                   ▼
                     ┌────────────────────────────┐
-  <b>6  SETTLE</b>          │  ProtocolTreasury          │
+  <b>6  SETTLE</b>          │  USDCTreasury              │
                     └─────────────┬──────────────┘
               ┌──────────────────┴───────────────────┐
               ▼  <b>GAINS</b>                               ▼  <b>LOSSES</b>
@@ -624,7 +624,7 @@
       <li><strong>5 · Trade.</strong> On HyperLiquid, the desk runs the market-neutral
         strategy. The capital's current worth is periodically reported back to the
         Vault as a "NAV" (net asset value) attestation.</li>
-      <li><strong>6 · Settle.</strong> Gains and losses flow to the ProtocolTreasury, which
+      <li><strong>6 · Settle.</strong> Gains and losses flow to the USDCTreasury, which
         shares profit to the tiers by their split (and takes the protocol fee), or
         spreads a loss across all tiers in proportion to their assets.</li>
       <li><strong>7 · Redeem.</strong> A depositor hands back the receipt and gets USDC out —
@@ -669,7 +669,7 @@
     </table>
 
     <div class="note" style="margin-top:16px">
-      <p><strong>How a loss is shared.</strong> If the desk loses money, the ProtocolTreasury
+      <p><strong>How a loss is shared.</strong> If the desk loses money, the USDCTreasury
       reduces all four tiers at once, in proportion to how much each holds — so every
       tier, from Tier 0 to Tier 3, takes the <strong>same percentage</strong> hit. There
       is no first-loss tier and no loss queue: a longer lock-up earns a bigger share of
@@ -866,41 +866,44 @@
     <div class="grouplabel">Treasury &amp; distribution — where value is routed</div>
     <div class="two-col">
       <div class="ccard">
-        <h3>The profit-and-loss router</h3>
-        <div class="sol">ProtocolTreasury</div>
-        <p>The allocation hub. Routes trading profit to the four tiers, the
-          foundation, the funding pool, and a retained protocol balance — and spreads
-          losses pro-rata across the tiers (the same percentage from each) when the
-          desk loses money.</p>
+        <h3>The profit-and-loss router and USDC pool</h3>
+        <div class="sol">USDCTreasury</div>
+        <p>The allocation hub. Holds all USDC and routes it via four earmarks —
+          vault top-up (depositor yield), agent funding, foundation, and
+          protocol-retained — with the depositor share split 50/55/60/65 per tier
+          in per-vault accounting, and spreads losses pro-rata across the tiers
+          (the same percentage from each) when the desk loses money.</p>
         <div class="tags"><span class="tag good">treasury</span></div>
       </div>
       <div class="ccard">
-        <h3>The agent payroll</h3>
-        <div class="sol">FundingTreasury</div>
-        <p>A USDC pool that pays the operators ("agents") who run the system, through
-          an authorised distributor, with per-payment and rolling 24-hour caps so
-          outflows stay bounded.</p>
+        <h3>The agent payroll (USDCTreasury earmark)</h3>
+        <div class="sol">USDCTreasury · agent-funding earmark</div>
+        <p>The agent-funding earmark of the USDCTreasury pays the operators ("agents")
+          who run the system, through owner-gated disbursement (<code>disburse</code> /
+          <code>disburseAgentPayBatch</code>), with per-payment and rolling 24-hour
+          caps so outflows stay bounded.</p>
         <div class="tags"><span class="tag good">treasury</span></div>
       </div>
       <div class="ccard">
-        <h3>The agent reward pool</h3>
-        <div class="sol">RewardPool</div>
-        <p>Holds <strong>40M FORAGE</strong> for quarterly, claim-by-proof ("Merkle") airdrops
-          to agents who contribute to the protocol.</p>
+        <h3>The FORAGE distribution treasury</h3>
+        <div class="sol">FORAGETreasury</div>
+        <p>The consolidated FORAGE treasury (formerly two separate <code>RewardPool</code> / <code>DepositorPool</code> contracts, now merged) for both
+          discretionary quarterly bonus lanes: an agent lane (<strong>30M FORAGE</strong>
+          cap) for claim-by-proof ("Merkle") rewards to agents who contribute to the
+          protocol, and a depositor lane (<strong>10M FORAGE</strong> cap) for claim-by-proof
+          rewards to the people who deposit into RISKUSD — aligning depositors with the
+          protocol's success.</p>
         <div class="tags"><span class="tag good">treasury</span></div>
       </div>
       <div class="ccard">
-        <h3>The depositor reward pool</h3>
-        <div class="sol">DepositorPool</div>
-        <p>Holds <strong>20M FORAGE</strong> for claim-by-proof airdrops to the people who
-          deposit into RISKUSD — aligning depositors with the protocol's success.</p>
-        <div class="tags"><span class="tag good">treasury</span></div>
-      </div>
-      <div class="ccard">
-        <h3>The partnerships treasury</h3>
-        <div class="sol">Partnerships</div>
-        <p>A governance-controlled FORAGE treasury earmarked for partnership deals.
-          Funds move only by the governance process, not at one person's discretion.</p>
+        <h3>The partnership lane</h3>
+        <div class="sol">FORAGETreasury &middot; partnership lane</div>
+        <p>The partnership lane of the FORAGETreasury (<strong>40M FORAGE</strong> cap)
+          earmarked for partnership deals — not a standalone contract. Governance
+          distributes it via per-beneficiary vesting wallets
+          (<code>distributePartnership</code>, owner-gated through the governance
+          process), so funds move only by the governance process, not at one person's
+          discretion.</p>
         <div class="tags"><span class="tag good">treasury</span></div>
       </div>
       <div class="ccard">

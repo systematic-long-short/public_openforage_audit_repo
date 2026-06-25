@@ -9,7 +9,7 @@ request branch from the allowlist in that file, with scan and review evidence
 attached to the PR before merge.
 
 Smart-contract source and audit documentation surface copied from private
-OpenForage commit `675c8a3d17f211d37a593b05cde534d5cdb2d88b`.
+OpenForage commit `bb4228378ff6ab83066f9d17c82b1b9a9abb747c`.
 
 ## Readiness Status
 
@@ -34,6 +34,12 @@ The June 12, 2026 external-audit triage package records Cantina and Octane
 findings review, accepted true-positive overlap, and focused Foundry
 reproductions for the live overlap roots carried in this snapshot.
 
+The June 17, 2026 external-audit closeout package records the follow-up
+Cantina/Octane disposition: all retained valid findings are fixed in current
+source or were already fixed by the current source, and the portal-facing
+acknowledgment worksheets are included. Raw portal exports that contain local
+reproduction paths or internal provenance discussion are intentionally omitted.
+
 This scoped audit repository intentionally excludes surrounding private-monorepo
 web/keeper/config paths. Because of that, the wholesale `forge test --summary`
 command has one known export-scope failure in
@@ -52,6 +58,9 @@ the private audit package retains the full source-environment `forge test
   finding consolidation, conformance, retest, review, and validation evidence.
 - `documentation/smart_contract_audits/2026-06-12-external-audit/`: external
   audit triage, overlap analysis, and reviewer-facing findings context.
+- `documentation/smart_contract_audits/2026-06-17-external-audit/`: public-safe
+  external-audit assessment, fix attribution, acknowledgment worksheets, and
+  overlap analysis for the latest smart-contract closeout.
 - `documentation/smart_contract/`: target smart-contract architecture and
   user-journey projections used by the conformance review.
 - `documentation/cantina_v12_remediation.md`: historical remediation summary for
