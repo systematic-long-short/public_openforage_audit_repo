@@ -352,6 +352,7 @@ contract StakingQueue is
         if (entry.processed) revert QueueEntryAlreadyProcessed();
         if (entry.cancelled) revert QueueEntryAlreadyCancelled();
         if (entry.priority) revert InvalidQueueEntry();
+        if (_isExpired(entry)) revert InvalidQueueEntry();
         _requireNotBlocked(msg.sender);
 
         entry.minimumShares = minimumShares;
@@ -514,7 +515,6 @@ contract StakingQueue is
             }
 
             if (entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity) {
-                if (!isPriorityLane) break;
                 unchecked {
                     ++i;
                     ++scanned;
@@ -534,7 +534,6 @@ contract StakingQueue is
                 continue;
             }
             if (!_depositorMinimumSharesReachable(tier, entry)) {
-                if (!isPriorityLane) break;
                 unchecked {
                     ++i;
                     ++scanned;
