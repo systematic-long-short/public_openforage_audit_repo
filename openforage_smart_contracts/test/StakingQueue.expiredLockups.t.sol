@@ -294,8 +294,8 @@ contract StakingQueue_TC08_ExpiredLockups is StakingQueueTestBase {
         assertEq(vault0.depositCallCount(), 3, "vault0 should have 3 deposits (one per tier reversion)");
     }
 
-    /// @dev L3 step 13: Permissionless caller. Any address can call processExpiredLockups.
-    function test_TC08_permissionlessCaller() public {
+    /// @dev L3 step 13: Approved keeper can process another depositor; arbitrary callers cannot.
+    function test_TC08_approvedProcessorRequiredForThirdPartyCaller() public {
         vault1.setLockupInfo(alice, true, true, false, false, 100e6);
         vault1.setRedeemForReversionReturnAmount(100e6);
         riskusd.mint(address(vault1), 100e6);
@@ -310,7 +310,7 @@ contract StakingQueue_TC08_ExpiredLockups is StakingQueueTestBase {
         address[] memory depositors = new address[](1);
         depositors[0] = alice;
 
-        // Call from a random address (keeper) - should succeed
+        // Approved keeper can process another depositor.
         vm.prank(keeper);
         queue.processExpiredLockups(depositors, 1);
 
@@ -329,6 +329,7 @@ contract StakingQueue_TC08_ExpiredLockups is StakingQueueTestBase {
         depositors2[0] = bob;
 
         vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(StakingQueue.UnauthorizedLockupProcessor.selector, attacker));
         queue.processExpiredLockups(depositors2, 1);
     }
 

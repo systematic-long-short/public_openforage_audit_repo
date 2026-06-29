@@ -1,6 +1,6 @@
 {
   "openforage_sentinel": "OPENFORAGE_SLITHER_SUPPRESSIONS_R37",
-  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-24 during Octane TP CI closeout; obsolete HLTradingBridge _nextLossNonce storage was removed in code, the stale StakingQueue activeCount suppression was removed after compactQueue simplification, and detector/file/name-equivalent accepted findings were re-keyed by current Slither ID.",
+  "generated_from": "slither-analyzer 0.11.5 JSON output refreshed 2026-06-29 after CI-0067 Octane June 25 remediation and formatting; pre-existing acknowledged findings were re-keyed by current Slither ID, with no net new findings.",
   "max_suppression_days": 180,
   "suppressions": [
     {
@@ -37,40 +37,40 @@
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceDailyMintCap",
-      "id": "3ac480848c697e79acdee36db6ae95ebf84bbad452f09f690f8bcc7c67147432",
+      "id": "6dc570e43a2d4e3404c7d6630ddf625027dae0b90ef43f74190a01c4cb1aaff7",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceDailyRedemptionCap",
-      "id": "cbcc52f9ed214fff424a08d98c9b2e4c663156873c31adbaaffbdfd63ad28ca9",
+      "id": "2c7e70c77ad8982bc860dd74814db8daa67ea91ac6dc1ed6c71de4daa056c548",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceWeeklyCap",
-      "id": "a1dc28550c8c8cdd73bee87cc0defc28825bdc3aa3c8b3605ed17b422a0fb416",
+      "id": "6e034d7b4fbf6bfa3e49061509521391f9b623cbf8ea6b099fd210909ccefabe",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
       "name": "_enforceWeeklyMintCap",
-      "id": "7e8bfc47df4af2505c138238dd04ea0d12b41dbc656c23b8226cb344596e2cb2",
+      "id": "608621016e14f7ec15edd16014cff0f619f129f8be3c171a215145f9e7fe214f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. Window rollover intentionally floors elapsed full windows before multiplying by the fixed window length; vault mint/redemption cap tests cover weekly and daily rollover behavior. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
@@ -227,40 +227,40 @@
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "_custodianNAVUnavailableOrStale",
-      "id": "af87b58cd933d2350662cd6eff42f146ff13952ddf942cc9e18fd77e3fcb8b41",
+      "id": "274f4b9bc1c1360d8d289fe2b54aee1710eb338e07b333dbba995d7627b6e745",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "_hasCurrentNAVShortfall",
-      "id": "02f66586edc9483396529952e122f2a17cf95e0ba0418cac32600f6b8df71fcf",
+      "id": "64bc012b02ac3a0a5591b79d0157730a9475b437e3109d63974b6b5f49c1dbb4",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "_reduceMintActiveSupply",
-      "id": "ab3ca028011ec71fd78d1e9a1ccd7b9c3c8a98057bd07d10fbce23298b72eaf1",
+      "id": "76194a7d16213769b1c284953d509ca08199eb885438c725dd5fdc2f26bc398e",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class. Re-keyed against the post-format 2026-06-29 Slither 0.11.5 JSON output after formatted CI-0067 source changed the finding hash while preserving the acknowledged detector/file/name.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
       "name": "mintUsedThisBlock",
-      "id": "aa8697c7fa6eda1c98319dcacafac57a2da5854794114adc3fb2ccfcf316cfd5",
+      "id": "2e0f5b03548ce56d13fb91783a1ce2531bc63ba3bdf1c65d8800d296ab15221d",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh. The strict equality is a sentinel, zero-amount, block/window, or expiry check rather than a price/balance equivalence assumption; target vault, atRISKUSD, treasury, and vesting tests cover these gates. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
@@ -277,10 +277,10 @@
       "detector": "reentrancy-balance",
       "file": "src/hyperliquid/HLTradingBridge.sol",
       "name": "deployToHyperLiquid",
-      "id": "0c69131b84890ee6dca6519263e5c7297cb2779f73d76cb00ab51007695312f1",
+      "id": "02e30aa4c3fb47967af2adda3acd3ae64d46720e745d407aa7017707fdcf8e5e",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh and refreshed after R8-M-01/R9-M-01. The bridge deploy path is nonReentrant, records the approved registry destination before measuring the vault transfer, calls the timelocked RISKUSDVault deploy port, requires an exact USDC balance delta, forwards that verified delta to the configured cold account, and updates deployed accounting only after the transfer succeeds. Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh and refreshed after R8-M-01/R9-M-01. The bridge deploy path is nonReentrant, records the approved registry destination before measuring the vault transfer, calls the timelocked RISKUSDVault deploy port, requires an exact USDC balance delta, forwards that verified delta to the configured cold account, and updates deployed accounting only after the transfer succeeds. Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
@@ -297,60 +297,60 @@
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "_processLane",
-      "id": "f87cf578d7d5751d9eccc278db85242a20f24aeed5144f0803d2e8817108e02f",
+      "id": "cd659821040d38ad27cd1051fbef248cf432a7cb8bac915f42ee760f4ecd05cc",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "adminCancelQueue",
-      "id": "bd1b833d53988dce8a54a55fc8e329211f071d93bf56660b7a58f8e68c64039f",
+      "id": "7600e8a677e356918966a6ecbd2af15112d4f235926d0de0fbe8211465c2c527",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "cancelQueue",
-      "id": "e870f61ac9d354548433d69f39d9114989991f4e3885dc305bbb029880d76735",
+      "id": "f0f1a82b12f0d094b5f517ef470e3433231e7135d90fbb810c65156fc31146be",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; re-keyed against the 2026-06-15 Slither 0.11.5 JSON output after the finding hash changed but detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "54fa630d87b9e5ac6e61b4bce499099a0d7d7d383adccc817c6a94fa95a24217",
+      "id": "5906f232fba3ff1f296a964a191c0e8dbbcd79e31358ad0d5bc94f454cb83380",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "processQueue",
-      "id": "d87a8918ac85afbd262574407d277839640139d6ef8150c372c76ff4c3ac4caa",
+      "id": "fe825a62572fe19eabbaab85a9b87663e37cd3c646f7738d8f6e0cd12df5037c",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/StakingQueue.sol",
       "name": "retryForageUnlock",
-      "id": "fb98485ce851637dddf9757834989ff5e01f308bf36100bc8a03d93bd299ab10",
+      "id": "392ade64cb09ea3c23f9203645c332029ee3087f379d9686546c6335b9dfa58f",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. Queue processing and cancellation use retained internal vault/token ports with explicit accounting, retryable unlock handling, and real-contract Foundry coverage; no ETH movement is present in the reported path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
@@ -527,70 +527,70 @@
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "_setDelegateSource",
-      "id": "5ab1d0e59708b9b1e1e1cdc0857a392a39d1ecb5fd2111c110c211bd36ab426b",
+      "id": "6af5c3d30f24cbd4ccaf5bd5beb88555bbd01f156d95ca3cca16f8a7c0a0cf1b",
       "created": "2026-06-15",
       "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "_setDelegateSource",
-      "id": "7e4e8ba8f1fde3e41e46ca068fbe2e4dca48ed8ec153a5a02d42face33a8ed5b",
+      "id": "b9a660071ac7899395ae191a7b1ae3973f7208c79db612c800a8202e96579b14",
       "created": "2026-06-15",
       "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "_setDelegateSource",
-      "id": "b481ac4bf3d2777647c920bf1cf769334ee0ba1dc9239285a333408857852195",
+      "id": "d562b092c93e3ac4977f40f0e3e3569c87f028239d1b13def79f57eaae315a94",
       "created": "2026-06-15",
       "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
-      "owner": "OpenForage security"
-    },
-    {
-      "detector": "unused-return",
-      "file": "src/ForageToken.sol",
-      "name": "_setDelegateSource",
-      "id": "f8bf60157bccf40c19258f67b3af7032ef2a4217cc9f95cf0a1fa6abdff37e99",
-      "created": "2026-06-15",
-      "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state.",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "_syncDelegateSourceContribution",
-      "id": "049b744ad117e892aa6c95b3adc00b372800e6b5ddc341736b5622399664de03",
+      "id": "307a2457d6756ca35b860c410c7590e4e43bfb1ae265479b8c3bdc3284fa20b2",
       "created": "2026-06-15",
       "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add operations while delegate-source checkpoint writing enforces the intended post-state; ForageToken delegation/blocklist tests cover this path.",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add/remove operations around delegate-source tracking; checkpoint writes and ForageToken delegation/blocklist tests cover the intended post-state. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "_syncDelegateSourceContribution",
-      "id": "3d89673fc34d626f5e663d5e7f93592ae4e90c7888933b4520035b6acc8b6070",
+      "id": "4c980b9f7b9f5b67ea05b4b2c1d83f7361150d6212dc2ec4cc17d819ae53a963",
       "created": "2026-06-15",
       "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add operations while delegate-source checkpoint writing enforces the intended post-state; ForageToken delegation/blocklist tests cover this path.",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add operations while delegate-source checkpoint writing enforces the intended post-state; ForageToken delegation/blocklist tests cover this path. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "unused-return",
+      "file": "src/ForageToken.sol",
+      "name": "_syncDelegateSourceContribution",
+      "id": "ba36c0baae9c4a8e1e13c2400fc76e856f4b9401eeecaa8e9fa6ec790efe2a6b",
+      "created": "2026-06-15",
+      "expires": "2026-12-12",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is from idempotent EnumerableSet add operations while delegate-source checkpoint writing enforces the intended post-state; ForageToken delegation/blocklist tests cover this path. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
       "detector": "unused-return",
       "file": "src/ForageToken.sol",
       "name": "_writeDelegateSourceCheckpoint",
-      "id": "e536517096321664587bc35ec09a14bf28b300ef3cd449ec9e1b695769f5cf03",
+      "id": "81dc1fe00031e1cb873928c817f9ff1c5c10adb0dda5124bff35b4062cfbaf69",
       "created": "2026-06-15",
       "expires": "2026-12-12",
-      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is the checkpoint library return value; the side effect is the checkpoint append itself, covered by ForageToken historical vote tests.",
+      "rationale": "Reviewed in the 2026-06-15 Phase 17 audit evidence repair. The ignored return is the checkpoint library return value; the side effect is the checkpoint append itself, covered by ForageToken historical vote tests. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     },
     {
@@ -677,10 +677,10 @@
       "detector": "unused-return",
       "file": "src/StakingQueue.sol",
       "name": "_tryActiveForagePriceUsd",
-      "id": "e8da1634ca11c4e8b61e4476717bf29ef2154037864bd8e2498c7ca03dcb5338",
+      "id": "7253621b0d600161a2bfe4414a28360ffaa9a877069d1deb11482c6704efbc39",
       "created": "2026-06-09",
       "expires": "2026-12-06",
-      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same.",
+      "rationale": "Reviewed in the 2026-06-09 target smart-contract buildout refresh; Re-keyed against the 2026-06-18 Slither 0.11.5 JSON output after external-audit closeout edits changed the finding hash while detector/file/name stayed the same. The oracle tuple return includes fields that are intentionally unused after validating the answer and timestamp fields required for the price path. Re-keyed against the 2026-06-24 Slither 0.11.5 JSON output after Octane queue/loss-nonce remediation changed the finding hash while detector/file/name stayed the same. Re-keyed against the 2026-06-28 Slither 0.11.5 JSON output after phase-17 queue-liveness edits changed the finding hash while detector/file/name matched the prior accepted finding. Re-keyed against the 2026-06-29 Slither 0.11.5 JSON output after CI-0067 Octane June 25 remediation changed the finding hash while preserving the acknowledged detector/file/name or detector/file class.",
       "owner": "OpenForage security"
     }
   ]

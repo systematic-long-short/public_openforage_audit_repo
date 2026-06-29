@@ -21,6 +21,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     error FinalizeDelayNotElapsed();
     error ProposalExpired();
     error RenounceOwnershipDisabled();
+    error InvalidLegacyInterval();
 
     event AddressBlocked(address indexed account, uint256 blockedUntil);
     event UnblockProposed(address indexed account, uint256 proposedAt);
@@ -29,6 +30,10 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     event GuardianProposed(address indexed currentGuardian, address indexed pendingGuardian, uint256 proposedAt);
     event GuardianUpdated(address indexed oldGuardian, address indexed newGuardian);
     event GuardianProposalCancelled(address indexed pendingGuardian);
+    event LegacyBlockedIntervalImported(address indexed account, uint256 start, uint256 end);
+    event LegacyBlockedCheckpointImported(
+        address indexed account, uint48 indexed key, uint208 previousValue, uint208 newValue
+    );
 
     uint256 public constant BLOCK_DURATION = 365 days;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
@@ -162,6 +167,27 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
         uint256 expiry = _blockedUntilCheckpoints[account].upperLookupRecent(uint48(timepoint));
         return expiry != 0 && expiry >= timepoint;
+    }
+
+    /// @notice Imports a precise legacy blocked interval for migration-time historical governance reads.
+    /// @dev Writes an inclusive [start, end] interval and a clearing checkpoint at end + 1 when possible.
+    function importLegacyBlockedInterval(address account, uint256 start, uint256 end) external onlyOwner {
+        if (account == address(0)) revert ZeroAddress();
+        if (start > end || end > type(uint48).max) revert InvalidLegacyInterval();
+
+        uint208 importedEnd = uint208(end);
+        (uint208 previousEnd, uint208 storedEnd) = _blockedUntilCheckpoints[account].push(uint48(start), importedEnd);
+        if (storedEnd != importedEnd) revert InvalidLegacyInterval();
+        emit LegacyBlockedCheckpointImported(account, uint48(start), previousEnd, storedEnd);
+
+        if (end < type(uint48).max) {
+            (uint208 previousClear, uint208 storedClear) = _blockedUntilCheckpoints[account].push(uint48(end + 1), 0);
+            if (storedClear != 0) revert InvalidLegacyInterval();
+            emit LegacyBlockedCheckpointImported(account, uint48(end + 1), previousClear, storedClear);
+        }
+        _preCheckpointBlockedUntil[account] = 0;
+
+        emit LegacyBlockedIntervalImported(account, start, end);
     }
 
     /// @notice Migration-aware historical block state for governance vote exclusion.

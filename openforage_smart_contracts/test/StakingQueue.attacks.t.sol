@@ -313,8 +313,8 @@ contract StakingQueue_TC15_Attacks is StakingQueueTestBase {
 
     // ── Lockup Expiry Attacks ──
 
-    /// @dev Attack 17.1: Keeper griefing via processExpiredLockups.
-    /// Calling with non-expired depositors: no state changes, no reverts.
+    /// @dev Attack 17.1: Unauthorized griefing via processExpiredLockups is rejected.
+    /// Approved keepers can still no-op non-expired depositors without state changes.
     function test_TC15_keeperGriefingExpiredLockups() public {
         // Set lockup info: Alice has non-expired lockup
         vault1.setLockupInfo(alice, true, false, false, false, 1000e6);
@@ -328,11 +328,17 @@ contract StakingQueue_TC15_Attacks is StakingQueueTestBase {
         uint256 renewCountBefore = vault1.renewLockupCallCount();
 
         vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(StakingQueue.UnauthorizedLockupProcessor.selector, attacker));
         queue.processExpiredLockups(depositors, 1);
 
         // No state changes
         assertEq(vault0.depositCallCount(), depositCountBefore, "No deposits should occur");
         assertEq(vault1.renewLockupCallCount(), renewCountBefore, "No renewals should occur");
+
+        vm.prank(keeper);
+        queue.processExpiredLockups(depositors, 1);
+        assertEq(vault0.depositCallCount(), depositCountBefore, "Approved keeper still no-ops non-expired lockup");
+        assertEq(vault1.renewLockupCallCount(), renewCountBefore, "Approved keeper does not renew non-expired lockup");
     }
 
     /// @dev Attack 17.2: Auto-renewal toggle front-running.
@@ -407,7 +413,11 @@ contract StakingQueue_TC15_Attacks is StakingQueueTestBase {
         // Process via StakingQueue -- the authorized path (restriction still active!)
         address[] memory depositors = new address[](1);
         depositors[0] = alice;
-        vm.prank(attacker); // permissionless caller of processExpiredLockups
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(StakingQueue.UnauthorizedLockupProcessor.selector, attacker));
+        queue.processExpiredLockups(depositors, 1);
+
+        vm.prank(keeper); // approved caller of processExpiredLockups
         queue.processExpiredLockups(depositors, 1);
 
         // Verify vault operations succeeded via StakingQueue (msg.sender == queue == authorizedQueue)

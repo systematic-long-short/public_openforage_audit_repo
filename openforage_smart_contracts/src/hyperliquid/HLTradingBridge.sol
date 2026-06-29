@@ -20,10 +20,12 @@ interface IUSDCTreasuryReturnPort {
 interface IRISKUSDVaultCustodyPort {
     function deployCapital(uint256 usdcAmount) external;
     function returnCapital(uint256 usdcAmount) external;
+    function returnCapitalWithNAVBasis(uint256 usdcAmount, bool navAlreadyReduced) external;
 }
 
 interface IRISKUSDVaultNAVPort {
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external;
+    function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt) external;
     function latestLossNonce() external view returns (uint256);
 }
 
@@ -78,10 +80,13 @@ contract HLTradingBridge is
     error RenounceOwnershipDisabled();
     error GuardianCannotLoosen();
     error UnauthorizedVault(address caller);
+    error WithdrawalIntentNotExpired();
+    error NonZeroPrincipal(uint256 principal);
 
     uint256 public constant DAY_SECONDS = 1 days;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
     uint16 public constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant DEFAULT_WITHDRAWAL_INTENT_TIMEOUT_SECONDS = 7 days;
 
     address public usdc;
     address public riskusdVault;
@@ -123,6 +128,7 @@ contract HLTradingBridge is
         bool consumed;
         bool exists;
         uint256 balanceCheckpoint;
+        uint256 createdAt;
     }
 
     struct RouteConfig {
@@ -139,7 +145,6 @@ contract HLTradingBridge is
     uint256 internal _withdrawalIntentUsedDayStart;
     uint256 internal _reconciledReturnLiquidity;
     bytes32 internal _openWithdrawalIntentId;
-    uint256 internal _nextLossNonce;
 
     event DeployedToHyperLiquid(uint256 usdcE6, uint256 deployedPrincipal);
     event NAVPosted(uint256 indexed vaultId, uint256 bookValue, uint256 rawNav, uint256 appliedNav, uint256 observedAt);
@@ -149,6 +154,7 @@ contract HLTradingBridge is
         bytes32 indexed intentId, uint256 amount, address indexed recipient, bytes32 sourceAccount, uint64 chainSelector
     );
     event WithdrawalArrivalReconciled(bytes32 indexed intentId, uint256 amount);
+    event WithdrawalIntentCancelled(bytes32 indexed intentId);
     event DirectionalFreezeSet(bool frozen);
     event KeeperProposed(address indexed currentKeeper, address indexed pendingKeeper);
     event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
@@ -244,19 +250,40 @@ contract HLTradingBridge is
         if (applied < bookValue) {
             lossNonce = IRISKUSDVaultNAVPort(riskusdVault).latestLossNonce() + 1;
         }
-        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, lossNonce);
+        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, lossNonce, observedAt);
 
         emit NAVPosted(vaultId, bookValue, rawNav, applied, observedAt);
     }
 
     function returnPrincipalUSDC(uint256 amount) external nonReentrant {
         _requireExecutor();
+        _returnPrincipalUSDC(amount, false);
+    }
+
+    function returnPrincipalUSDCWithNAVBasis(uint256 amount, bool navAlreadyReduced) external nonReentrant {
+        _requireExecutor();
+        _returnPrincipalUSDC(amount, navAlreadyReduced);
+    }
+
+    function returnZeroPrincipalUSDC(uint256 amount, bool navAlreadyReduced) external onlyOwner nonReentrant {
+        if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
+        _returnPrincipalUSDCWithoutCaps(amount, navAlreadyReduced);
+    }
+
+    function _returnPrincipalUSDC(uint256 amount, bool navAlreadyReduced) internal {
         if (amount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(riskusdVault);
         _enforceReturnCaps(amount);
+        _returnPrincipalUSDCWithoutCaps(amount, navAlreadyReduced);
+    }
 
+    function _returnPrincipalUSDCWithoutCaps(uint256 amount, bool navAlreadyReduced) internal {
+        if (amount == 0) revert ZeroAmount();
+        _requireNotBlocked(msg.sender);
+        _requireNotBlocked(address(this));
+        _requireNotBlocked(riskusdVault);
         if (amount >= _deployedPrincipal) {
             _deployedPrincipal = 0;
         } else {
@@ -272,7 +299,7 @@ contract HLTradingBridge is
         _consumeReconciledLiquidity(token, amount);
         _recordCustodianReturn(amount);
         token.forceApprove(riskusdVault, amount);
-        IRISKUSDVaultCustodyPort(riskusdVault).returnCapital(amount);
+        IRISKUSDVaultCustodyPort(riskusdVault).returnCapitalWithNAVBasis(amount, navAlreadyReduced);
         token.forceApprove(riskusdVault, 0);
         IUSDCTreasuryReturnPort(usdcTreasury).recordPrincipalReturnUSDC(amount);
         emit PrincipalReturned(amount, _deployedPrincipal);
@@ -300,6 +327,26 @@ contract HLTradingBridge is
         returns (bytes32 intentId)
     {
         _requireExecutor();
+        return _requestWithdrawalIntent(amount, recipient, sourceAccount, chainSelector, true);
+    }
+
+    function requestZeroPrincipalWithdrawalIntent(
+        uint256 amount,
+        address recipient,
+        bytes32 sourceAccount,
+        uint64 chainSelector
+    ) external onlyOwner nonReentrant returns (bytes32 intentId) {
+        if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
+        return _requestWithdrawalIntent(amount, recipient, sourceAccount, chainSelector, false);
+    }
+
+    function _requestWithdrawalIntent(
+        uint256 amount,
+        address recipient,
+        bytes32 sourceAccount,
+        uint64 chainSelector,
+        bool enforceCaps
+    ) internal returns (bytes32 intentId) {
         if (amount == 0) revert ZeroAmount();
         if (recipient == address(0)) revert ZeroAddress();
         _requireNotBlocked(msg.sender);
@@ -311,7 +358,7 @@ contract HLTradingBridge is
         if (chainSelector != withdrawalChainSelector) {
             revert WithdrawalIntentChainMismatch(chainSelector, withdrawalChainSelector);
         }
-        _enforceWithdrawalIntentCaps(amount);
+        if (enforceCaps) _enforceWithdrawalIntentCaps(amount);
 
         intentId = keccak256(
             abi.encode(address(this), msg.sender, amount, recipient, sourceAccount, chainSelector, block.number)
@@ -326,7 +373,8 @@ contract HLTradingBridge is
             chainSelector: chainSelector,
             consumed: false,
             exists: true,
-            balanceCheckpoint: balanceCheckpoint
+            balanceCheckpoint: balanceCheckpoint,
+            createdAt: block.timestamp
         });
         _openWithdrawalIntentId = intentId;
 
@@ -349,6 +397,21 @@ contract HLTradingBridge is
         intent.consumed = true;
         _openWithdrawalIntentId = bytes32(0);
         emit WithdrawalArrivalReconciled(intentId, arrivedAmount);
+    }
+
+    function cancelWithdrawalIntent(bytes32 intentId) external nonReentrant {
+        if (msg.sender != owner() && msg.sender != _keeper) revert UnauthorizedKeeper();
+        _requireNotBlocked(msg.sender);
+        WithdrawalIntent storage intent = _withdrawalIntents[intentId];
+        if (!intent.exists || intent.consumed) revert RequestMismatch();
+        if (intentId != _openWithdrawalIntentId) revert RequestMismatch();
+        uint256 createdAt = intent.createdAt;
+        if (createdAt != 0 && block.timestamp < createdAt + withdrawalIntentTimeoutSeconds()) {
+            revert WithdrawalIntentNotExpired();
+        }
+        intent.consumed = true;
+        _openWithdrawalIntentId = bytes32(0);
+        emit WithdrawalIntentCancelled(intentId);
     }
 
     function setDirectionalFreeze(bool frozen) external {
@@ -567,6 +630,10 @@ contract HLTradingBridge is
 
     function openWithdrawalIntentId() external view returns (bytes32) {
         return _openWithdrawalIntentId;
+    }
+
+    function withdrawalIntentTimeoutSeconds() public pure returns (uint256) {
+        return DEFAULT_WITHDRAWAL_INTENT_TIMEOUT_SECONDS;
     }
 
     function withdrawalIntent(bytes32 intentId)
