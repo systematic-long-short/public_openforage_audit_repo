@@ -105,6 +105,7 @@ contract RISKUSDVault is
     error InvalidVaultRegistryInterface(address target);
     error ManualAttestationNormalizationFailed(address custodian);
     error LossResolutionNotificationFailed(address registry);
+    error DeploymentBufferEnumerationFailed(address target);
 
     // Events
     event Deposited(address indexed depositor, uint256 usdcAmount);
@@ -149,6 +150,7 @@ contract RISKUSDVault is
     event TokenRescueProposed(address indexed token, uint256 amount, address indexed recipient, uint256 readyAt);
     event TokenRescued(address indexed token, uint256 amount, address indexed recipient);
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
+    event SuspectedLossFreezeSet(bool frozen);
 
     struct PendingTokenRescue {
         uint256 amount;
@@ -255,9 +257,10 @@ contract RISKUSDVault is
     uint256 internal _latestLossVaultId;
     uint256 internal _latestLossAmount;
     uint256 internal _lastLossResolutionBlock;
+    bool internal _suspectedLossFreeze;
 
-    /// @dev Reserved storage gap (39 - 32 appended slots - 1 rescue mapping - 1 blocklist = 5)
-    uint256[5] private __gap;
+    /// @dev Reserved storage gap (39 - 32 appended slots - 1 rescue mapping - 1 blocklist - 1 freeze slot = 4)
+    uint256[4] private __gap;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -423,13 +426,25 @@ contract RISKUSDVault is
     function returnCapital(uint256 usdcAmount) external nonReentrant {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
+        _returnCapital(usdcAmount, true);
+    }
+
+    function returnCapitalWithNAVBasis(uint256 usdcAmount, bool navAlreadyReduced) external nonReentrant {
+        if (msg.sender != _custodian) revert UnauthorizedCustodian();
+        if (_custodian == address(0)) revert UnauthorizedCustodian();
+        _returnCapital(usdcAmount, !navAlreadyReduced);
+    }
+
+    function _returnCapital(uint256 usdcAmount, bool countReturnedSinceLastAttestation) internal {
         if (usdcAmount == 0) revert ZeroAmount();
         if (usdcAmount > _totalDeployed) revert ExcessiveReturn();
         _requireNotBlocked(msg.sender);
 
         // Update state (CEI)
         _totalDeployed -= usdcAmount;
-        _returnedSinceLastAttestation += usdcAmount;
+        if (countReturnedSinceLastAttestation) {
+            _returnedSinceLastAttestation += usdcAmount;
+        }
 
         // Pull USDC from custodian
         _usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
@@ -444,7 +459,7 @@ contract RISKUSDVault is
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         _requireNotBlocked(msg.sender);
 
-        _recordCustodianNAV(0, nav, 0);
+        _recordCustodianNAV(0, nav, 0, block.timestamp);
     }
 
     /// @notice Records the latest custodian NAV attestation and nonce for loss settlement.
@@ -455,7 +470,18 @@ contract RISKUSDVault is
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         _requireNotBlocked(msg.sender);
 
-        _recordCustodianNAV(vaultId, nav, lossNonce);
+        _recordCustodianNAV(vaultId, nav, lossNonce, block.timestamp);
+    }
+
+    /// @notice Records the latest custodian NAV attestation using the source observation timestamp.
+    /// @dev Custodian bridges use this overload so freshness reflects data age, not submission age.
+    function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt) external {
+        if (msg.sender != _custodian) revert UnauthorizedCustodian();
+        if (_custodian == address(0)) revert UnauthorizedCustodian();
+        _requireNotBlocked(msg.sender);
+        if (observedAt == 0 || observedAt > block.timestamp) revert InvalidParameter();
+
+        _recordCustodianNAV(vaultId, nav, lossNonce, observedAt);
     }
 
     /// @notice Governance-configured manual attestation path for emergency custodian fallback.
@@ -473,10 +499,10 @@ contract RISKUSDVault is
         }
 
         nav = normalizedNav;
-        _recordCustodianNAV(vaultId, nav, lossNonce);
+        _recordCustodianNAV(vaultId, nav, lossNonce, block.timestamp);
     }
 
-    function _recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) internal {
+    function _recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt) internal {
         if (lossNonce != 0 && lossNonce <= _settledLossNonce) revert StaleLossNonce();
         if (lossNonce != 0 && lossNonce <= _latestLossNonce) revert StaleLossNonce();
         if (lossNonce != 0 && vaultId == 0) revert InvalidVaultId();
@@ -488,9 +514,13 @@ contract RISKUSDVault is
 
         bool hadLossToResolve = _lossPending || _hasUnresolvedAttestedLoss() || _hasCurrentNAVShortfall();
         _lastAttestedNAV = nav;
-        _lastAttestationTimestamp = block.timestamp;
+        _lastAttestationTimestamp = observedAt;
         _deployedSinceLastAttestation = 0;
         _returnedSinceLastAttestation = 0;
+        if (_suspectedLossFreeze && nav >= _totalDeployed) {
+            _suspectedLossFreeze = false;
+            emit SuspectedLossFreezeSet(false);
+        }
 
         if (lossNonce != 0) {
             _latestLossNonce = lossNonce;
@@ -502,14 +532,14 @@ contract RISKUSDVault is
                 _latestLossAmount = 0;
                 _settledLossNonce = lossNonce;
             }
-            emit CustodianNAVAttested(vaultId, nav, lossNonce, block.timestamp);
+            emit CustodianNAVAttested(vaultId, nav, lossNonce, observedAt);
         }
 
         if (hadLossToResolve && !_lossPendingActive()) {
             _clearLossPendingAndNotifyRegistry();
         }
 
-        emit CustodianNAVRecorded(nav, block.timestamp);
+        emit CustodianNAVRecorded(nav, observedAt);
     }
 
     // --- Loss Operations ---
@@ -914,6 +944,15 @@ contract RISKUSDVault is
         emit DeploymentBufferBpsUpdated(oldBps, bps_);
     }
 
+    function setSuspectedLossFreeze(bool frozen) external {
+        if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
+            revert UnauthorizedPauseControl(msg.sender);
+        }
+        if (!frozen && msg.sender != owner() && msg.sender != _forageGovernor) revert CapTighteningOnly();
+        _suspectedLossFreeze = frozen;
+        emit SuspectedLossFreezeSet(frozen);
+    }
+
     /// @notice Emergency-only asymmetric cap control: guardians may shrink redemption flow immediately.
     /// @dev Widening still requires the owner/governance setter.
     function shrinkWeeklyRedemptionCapBps(uint256 bps_) external onlyEmergencyCapTightener {
@@ -1214,6 +1253,10 @@ contract RISKUSDVault is
         return _lossPendingActive();
     }
 
+    function suspectedLossFreeze() external view returns (bool) {
+        return _suspectedLossFreeze;
+    }
+
     /// @dev OF-14-001: Returns the vaultId of the pending loss, or 0 if no loss is pending.
     function lossPendingVaultId() external view returns (uint256) {
         if (_hasUnresolvedAttestedLoss()) return _latestLossVaultId;
@@ -1315,7 +1358,7 @@ contract RISKUSDVault is
         uint256 effectiveSupply;
         if (block.timestamp >= _weeklyMintWindowStart + WEEKLY_WINDOW) {
             uint256 currentSupply = _riskusd.totalSupply();
-            effectiveSupply = _lastMintActiveSupply > 0 ? _min(_lastMintActiveSupply, currentSupply) : currentSupply;
+            effectiveSupply = _lastMintActiveSupply > currentSupply ? _lastMintActiveSupply : currentSupply;
         } else if (_weeklyMintWindowStartSupply == 0) {
             effectiveSupply = _weeklyMintUsed == 0 ? _riskusd.totalSupply() : 0;
         } else {
@@ -1340,8 +1383,7 @@ contract RISKUSDVault is
         uint256 effectiveSupply;
         if (block.timestamp >= _dailyMintWindowStart + DAILY_WINDOW) {
             uint256 currentSupply = _riskusd.totalSupply();
-            effectiveSupply =
-                _lastDailyMintActiveSupply > 0 ? _min(_lastDailyMintActiveSupply, currentSupply) : currentSupply;
+            effectiveSupply = _lastDailyMintActiveSupply > currentSupply ? _lastDailyMintActiveSupply : currentSupply;
         } else if (_dailyMintWindowStartSupply == 0) {
             effectiveSupply = _dailyMintUsed == 0 ? _riskusd.totalSupply() : 0;
         } else {
@@ -1410,9 +1452,8 @@ contract RISKUSDVault is
     }
 
     function _lossPendingActive() internal view returns (bool) {
-        return
-            _lossPending || _hasUnresolvedAttestedLoss() || _custodianNAVUnavailableOrStale()
-                || _hasCurrentNAVShortfall();
+        return _suspectedLossFreeze || _lossPending || _hasUnresolvedAttestedLoss() || _custodianNAVUnavailableOrStale()
+            || _hasCurrentNAVShortfall();
     }
 
     function _hasUnresolvedAttestedLoss() internal view returns (bool) {
@@ -1546,7 +1587,7 @@ contract RISKUSDVault is
             uint256 elapsed = (block.timestamp - _weeklyMintWindowStart) / WEEKLY_WINDOW;
             _weeklyMintWindowStart += elapsed * WEEKLY_WINDOW;
             _weeklyMintWindowStartSupply =
-                _lastMintActiveSupply > 0 ? _min(_lastMintActiveSupply, cachedTotalSupply) : cachedTotalSupply;
+                _lastMintActiveSupply > cachedTotalSupply ? _lastMintActiveSupply : cachedTotalSupply;
             _lastMintActiveSupply = cachedTotalSupply;
         } else if (_weeklyMintUsed == 0 && _weeklyMintWindowStartSupply == 0) {
             _weeklyMintWindowStartSupply = cachedTotalSupply;
@@ -1561,9 +1602,7 @@ contract RISKUSDVault is
         if (_weeklyMintUsed + riskusdAmount > cap) revert WeeklyMintCapExceeded();
         _weeklyMintUsed += riskusdAmount;
 
-        _lastMintActiveSupply = (_lastMintActiveSupply > 0 && _lastMintActiveSupply < cachedTotalSupply)
-            ? _lastMintActiveSupply
-            : cachedTotalSupply;
+        _lastMintActiveSupply = _lastMintActiveSupply > cachedTotalSupply ? _lastMintActiveSupply : cachedTotalSupply;
     }
 
     function _enforceDailyMintCap(uint256 riskusdAmount) internal {
@@ -1573,9 +1612,8 @@ contract RISKUSDVault is
             _dailyMintUsed = 0;
             uint256 elapsed = (block.timestamp - _dailyMintWindowStart) / DAILY_WINDOW;
             _dailyMintWindowStart += elapsed * DAILY_WINDOW;
-            _dailyMintWindowStartSupply = _lastDailyMintActiveSupply > 0
-                ? _min(_lastDailyMintActiveSupply, cachedTotalSupply)
-                : cachedTotalSupply;
+            _dailyMintWindowStartSupply =
+                _lastDailyMintActiveSupply > cachedTotalSupply ? _lastDailyMintActiveSupply : cachedTotalSupply;
             _lastDailyMintActiveSupply = cachedTotalSupply;
         } else if (_dailyMintUsed == 0 && _dailyMintWindowStartSupply == 0) {
             _dailyMintWindowStartSupply = cachedTotalSupply;
@@ -1590,9 +1628,8 @@ contract RISKUSDVault is
         if (_dailyMintUsed + riskusdAmount > cap) revert DailyMintCapExceeded();
         _dailyMintUsed += riskusdAmount;
 
-        _lastDailyMintActiveSupply = (_lastDailyMintActiveSupply > 0 && _lastDailyMintActiveSupply < cachedTotalSupply)
-            ? _lastDailyMintActiveSupply
-            : cachedTotalSupply;
+        _lastDailyMintActiveSupply =
+            _lastDailyMintActiveSupply > cachedTotalSupply ? _lastDailyMintActiveSupply : cachedTotalSupply;
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -1609,13 +1646,6 @@ contract RISKUSDVault is
         if (block.number == _mintUsedBlockNumber) {
             _mintUsedThisBlock = riskusdAmount >= _mintUsedThisBlock ? 0 : _mintUsedThisBlock - riskusdAmount;
         }
-        _weeklyMintWindowStartSupply =
-            _weeklyMintWindowStartSupply > riskusdAmount ? _weeklyMintWindowStartSupply - riskusdAmount : 0;
-        _lastMintActiveSupply = _lastMintActiveSupply > riskusdAmount ? _lastMintActiveSupply - riskusdAmount : 0;
-        _dailyMintWindowStartSupply =
-            _dailyMintWindowStartSupply > riskusdAmount ? _dailyMintWindowStartSupply - riskusdAmount : 0;
-        _lastDailyMintActiveSupply =
-            _lastDailyMintActiveSupply > riskusdAmount ? _lastDailyMintActiveSupply - riskusdAmount : 0;
     }
 
     function _enforceDeploymentBuffer(uint256 additionalDeployment) internal view {
@@ -1629,44 +1659,39 @@ contract RISKUSDVault is
 
     function _activeRegisteredTierAssets() internal view returns (uint256 assets) {
         uint256 offset;
-        uint256 scanned;
-        while (scanned < DEPLOYMENT_BUFFER_SCAN_LIMIT) {
-            uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT - scanned;
+        uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
+        while (true) {
             try _vaultRegistry.getVaultsPage(offset, pageLimit) returns (
                 uint256[] memory vaultIds, uint256 nextOffset, uint256 total
             ) {
                 if (vaultIds.length == 0) break;
-                for (uint256 i; i < vaultIds.length && scanned < DEPLOYMENT_BUFFER_SCAN_LIMIT;) {
+                for (uint256 i; i < vaultIds.length;) {
                     assets += _activeVaultTierAssets(vaultIds[i]);
                     unchecked {
                         ++i;
-                        ++scanned;
                     }
                 }
                 if (nextOffset >= total || nextOffset <= offset) break;
                 offset = nextOffset;
             } catch {
-                break;
+                revert DeploymentBufferEnumerationFailed(address(_vaultRegistry));
             }
         }
     }
 
     function _activeVaultTierAssets(uint256 vaultId) internal view returns (uint256 assets) {
-        try _vaultRegistry.getVault(vaultId) returns (VaultConfig memory vc) {
-            if (vc.status == VaultStatus.Active) {
-                for (uint256 j; j < 4;) {
-                    address tierVault = vc.tierVaults[j];
-                    if (tierVault != address(0)) {
-                        try IERC4626TotalAssets(tierVault).totalAssets() returns (uint256 tierAssets) {
-                            assets += tierAssets;
-                        } catch {}
-                    }
-                    unchecked {
-                        ++j;
-                    }
+        VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
+        if (vc.status == VaultStatus.Active) {
+            for (uint256 j; j < 4;) {
+                address tierVault = vc.tierVaults[j];
+                if (tierVault != address(0)) {
+                    assets += IERC4626TotalAssets(tierVault).totalAssets();
+                }
+                unchecked {
+                    ++j;
                 }
             }
-        } catch {}
+        }
     }
 
     function _assertBackingMarginNotDecreased(uint256 backingAssetsBefore, uint256 riskusdSupplyBefore) internal view {

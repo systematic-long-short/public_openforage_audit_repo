@@ -464,14 +464,18 @@ contract ForageToken is
 
     function _setDelegateSource(address source, address oldDelegate, address newDelegate) internal {
         if (oldDelegate != address(0)) {
-            _delegateSources[oldDelegate].remove(source);
-            _historicalDelegateSources[oldDelegate].add(source);
-            _writeDelegateSourceCheckpoint(oldDelegate, source, 0);
+            bool wasTracked = _delegateSources[oldDelegate].remove(source);
+            if (wasTracked || _historicalDelegateSources[oldDelegate].contains(source)) {
+                _historicalDelegateSources[oldDelegate].add(source);
+                _writeDelegateSourceCheckpoint(oldDelegate, source, 0);
+            }
         }
         if (newDelegate != address(0)) {
+            uint256 votes = balanceOf(source);
+            if (votes == 0) return;
             _delegateSources[newDelegate].add(source);
             _historicalDelegateSources[newDelegate].add(source);
-            _writeDelegateSourceCheckpoint(newDelegate, source, balanceOf(source));
+            _writeDelegateSourceCheckpoint(newDelegate, source, votes);
         }
     }
 
@@ -480,9 +484,19 @@ contract ForageToken is
         address delegatee = delegates(source);
         if (delegatee == address(0)) return;
 
+        uint256 votes = balanceOf(source);
+        if (votes == 0) {
+            bool wasTracked = _delegateSources[delegatee].remove(source);
+            if (wasTracked || _historicalDelegateSources[delegatee].contains(source)) {
+                _historicalDelegateSources[delegatee].add(source);
+                _writeDelegateSourceCheckpoint(delegatee, source, 0);
+            }
+            return;
+        }
+
         _delegateSources[delegatee].add(source);
         _historicalDelegateSources[delegatee].add(source);
-        _writeDelegateSourceCheckpoint(delegatee, source, balanceOf(source));
+        _writeDelegateSourceCheckpoint(delegatee, source, votes);
     }
 
     function _writeDelegateSourceCheckpoint(address delegatee, address source, uint256 votes) internal {

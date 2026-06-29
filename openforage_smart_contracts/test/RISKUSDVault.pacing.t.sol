@@ -42,7 +42,7 @@ contract RISKUSDVault_MintCapContraction is RISKUSDVaultPacingBase {
         vm.stopPrank();
     }
 
-    function test_mintCapsShrinkAfterSupplyContraction() public {
+    function test_mintCapsKeepHighWaterBaselineAfterSupplyContraction() public {
         _deposit(alice, 1000e6);
         vm.warp(block.timestamp + WEEKLY_WINDOW_DURATION);
         _deposit(alice, 1000e6);
@@ -53,8 +53,8 @@ contract RISKUSDVault_MintCapContraction is RISKUSDVaultPacingBase {
         assertEq(riskusd.totalSupply(), 100e6, "supply contracted");
 
         vm.warp(block.timestamp + WEEKLY_WINDOW_DURATION);
-        assertEq(vault.effectiveWeeklyMintCap(), 100e6, "weekly mint cap uses contracted supply");
-        assertEq(vault.effectiveDailyMintCap(), 100e6, "daily mint cap uses contracted supply");
+        assertEq(vault.effectiveWeeklyMintCap(), 1000e6, "weekly mint cap keeps high-water baseline");
+        assertEq(vault.effectiveDailyMintCap(), 1000e6, "daily mint cap keeps high-water baseline");
     }
 }
 

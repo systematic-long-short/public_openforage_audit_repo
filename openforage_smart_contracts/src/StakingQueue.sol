@@ -104,6 +104,7 @@ contract StakingQueue is
     error CapacityProbeFailed(address vault);
     error DepositOutputBelowMinimum(uint256 sharesMinted, uint256 minimumShares);
     error InvalidForagePriceScale(uint256 price);
+    error UnauthorizedLockupProcessor(address caller);
 
     // -- Precomputed function selectors --
     bytes4 private constant _SEL_LOCKED_BALANCE = bytes4(keccak256("lockedBalance(address)"));
@@ -180,6 +181,7 @@ contract StakingQueue is
     event ForageUnlockFailed(address indexed depositor, uint256 amount);
     event TierVaultsSynced(address[4] newTierVaults); // OF-13-027
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
+    event ExpiredLockupProcessorSet(address indexed processor, bool authorized);
 
     // -- Constants --
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-15-005
@@ -233,8 +235,9 @@ contract StakingQueue is
     uint256 private _pendingForagePriceOracleProposedAt;
     mapping(uint8 => TierDepositCap) private _tierDepositCaps;
     address internal _blocklist;
+    mapping(address => bool) private _expiredLockupProcessors;
 
-    uint256[33] private __gap; // reserved for future upgrades
+    uint256[32] private __gap; // reserved for future upgrades
 
     // -- Constructor (disable initializers on implementation) --
     constructor() {
@@ -360,6 +363,27 @@ contract StakingQueue is
         _rewindStandardHeadToEntry(entry.tier, queueId);
 
         emit QueueEntryBoundsUpdated(queueId, msg.sender, minimumShares, deadline);
+    }
+
+    /// @notice Migration-only owner backfill for upgraded standard entries that predate depositor bounds.
+    /// @dev Restricted to missing-bound non-priority entries so owner cannot silently alter active user slippage.
+    function adminBackfillQueueEntryBounds(uint256 queueId, uint256 minimumShares, uint256 deadline)
+        external
+        onlyOwner
+    {
+        if (minimumShares == 0) revert ZeroAmount();
+        if (deadline < block.timestamp) revert InvalidQueueEntry();
+        QueueEntry storage entry = _queueEntries[queueId];
+        if (entry.depositor == address(0)) revert InvalidQueueEntry();
+        if (entry.processed) revert QueueEntryAlreadyProcessed();
+        if (entry.cancelled) revert QueueEntryAlreadyCancelled();
+        if (entry.priority) revert InvalidQueueEntry();
+        if (_hasDepositorBounds(entry)) revert InvalidQueueEntry();
+
+        entry.minimumShares = minimumShares;
+        entry.deadline = deadline;
+
+        emit QueueEntryBoundsUpdated(queueId, entry.depositor, minimumShares, deadline);
     }
 
     function _joinQueue(uint256 riskusdAmount, uint8 tier, uint256 minimumShares, uint256 deadline) internal {
@@ -641,7 +665,7 @@ contract StakingQueue is
 
         address sourceVault = _tierVaults[fromTier];
         address destVault = _tierVaults[toTier];
-        uint256 combinedBackingPerShareBefore = _combinedBackingPerShareRay();
+        uint256 combinedAssetsBefore = _combinedTotalAssets();
 
         // OF-006: Redeem from source first to get the RISKUSD amount
         (bool successRedeem, bytes memory redeemData) =
@@ -683,7 +707,7 @@ contract StakingQueue is
         // OF-M10: reset allowance
         _riskusd.forceApprove(destVault, 0);
 
-        _assertCombinedBackingPerShareNotDecreased(combinedBackingPerShareBefore);
+        _assertCombinedAssetsNotDecreased(combinedAssetsBefore);
         emit TierUpgraded(msg.sender, fromTier, toTier, atriskusdAmount, riskusdAmount, newAtriskusdAmount);
     }
 
@@ -693,6 +717,7 @@ contract StakingQueue is
     function processExpiredLockups(address[] calldata depositors, uint8 tier) external whenNotPaused nonReentrant {
         if (depositors.length == 0) revert ZeroAmount();
         if (tier == 0 || tier >= 4) revert InvalidTier();
+        _requireAuthorizedExpiredLockupProcessor(msg.sender, depositors);
         _syncTierVaultsFromRegistry();
 
         address tierVaultAddr = _tierVaults[tier];
@@ -707,6 +732,12 @@ contract StakingQueue is
                 ++i;
             }
         }
+    }
+
+    function setExpiredLockupProcessor(address processor, bool authorized) external onlyOwner {
+        if (processor == address(0)) revert ZeroAddress();
+        _expiredLockupProcessors[processor] = authorized;
+        emit ExpiredLockupProcessorSet(processor, authorized);
     }
 
     /// @dev Process one depositor's expired lockup. External so it can be called via try/catch.
@@ -798,6 +829,16 @@ contract StakingQueue is
 
         // OF-022: Only consider depositor as having a lockup if they actually hold shares
         hasLockup = (isExpired || hasPendingWithdrawal) && shares > 0;
+    }
+
+    function _requireAuthorizedExpiredLockupProcessor(address caller, address[] calldata depositors) internal view {
+        if (caller == owner() || _expiredLockupProcessors[caller]) return;
+        for (uint256 i; i < depositors.length;) {
+            if (depositors[i] != caller) revert UnauthorizedLockupProcessor(caller);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     function _syncTierVaultsFromRegistry() internal returns (VaultConfig memory config) {

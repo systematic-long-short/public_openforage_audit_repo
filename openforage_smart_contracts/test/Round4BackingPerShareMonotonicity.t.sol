@@ -483,6 +483,7 @@ contract StakingQueue_I4_BackingPerShareMonotonicity is Test {
         depositors[0] = alice;
 
         uint256 beforeRay = _combinedBackingPerShareRay();
+        vm.prank(alice);
         try queue.processExpiredLockups(depositors, 1) {
             assertGe(
                 _combinedBackingPerShareRay(), beforeRay, "expired-lockup reversion lowered combined backing/share"
@@ -503,6 +504,7 @@ contract StakingQueue_I4_BackingPerShareMonotonicity is Test {
         depositors[0] = alice;
 
         uint256 beforeAssets = _combinedTierAssets();
+        vm.prank(alice);
         queue.processExpiredLockups(depositors, 1);
 
         assertEq(tiers[1].balanceOf(alice), 0, "yielded source shares should be redeemed");

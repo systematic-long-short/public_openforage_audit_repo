@@ -81,6 +81,11 @@ abstract contract StakingQueueTestBase is Test {
         // Link queue to its vault in the registry
         vm.prank(owner);
         queue.setVaultId(registeredVaultId);
+
+        vm.startPrank(owner);
+        queue.setExpiredLockupProcessor(address(this), true);
+        queue.setExpiredLockupProcessor(keeper, true);
+        vm.stopPrank();
     }
 
     /// @dev Mint RISKUSD to a user and approve StakingQueue.
