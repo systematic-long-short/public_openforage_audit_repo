@@ -118,7 +118,10 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     /// @dev OF-16-002: Require at least one new block after loss resolution before wind-down.
     uint256 public constant LOSS_COOLDOWN_BLOCKS = 1;
 
-    uint256[44] private __gap; // 48 - 2 mappings - 1 packed - 1 loss timestamp
+    uint256[] private _activeVaultIds;
+    mapping(uint256 => uint256) private _activeVaultIndexPlusOne;
+
+    uint256[42] private __gap; // 44 - active index slots
 
     // ── Constructor (disable initializers on implementation) ──
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -203,6 +206,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
         _abbreviationToVaultId[abbrHash] = vaultId;
         _allVaultIds.push(vaultId);
+        _addActiveVaultId(vaultId);
         _nextVaultId = vaultId + 1;
 
         // OF-003: Mark all tier vault addresses as used globally
@@ -225,6 +229,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
 
         vault.status = VaultStatus.Paused;
+        _removeActiveVaultId(vaultId);
 
         emit VaultPaused(vaultId);
     }
@@ -235,6 +240,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Paused) revert VaultNotPaused();
         vault.status = VaultStatus.Active;
+        _addActiveVaultId(vaultId);
         emit VaultResumed(vaultId);
     }
 
@@ -270,6 +276,9 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
             revert LossCooldownActive();
         }
 
+        if (vault.status == VaultStatus.Active) {
+            _removeActiveVaultId(vaultId);
+        }
         vault.status = VaultStatus.WindingDown;
 
         emit VaultWindingDown(vaultId);
@@ -411,29 +420,32 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     }
 
     function getActiveVaults() external view returns (uint256[] memory) {
-        uint256 len = _allVaultIds.length;
-        uint256 count;
-        for (uint256 i; i < len;) {
-            if (_vaults[_allVaultIds[i]].status == VaultStatus.Active) {
-                count++;
-            }
-            unchecked {
-                ++i;
-            }
+        return _activeVaultIds;
+    }
+
+    function getActiveVaultsPage(uint256 offset, uint256 limit)
+        external
+        view
+        returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
+    {
+        total = _activeVaultIds.length;
+        if (offset >= total || limit == 0) {
+            return (new uint256[](0), total, total);
         }
 
-        uint256[] memory result = new uint256[](count);
-        uint256 idx;
-        for (uint256 i; i < len;) {
-            if (_vaults[_allVaultIds[i]].status == VaultStatus.Active) {
-                result[idx] = _allVaultIds[i];
-                idx++;
-            }
+        uint256 end = offset + limit;
+        if (end > total) {
+            end = total;
+        }
+
+        ids = new uint256[](end - offset);
+        for (uint256 i; i < ids.length;) {
+            ids[i] = _activeVaultIds[offset + i];
             unchecked {
                 ++i;
             }
         }
-        return result;
+        nextOffset = end;
     }
 
     function getAllVaults() external view returns (uint256[] memory) {
@@ -501,6 +513,34 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         if (oldValue > block.number) {
             _lastLossResolutionBlock = 0;
             emit LossResolutionBlockMigrated(oldValue, 0);
+        }
+    }
+
+    /// @notice Rebuilds the active-vault pagination index for upgraded registries.
+    /// @dev Fresh deployments maintain the index from add/pause/resume/wind-down.
+    function initializeV4() external onlyOwner reinitializer(4) {
+        _rebuildActiveVaultIndex();
+    }
+
+    function _rebuildActiveVaultIndex() internal {
+        uint256 activeLen = _activeVaultIds.length;
+        for (uint256 i; i < activeLen;) {
+            delete _activeVaultIndexPlusOne[_activeVaultIds[i]];
+            unchecked {
+                ++i;
+            }
+        }
+        delete _activeVaultIds;
+
+        uint256 len = _allVaultIds.length;
+        for (uint256 i; i < len;) {
+            uint256 vaultId = _allVaultIds[i];
+            if (_vaults[vaultId].status == VaultStatus.Active) {
+                _addActiveVaultId(vaultId);
+            }
+            unchecked {
+                ++i;
+            }
         }
     }
 
@@ -590,6 +630,27 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
             return false;
         }
         return true;
+    }
+
+    function _addActiveVaultId(uint256 vaultId) private {
+        if (_activeVaultIndexPlusOne[vaultId] != 0) return;
+        _activeVaultIds.push(vaultId);
+        _activeVaultIndexPlusOne[vaultId] = _activeVaultIds.length;
+    }
+
+    function _removeActiveVaultId(uint256 vaultId) private {
+        uint256 indexPlusOne = _activeVaultIndexPlusOne[vaultId];
+        if (indexPlusOne == 0) return;
+
+        uint256 index = indexPlusOne - 1;
+        uint256 lastIndex = _activeVaultIds.length - 1;
+        uint256 lastVaultId = _activeVaultIds[lastIndex];
+        if (index != lastIndex) {
+            _activeVaultIds[index] = lastVaultId;
+            _activeVaultIndexPlusOne[lastVaultId] = index + 1;
+        }
+        _activeVaultIds.pop();
+        delete _activeVaultIndexPlusOne[vaultId];
     }
 
     // ── Ownership ──

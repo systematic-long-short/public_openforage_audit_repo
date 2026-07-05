@@ -46,6 +46,7 @@ contract USDCTreasury is
     error BatchLimitExceeded();
     error RenounceOwnershipDisabled();
     error PrincipalReturnsUseVault();
+    error USDCAmountMismatch(uint256 expected, uint256 actual);
 
     bytes32 public constant EARMARK_VAULT_TOP_UP = keccak256("VAULT_TOP_UP");
     bytes32 public constant EARMARK_AGENT_PAY = keccak256("AGENT_PAY");
@@ -209,7 +210,10 @@ contract USDCTreasury is
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external nonReentrant {
         if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
         if (amount == 0) revert ZeroAmount();
+        uint256 balanceBefore = _usdc.balanceOf(address(this));
         _usdc.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = _usdc.balanceOf(address(this)) - balanceBefore;
+        if (received != amount) revert USDCAmountMismatch(amount, received);
 
         uint256 foundation = amount * PROTOCOL_SHARE_BPS / 10_000 * _foundationAllocationBps / 10_000;
         uint256 retained = amount * PROTOCOL_SHARE_BPS / 10_000 - foundation;

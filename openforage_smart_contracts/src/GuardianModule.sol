@@ -31,6 +31,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     error PauseAndCancelForbidden(); // OF-16-005
     error ProtectedGovernanceTarget(address target); // OF-13-044: infrastructure-protection reverts
     error NotPendingTimelock();
+    error StaleTimelockAuthority();
     error FinalizeDelayNotElapsed(); // OF-NEW-07 (12th audit)
     error ProposalExpired(); // OF-NEW-07 (12th audit)
     error GuardianCannotLoosen();
@@ -89,6 +90,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     bytes4 private constant _TIMELOCK_SCHEDULE_BATCH_SELECTOR =
         bytes4(keccak256("scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)"));
     bytes4 private constant _GUARDIAN_MODULE_VIEW_SELECTOR = bytes4(keccak256("guardianModule()"));
+    bytes4 private constant _TIMELOCK_VIEW_SELECTOR = bytes4(keccak256("timelock()"));
     uint256 private constant _GUARDIAN_MODULE_LOOKUP_GAS = 30_000;
 
     // ── State variables ──────────────────────────────────────────────────
@@ -263,7 +265,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     /// @dev OF-16-014: Validates bitmask against MAX_VALID_PERMISSIONS.
     /// @dev OF-16-005: Forbids PERMISSION_CAN_PAUSE | PERMISSION_CAN_CANCEL on same guardian.
     function setGuardianPermissions(address guardian_, uint256 permissions) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         // OF-19-001: Use shared helper for OF-16-014 + OF-16-005 validation
         // (permissions == 0 is a valid removal, skip validation)
@@ -296,7 +298,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     }
 
     function removeGuardian(address guardian_) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         if (guardianPermissions[guardian_] == 0) revert NotGuardian();
 
@@ -323,7 +325,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     /// @param target The contract address to whitelist or de-whitelist.
     /// @param allowed True to add, false to remove.
     function setPausableTarget(address target, bool allowed) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         if (target == address(0)) revert ZeroAddress();
         _pausableTargets[target] = allowed;
         emit PausableTargetUpdated(target, allowed);
@@ -331,7 +333,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     }
 
     function setPreCommittedSuccessor(bytes32 slot, address current, address successor) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         if (slot == bytes32(0) || current == address(0) || successor == address(0)) revert ZeroAddress();
         preCommittedSuccessor[slot][current] = successor;
         if (activeSlotHolder[slot] == address(0)) {
@@ -409,7 +411,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     }
 
     function finalizeRoutineRotation(bytes32 operationId) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists || rotation.executed) revert RotationNotReady();
         if (block.timestamp < rotation.proposedAt + ROUTINE_ROTATION_DELAY) revert FinalizeDelayNotElapsed();
@@ -437,7 +439,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
 
     /// @notice OF-016: Update the governor address. Only callable by the timelock.
     function updateGovernor(address newGovernor) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         if (newGovernor == address(0)) revert ZeroAddress();
         address oldGovernor = governor;
         governor = newGovernor;
@@ -448,7 +450,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     /// Two-step pattern prevents irrecoverable loss from setting a wrong timelock address.
     /// @dev OF-NEW-07 (12th audit): Records proposal timestamp for FINALIZE_DELAY enforcement.
     function proposeTimelock(address newTimelock) external {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         if (newTimelock == address(0)) revert ZeroAddress();
         pendingTimelock = newTimelock;
         timelockProposedAt = block.timestamp; // OF-NEW-07 (12th audit)
@@ -496,7 +498,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     /// @dev OF-011: Only the timelock can authorize upgrades.
     /// OF-031: Clear pendingTimelock on upgrade to prevent stale two-step state.
     function _authorizeUpgrade(address) internal override {
-        if (msg.sender != timelock) revert Unauthorized();
+        _requireCurrentTimelockAuthority();
         // OF-16-021: Emit event when pending timelock is cleared by upgrade
         if (pendingTimelock != address(0)) {
             emit PendingTimelockClearedByUpgrade(pendingTimelock);
@@ -520,6 +522,13 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     function _requireCurrentGuardianModule() internal view {
         (bool ok, bytes memory data) = governor.staticcall(abi.encodeWithSignature("guardianModule()"));
         if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) revert Unauthorized();
+    }
+
+    function _requireCurrentTimelockAuthority() internal view {
+        if (msg.sender != timelock) revert Unauthorized();
+
+        (bool ok, bytes memory data) = governor.staticcall(abi.encodeWithSelector(_TIMELOCK_VIEW_SELECTOR));
+        if (ok && data.length >= 32 && abi.decode(data, (address)) != timelock) revert StaleTimelockAuthority();
     }
 
     function _validateEmergencyCalldata(bytes calldata data) internal pure returns (bytes4 selector) {

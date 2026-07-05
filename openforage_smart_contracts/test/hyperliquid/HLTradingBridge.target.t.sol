@@ -10,6 +10,7 @@ import "../../src/RISKUSD.sol";
 import "../../src/RISKUSDVault.sol";
 import "../../src/USDCTreasury.sol";
 import "../../src/hyperliquid/HLTradingBridge.sol";
+import "../mocks/MockSequencerUptimeFeed.sol";
 import "../mocks/MockUSDC.sol";
 
 contract RevertingHLBridgeBlocklist {
@@ -26,6 +27,7 @@ contract HLTradingBridge_TargetCustody is Test {
     HLTradingBridge internal bridge;
     CustodianRegistry internal custodianRegistry;
     Blocklist internal blocklist;
+    MockSequencerUptimeFeed internal sequencer;
 
     address internal owner = makeAddr("timelock");
     address internal blocklistGuardian = makeAddr("blocklist-guardian");
@@ -82,6 +84,7 @@ contract HLTradingBridge_TargetCustody is Test {
         Blocklist blocklistImplementation = new Blocklist();
         bytes memory blocklistInit = abi.encodeCall(Blocklist.initialize, (blocklistGuardian, owner));
         blocklist = Blocklist(address(new ERC1967Proxy(address(blocklistImplementation), blocklistInit)));
+        sequencer = new MockSequencerUptimeFeed();
 
         HLTradingBridge implementation = new HLTradingBridge();
         bytes memory initData = abi.encodeCall(
@@ -157,6 +160,9 @@ contract HLTradingBridge_TargetCustody is Test {
     }
 
     function test_TSCGB_A14_keeperNAVIsClampedAndStaleReportsRevert() public {
+        vm.prank(executor);
+        bridge.deployToHyperLiquid(1_000_000e6);
+
         vm.prank(keeper);
         bridge.postNAV(VAULT_ID, 1_000_000e6, 1_150_000e6, block.timestamp);
         assertEq(bridge.appliedNAV(), 1_100_000e6, "upward NAV must clamp to 10% per interval");
@@ -166,6 +172,50 @@ contract HLTradingBridge_TargetCustody is Test {
         vm.prank(keeper);
         vm.expectRevert(HLTradingBridge.StaleNAV.selector);
         bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp - 1 days - 1);
+    }
+
+    function test_PUBLIC_AUDIT_EC01_arbitrumNAVFailsLoudWithoutSequencerFeed() public {
+        vm.chainId(bridge.ARBITRUM_ONE_CHAIN_ID());
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(HLTradingBridge.SequencerUptimeFeedUnavailable.selector, address(0)));
+        bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
+    }
+
+    function test_PUBLIC_AUDIT_EC01_sequencerDownBlocksNAVAttestation() public {
+        sequencer.setRoundData(1, block.timestamp - bridge.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
+        vm.prank(owner);
+        bridge.setSequencerUptimeFeed(address(sequencer));
+        vm.chainId(bridge.ARBITRUM_ONE_CHAIN_ID());
+
+        vm.prank(keeper);
+        vm.expectRevert(HLTradingBridge.SequencerDown.selector);
+        bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
+    }
+
+    function test_PUBLIC_AUDIT_EC01_sequencerGraceBlocksNAVAttestation() public {
+        sequencer.setRoundData(0, block.timestamp, block.timestamp);
+        vm.prank(owner);
+        bridge.setSequencerUptimeFeed(address(sequencer));
+        vm.chainId(bridge.ARBITRUM_ONE_CHAIN_ID());
+
+        uint256 gracePeriod = bridge.SEQUENCER_UPTIME_GRACE_PERIOD();
+        vm.expectRevert(
+            abi.encodeWithSelector(HLTradingBridge.SequencerGracePeriodNotOver.selector, block.timestamp, gracePeriod)
+        );
+        vm.prank(keeper);
+        bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
+    }
+
+    function test_PUBLIC_AUDIT_EC01_sequencerUpAfterGraceAllowsNAVAttestation() public {
+        sequencer.setRoundData(0, block.timestamp - bridge.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
+        vm.prank(owner);
+        bridge.setSequencerUptimeFeed(address(sequencer));
+        vm.chainId(bridge.ARBITRUM_ONE_CHAIN_ID());
+
+        vm.prank(keeper);
+        bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
+        assertEq(bridge.appliedNAV(), 1_000_000e6, "fresh NAV should land after sequencer grace");
     }
 
     function test_TSCGB_A15_deployCapsApplyPerBlockAndPerRollingDay() public {

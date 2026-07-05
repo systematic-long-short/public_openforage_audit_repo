@@ -26,6 +26,10 @@ interface IForageGovernorWiredTarget {
     function finalizeForageGovernor() external;
 }
 
+interface ISharedBlocklistTarget {
+    function blocklist() external view returns (address);
+}
+
 /// @title Deploy
 /// @notice Target-only deployer for the fourteen-contract OpenForage smart-contract stack.
 /// @dev This deployer is intentionally limited to local dry-runs and Arbitrum Sepolia.
@@ -33,6 +37,8 @@ interface IForageGovernorWiredTarget {
 contract Deploy is Script {
     error WrongDeployChain(uint256 chainId);
     error ExpectedDeployChainMismatch(uint256 expectedChainId, uint256 actualChainId);
+    error SharedBlocklistNotWired(address target, address expected, address actual);
+    error SequencerUptimePolicyNotWired(address target, address expected, address actual);
 
     uint256 public constant LOCAL_CHAIN_ID = 31337;
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
@@ -593,9 +599,11 @@ contract Deploy is Script {
                 YIELD_SPLITS_BPS,
                 FUNDING_BPS
             );
+        VaultRegistry(deployedVaultRegistry).initializeV4();
         StakingQueue(deployedStakingQueue).setVaultId(targetVaultId);
 
         RISKUSD(deployedRiskusd).setMinter(deployedRiskusdVault);
+        _afterRiskusdMinterProposed();
         RISKUSD(deployedRiskusd).setBlocklist(deployedBlocklist);
 
         RISKUSDVault(deployedRiskusdVault).setBlocklist(deployedBlocklist);
@@ -613,6 +621,9 @@ contract Deploy is Script {
         HLTradingBridge(deployedHLTradingBridge).setBlocklist(deployedBlocklist);
 
         StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);
+        StakingQueue(deployedStakingQueue).setExpiredLockupProcessor(cfg.keeper, true);
+
+        _wireSequencerUptimePolicy();
 
         _wireForageGovernorPauseControls();
 
@@ -622,6 +633,9 @@ contract Deploy is Script {
         _wireAtRisk(deployedAtRiskTier3);
 
         DelegatingVestingWallet(deployedVestingWallet).setBlocklist(deployedBlocklist);
+
+        _assertSharedBlocklistMandate();
+        _assertSequencerUptimePolicyWiring();
 
         CustodianRegistry.CustodianConfig memory config = CustodianRegistry(deployedCustodianRegistry)
             .hyperLiquidLaunchConfig(
@@ -670,6 +684,55 @@ contract Deploy is Script {
     }
 
     function _afterInitialCustodianConfigProposed() internal virtual {}
+
+    function _afterRiskusdMinterProposed() internal virtual {}
+
+    function _sequencerUptimeFeed() internal pure virtual returns (address) {
+        return address(0);
+    }
+
+    function _wireSequencerUptimePolicy() internal {
+        address feed = _sequencerUptimeFeed();
+        if (feed == address(0)) return;
+        StakingQueue(deployedStakingQueue).setSequencerUptimeFeed(feed);
+        HLTradingBridge(deployedHLTradingBridge).setSequencerUptimeFeed(feed);
+    }
+
+    function _assertSequencerUptimePolicyWiring() internal view {
+        address feed = _sequencerUptimeFeed();
+        if (feed == address(0)) return;
+        _requireSequencerUptimeFeed(deployedStakingQueue, feed);
+        _requireSequencerUptimeFeed(deployedHLTradingBridge, feed);
+    }
+
+    function _assertSharedBlocklistMandate() internal view {
+        address expected = deployedBlocklist;
+        if (expected == address(0)) revert SharedBlocklistNotWired(address(0), expected, address(0));
+        _requireSharedBlocklist(deployedRiskusd, expected);
+        _requireSharedBlocklist(deployedRiskusdVault, expected);
+        _requireSharedBlocklist(deployedForageToken, expected);
+        _requireSharedBlocklist(deployedFORAGETreasury, expected);
+        _requireSharedBlocklist(deployedUSDCTreasury, expected);
+        _requireSharedBlocklist(deployedHLTradingBridge, expected);
+        _requireSharedBlocklist(deployedStakingQueue, expected);
+        _requireSharedBlocklist(deployedVestingWallet, expected);
+        _requireSharedBlocklist(deployedAtRiskTier0, expected);
+        _requireSharedBlocklist(deployedAtRiskTier1, expected);
+        _requireSharedBlocklist(deployedAtRiskTier2, expected);
+        _requireSharedBlocklist(deployedAtRiskTier3, expected);
+    }
+
+    function _requireSharedBlocklist(address target, address expected) internal view {
+        address actual = ISharedBlocklistTarget(target).blocklist();
+        if (actual != expected) revert SharedBlocklistNotWired(target, expected, actual);
+    }
+
+    function _requireSequencerUptimeFeed(address target, address expected) internal view {
+        bytes memory payload = abi.encodeWithSignature("sequencerUptimeFeed()");
+        (bool ok, bytes memory data) = target.staticcall(payload);
+        address actual = ok && data.length >= 32 ? abi.decode(data, (address)) : address(0);
+        if (actual != expected) revert SequencerUptimePolicyNotWired(target, expected, actual);
+    }
 
     function _wireForageGovernorPauseControls() internal {
         address[7] memory targets = [

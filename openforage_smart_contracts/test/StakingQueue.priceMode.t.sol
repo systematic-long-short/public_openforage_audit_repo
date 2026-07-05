@@ -3,13 +3,16 @@ pragma solidity ^0.8.20;
 
 import "./helpers/StakingQueueTestBase.sol";
 import "./mocks/MockForagePriceOracle.sol";
+import "./mocks/MockSequencerUptimeFeed.sol";
 
 contract StakingQueue_R32_PriceMode is StakingQueueTestBase {
     MockForagePriceOracle internal oracle;
+    MockSequencerUptimeFeed internal sequencer;
 
     function setUp() public override {
         super.setUp();
         oracle = new MockForagePriceOracle(8);
+        sequencer = new MockSequencerUptimeFeed();
     }
 
     function _setOracleMode(uint256 maxStaleness) internal {
@@ -122,5 +125,48 @@ contract StakingQueue_R32_PriceMode is StakingQueueTestBase {
         vm.prank(owner);
         queue.finalizeForagePriceUsd();
         assertEq(queue.foragePriceUsd(), 1e6, "active after finalize");
+    }
+
+    function test_PUBLIC_AUDIT_OR03_arbitrumOracleModeFailsLoudWithoutSequencerFeed() public {
+        _setOracleMode(1 hours);
+        oracle.setRoundData(2e8, block.timestamp);
+        vm.chainId(queue.ARBITRUM_ONE_CHAIN_ID());
+
+        vm.expectRevert(abi.encodeWithSelector(StakingQueue.SequencerUptimeFeedUnavailable.selector, address(0)));
+        queue.effectiveForagePriceUsd();
+    }
+
+    function test_PUBLIC_AUDIT_OR03_sequencerDownBlocksOraclePriorityFallback() public {
+        _setOracleMode(1 hours);
+        vm.warp(10_000);
+        oracle.setRoundData(2e8, block.timestamp);
+        sequencer.setRoundData(1, block.timestamp - queue.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
+        vm.prank(owner);
+        queue.setSequencerUptimeFeed(address(sequencer));
+
+        vm.chainId(queue.ARBITRUM_ONE_CHAIN_ID());
+        forage.mint(alice, 50e18);
+        _fundUser(alice, STANDARD_DEPOSIT);
+
+        vm.prank(alice);
+        vm.expectRevert(StakingQueue.SequencerDown.selector);
+        queue.joinQueue(STANDARD_DEPOSIT, 0);
+    }
+
+    function test_PUBLIC_AUDIT_OR03_oracleModeResumesAfterSequencerGrace() public {
+        _setOracleMode(1 hours);
+        vm.warp(10_000);
+        oracle.setRoundData(2e8, block.timestamp);
+        sequencer.setRoundData(0, block.timestamp - queue.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
+        vm.prank(owner);
+        queue.setSequencerUptimeFeed(address(sequencer));
+
+        vm.chainId(queue.ARBITRUM_ONE_CHAIN_ID());
+        assertEq(queue.effectiveForagePriceUsd(), 2e6, "price available after grace");
+
+        forage.mint(alice, 50e18);
+        uint256 queueId = _joinQueue(alice, STANDARD_DEPOSIT, 0);
+        StakingQueue.QueueEntry memory entry = queue.getQueueEntry(queueId);
+        assertTrue(entry.priority, "sequencer-up oracle mode should preserve priority lane");
     }
 }

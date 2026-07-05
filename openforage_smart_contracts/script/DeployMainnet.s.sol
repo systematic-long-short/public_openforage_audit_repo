@@ -15,6 +15,7 @@ contract DeployMainnet is Deploy {
     error WrongMainnetDryRunChain(uint256 chainId);
 
     uint256 public constant MAINNET_CHAIN_ID = 42161;
+    address public constant ARBITRUM_ONE_SEQUENCER_UPTIME_FEED = 0xFdB631F5EE196F0ed6FAa767959853A9F217697D;
     uint256 public constant PRODUCTION_MIN_DELAY = 8 days;
     uint256 public constant PRODUCTION_VOTING_DELAY = 1 days;
     uint256 public constant PRODUCTION_VOTING_PERIOD = 5 days;
@@ -101,6 +102,10 @@ contract DeployMainnet is Deploy {
         return PRODUCTION_MIN_DELAY;
     }
 
+    function _sequencerUptimeFeed() internal pure override returns (address) {
+        return ARBITRUM_ONE_SEQUENCER_UPTIME_FEED;
+    }
+
     function _afterInitialCustodianConfigProposed() internal override {
         _finalizeInitialHyperLiquidCustodianConfig();
     }
@@ -129,6 +134,20 @@ contract DeployMainnet is Deploy {
         initialHyperLiquidConfigProposedAt = proposedAt;
         initialHyperLiquidConfigFinalizedAt = block.timestamp;
         registry.finalizeCustodianConfig(id);
+    }
+
+    function _afterRiskusdMinterProposed() internal override {
+        RISKUSD riskusd = RISKUSD(deployedRiskusd);
+        if (riskusd.minter() == deployedRiskusdVault) {
+            require(riskusd.pendingMinter() == address(0), "riskusd pending minter remains");
+            return;
+        }
+
+        require(riskusd.pendingMinter() == deployedRiskusdVault, "riskusd vault minter not pending");
+        vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
+        riskusd.finalizeMinter();
+        require(riskusd.minter() == deployedRiskusdVault, "riskusd vault minter not finalized");
+        require(riskusd.pendingMinter() == address(0), "riskusd pending minter remains");
     }
 
     function _handoffToProductionGovernance() internal {
