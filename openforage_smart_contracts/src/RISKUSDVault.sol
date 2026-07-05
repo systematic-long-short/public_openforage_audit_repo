@@ -164,6 +164,8 @@ contract RISKUSDVault is
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
     uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
+    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR =
+        bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
     // State — immutable post-initialization
     IERC20 internal _usdc;
@@ -1477,7 +1479,7 @@ contract RISKUSDVault is
     }
 
     function _pendingLossVaultIdForBinding() internal view returns (uint256) {
-        if (_hasOpenAttestedLossNonce()) return _latestLossVaultId;
+        if (_hasUnresolvedAttestedLoss()) return _latestLossVaultId;
         return _lossPendingVaultId;
     }
 
@@ -1586,9 +1588,9 @@ contract RISKUSDVault is
             _weeklyMintUsed = 0;
             uint256 elapsed = (block.timestamp - _weeklyMintWindowStart) / WEEKLY_WINDOW;
             _weeklyMintWindowStart += elapsed * WEEKLY_WINDOW;
-            _weeklyMintWindowStartSupply =
-                _lastMintActiveSupply > cachedTotalSupply ? _lastMintActiveSupply : cachedTotalSupply;
-            _lastMintActiveSupply = cachedTotalSupply;
+            uint256 baseline = _lastMintActiveSupply > cachedTotalSupply ? _lastMintActiveSupply : cachedTotalSupply;
+            _weeklyMintWindowStartSupply = baseline;
+            _lastMintActiveSupply = baseline;
         } else if (_weeklyMintUsed == 0 && _weeklyMintWindowStartSupply == 0) {
             _weeklyMintWindowStartSupply = cachedTotalSupply;
         }
@@ -1612,9 +1614,10 @@ contract RISKUSDVault is
             _dailyMintUsed = 0;
             uint256 elapsed = (block.timestamp - _dailyMintWindowStart) / DAILY_WINDOW;
             _dailyMintWindowStart += elapsed * DAILY_WINDOW;
-            _dailyMintWindowStartSupply =
+            uint256 baseline =
                 _lastDailyMintActiveSupply > cachedTotalSupply ? _lastDailyMintActiveSupply : cachedTotalSupply;
-            _lastDailyMintActiveSupply = cachedTotalSupply;
+            _dailyMintWindowStartSupply = baseline;
+            _lastDailyMintActiveSupply = baseline;
         } else if (_dailyMintUsed == 0 && _dailyMintWindowStartSupply == 0) {
             _dailyMintWindowStartSupply = cachedTotalSupply;
         }
@@ -1658,6 +1661,40 @@ contract RISKUSDVault is
     }
 
     function _activeRegisteredTierAssets() internal view returns (uint256 assets) {
+        (bool usedActivePagination, uint256 activeAssets) = _activeRegisteredTierAssetsFromActivePages();
+        if (usedActivePagination) return activeAssets;
+
+        return _activeRegisteredTierAssetsFromHistoricalPages();
+    }
+
+    function _activeRegisteredTierAssetsFromActivePages()
+        internal
+        view
+        returns (bool usedActivePagination, uint256 assets)
+    {
+        uint256 offset;
+        uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
+        while (true) {
+            (bool ok, bytes memory data) = address(_vaultRegistry)
+                .staticcall(abi.encodeWithSelector(GET_ACTIVE_VAULTS_PAGE_SELECTOR, offset, pageLimit));
+            if (!ok) return (false, 0);
+
+            usedActivePagination = true;
+            (uint256[] memory vaultIds, uint256 nextOffset, uint256 total) =
+                abi.decode(data, (uint256[], uint256, uint256));
+            if (vaultIds.length == 0) break;
+            for (uint256 i; i < vaultIds.length;) {
+                assets += _activeVaultTierAssets(vaultIds[i]);
+                unchecked {
+                    ++i;
+                }
+            }
+            if (nextOffset >= total || nextOffset <= offset) break;
+            offset = nextOffset;
+        }
+    }
+
+    function _activeRegisteredTierAssetsFromHistoricalPages() internal view returns (uint256 assets) {
         uint256 offset;
         uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
         while (true) {

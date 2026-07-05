@@ -15,6 +15,7 @@ import "./VaultRegistry.sol";
 import "./FinalizeDelayProfile.sol";
 import "./interfaces/IVaultRegistry.sol";
 import "./interfaces/IBlocklist.sol";
+import "./interfaces/ISequencerUptimeFeed.sol";
 
 interface IForagePriceOracle {
     function decimals() external view returns (uint8);
@@ -105,6 +106,9 @@ contract StakingQueue is
     error DepositOutputBelowMinimum(uint256 sharesMinted, uint256 minimumShares);
     error InvalidForagePriceScale(uint256 price);
     error UnauthorizedLockupProcessor(address caller);
+    error SequencerUptimeFeedUnavailable(address feed);
+    error SequencerDown();
+    error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
 
     // -- Precomputed function selectors --
     bytes4 private constant _SEL_LOCKED_BALANCE = bytes4(keccak256("lockedBalance(address)"));
@@ -182,10 +186,13 @@ contract StakingQueue is
     event TierVaultsSynced(address[4] newTierVaults); // OF-13-027
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
     event ExpiredLockupProcessorSet(address indexed processor, bool authorized);
+    event SequencerUptimeFeedSet(address indexed oldFeed, address indexed newFeed);
 
     // -- Constants --
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-15-005
     uint256 public constant MAX_FIXED_FORAGE_PRICE_USD = 1_000_000e6;
+    uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
+    uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
     uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
@@ -236,8 +243,9 @@ contract StakingQueue is
     mapping(uint8 => TierDepositCap) private _tierDepositCaps;
     address internal _blocklist;
     mapping(address => bool) private _expiredLockupProcessors;
+    address internal _sequencerUptimeFeed;
 
-    uint256[32] private __gap; // reserved for future upgrades
+    uint256[31] private __gap; // reserved for future upgrades
 
     // -- Constructor (disable initializers on implementation) --
     constructor() {
@@ -382,6 +390,20 @@ contract StakingQueue is
 
         entry.minimumShares = minimumShares;
         entry.deadline = deadline;
+        uint8 tier_ = entry.tier;
+        uint256[] storage lane = _tierStandardQueue[tier_];
+        bool present;
+        for (uint256 i; i < lane.length;) {
+            if (lane[i] == queueId) {
+                present = true;
+                break;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        if (!present) revert InvalidQueueEntry();
+        _rewindStandardHeadToEntry(tier_, queueId);
 
         emit QueueEntryBoundsUpdated(queueId, entry.depositor, minimumShares, deadline);
     }
@@ -412,7 +434,10 @@ contract StakingQueue is
         {
             uint256 mult = _priorityMultiplier;
             if (mult > 0) {
-                (bool priceReady, uint256 price,) = _tryActiveForagePriceUsd();
+                (bool priceReady, uint256 price, bytes4 priceReason) = _tryActiveForagePriceUsd();
+                if (_isSequencerFailure(priceReason)) {
+                    _revertActiveForagePriceReason(priceReason);
+                }
                 if (priceReady && price > 0) {
                     uint256 forageToLock = Math.ceilDiv(riskusdAmount * 1e18, price * mult);
                     // OF-L10-M02: Skip priority if computed lock amount is trivially small (< 0.001 FORAGE)
@@ -1263,6 +1288,13 @@ contract StakingQueue is
         emit BlocklistSet(oldBlocklist, blocklist_);
     }
 
+    function setSequencerUptimeFeed(address feed_) external onlyOwner {
+        if (feed_ == address(0)) revert ZeroAddress();
+        address oldFeed = _sequencerUptimeFeed;
+        _sequencerUptimeFeed = feed_;
+        emit SequencerUptimeFeedSet(oldFeed, feed_);
+    }
+
     function pause() external onlyOwnerOrGovernor {
         _pause();
     }
@@ -1291,6 +1323,10 @@ contract StakingQueue is
 
     function blocklist() external view returns (address) {
         return _blocklist;
+    }
+
+    function sequencerUptimeFeed() external view returns (address) {
+        return _sequencerUptimeFeed;
     }
 
     function tierVault(uint8 tier) external view returns (address) {
@@ -1429,9 +1465,7 @@ contract StakingQueue is
     function _activeForagePriceUsd() internal view returns (uint256) {
         (bool success, uint256 price, bytes4 reason) = _tryActiveForagePriceUsd();
         if (success) return price;
-        if (reason == StaleFORAGEPrice.selector) revert StaleFORAGEPrice();
-        if (reason == OracleNotConfigured.selector) revert OracleNotConfigured();
-        revert InvalidOraclePrice();
+        _revertActiveForagePriceReason(reason);
     }
 
     function _tryActiveForagePriceUsd() internal view returns (bool success, uint256 price, bytes4 reason) {
@@ -1444,6 +1478,8 @@ contract StakingQueue is
 
         address oracle = _foragePriceOracle;
         if (oracle == address(0)) return (false, 0, OracleNotConfigured.selector);
+        (bool sequencerOk, bytes4 sequencerReason) = _trySequencerUp();
+        if (!sequencerOk) return (false, 0, sequencerReason);
         try IForagePriceOracle(oracle).latestRoundData() returns (
             uint80 roundId, int256 answer, uint256, uint256 updatedAt, uint80 answeredInRound
         ) {
@@ -1462,6 +1498,52 @@ contract StakingQueue is
         } catch {
             return (false, 0, InvalidOraclePrice.selector);
         }
+    }
+
+    function _trySequencerUp() internal view returns (bool success, bytes4 reason) {
+        address feed = _sequencerUptimeFeed;
+        if (feed == address(0)) {
+            if (block.chainid == ARBITRUM_ONE_CHAIN_ID) {
+                return (false, SequencerUptimeFeedUnavailable.selector);
+            }
+            return (true, bytes4(0));
+        }
+
+        try ISequencerUptimeFeed(feed).latestRoundData() returns (
+            uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
+        ) {
+            if (updatedAt == 0 || updatedAt > block.timestamp || answeredInRound < roundId) {
+                return (false, SequencerUptimeFeedUnavailable.selector);
+            }
+            if (answer != 0) return (false, SequencerDown.selector);
+            if (
+                startedAt == 0 || block.timestamp <= startedAt
+                    || block.timestamp - startedAt <= SEQUENCER_UPTIME_GRACE_PERIOD
+            ) {
+                return (false, SequencerGracePeriodNotOver.selector);
+            }
+            return (true, bytes4(0));
+        } catch {
+            return (false, SequencerUptimeFeedUnavailable.selector);
+        }
+    }
+
+    function _isSequencerFailure(bytes4 reason) internal pure returns (bool) {
+        return reason == SequencerUptimeFeedUnavailable.selector || reason == SequencerDown.selector
+            || reason == SequencerGracePeriodNotOver.selector;
+    }
+
+    function _revertActiveForagePriceReason(bytes4 reason) internal view {
+        if (reason == StaleFORAGEPrice.selector) revert StaleFORAGEPrice();
+        if (reason == OracleNotConfigured.selector) revert OracleNotConfigured();
+        if (reason == SequencerUptimeFeedUnavailable.selector) {
+            revert SequencerUptimeFeedUnavailable(_sequencerUptimeFeed);
+        }
+        if (reason == SequencerDown.selector) revert SequencerDown();
+        if (reason == SequencerGracePeriodNotOver.selector) {
+            revert SequencerGracePeriodNotOver(0, SEQUENCER_UPTIME_GRACE_PERIOD);
+        }
+        revert InvalidOraclePrice();
     }
 
     function _normalizeOraclePrice(uint256 price, uint8 decimals_) internal pure returns (uint256) {

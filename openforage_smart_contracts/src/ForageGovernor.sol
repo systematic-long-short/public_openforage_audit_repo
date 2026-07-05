@@ -444,7 +444,6 @@ contract ForageGovernor is
     function updateTimelock(TimelockControllerUpgradeable newTimelock)
         public
         override(GovernorTimelockControlUpgradeable)
-        onlyGovernance
     {
         if (address(newTimelock) == address(0)) revert ZeroAddress();
         if (address(newTimelock).code.length == 0) revert NotAContract();

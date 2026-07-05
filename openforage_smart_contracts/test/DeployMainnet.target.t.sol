@@ -8,7 +8,9 @@ import "../src/CustodianRegistry.sol";
 import "../src/FinalizeDelayProfile.sol";
 import "../src/ForageGovernor.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
+import "../src/RISKUSD.sol";
 import "../src/RISKUSDVault.sol";
+import "../src/StakingQueue.sol";
 
 interface IOwnableView {
     function owner() external view returns (address);
@@ -17,6 +19,10 @@ interface IOwnableView {
 interface IGuardianModuleView {
     function governor() external view returns (address);
     function timelock() external view returns (address);
+}
+
+interface IBlocklistView {
+    function blocklist() external view returns (address);
 }
 
 contract MainnetFinalizeDelayProbe is FinalizeDelayProfile {}
@@ -55,6 +61,16 @@ contract DeployMainnetTargetTest is Test {
         assertEq(governor.votingDelay(), 1 days, "deployed production voting delay");
         assertEq(governor.votingPeriod(), 5 days, "deployed production voting period");
         assertEq(vault.FINALIZE_DELAY(), 2 days, "deployed mainnet finalize delay");
+    }
+
+    function test_mainnetDryRunFinalizesRiskusdVaultMinterBeforeGovernanceHandoff() public {
+        vm.chainId(deployer.MAINNET_CHAIN_ID());
+
+        deployer.runDryRunWithPlaceholders();
+
+        RISKUSD riskusd = RISKUSD(deployer.deployedRiskusd());
+        assertEq(riskusd.minter(), deployer.deployedRiskusdVault(), "vault minter finalized");
+        assertEq(riskusd.pendingMinter(), address(0), "no pending minter remains");
     }
 
     function test_mainnetDryRunHandsOwnershipAndTimelockRolesToGovernance() public {
@@ -96,6 +112,32 @@ contract DeployMainnetTargetTest is Test {
             address(timelock),
             "guardian timelock binding"
         );
+    }
+
+    function test_PUBLIC_AUDIT_FO05_mainnetDryRunWiresSharedBlocklistAndSequencerFeed() public {
+        vm.chainId(deployer.MAINNET_CHAIN_ID());
+
+        deployer.runDryRunWithPlaceholders();
+
+        address sharedBlocklist = deployer.deployedBlocklist();
+        assertNotEq(sharedBlocklist, address(0), "shared blocklist deployed");
+        _assertSharedBlocklist(deployer.deployedRiskusd(), sharedBlocklist, "riskusd");
+        _assertSharedBlocklist(deployer.deployedRiskusdVault(), sharedBlocklist, "riskusd vault");
+        _assertSharedBlocklist(deployer.deployedForageToken(), sharedBlocklist, "forage token");
+        _assertSharedBlocklist(deployer.deployedFORAGETreasury(), sharedBlocklist, "forage treasury");
+        _assertSharedBlocklist(deployer.deployedUSDCTreasury(), sharedBlocklist, "usdc treasury");
+        _assertSharedBlocklist(deployer.deployedHLTradingBridge(), sharedBlocklist, "hl bridge");
+        _assertSharedBlocklist(deployer.deployedStakingQueue(), sharedBlocklist, "staking queue");
+        _assertSharedBlocklist(deployer.deployedVestingWallet(), sharedBlocklist, "vesting wallet");
+        _assertSharedBlocklist(deployer.deployedAtRiskTier0(), sharedBlocklist, "tier 0");
+        _assertSharedBlocklist(deployer.deployedAtRiskTier1(), sharedBlocklist, "tier 1");
+        _assertSharedBlocklist(deployer.deployedAtRiskTier2(), sharedBlocklist, "tier 2");
+        _assertSharedBlocklist(deployer.deployedAtRiskTier3(), sharedBlocklist, "tier 3");
+
+        address uptimeFeed = deployer.ARBITRUM_ONE_SEQUENCER_UPTIME_FEED();
+        assertNotEq(uptimeFeed, address(0), "sequencer feed constant");
+        assertEq(StakingQueue(deployer.deployedStakingQueue()).sequencerUptimeFeed(), uptimeFeed, "queue feed");
+        assertEq(HLTradingBridge(deployer.deployedHLTradingBridge()).sequencerUptimeFeed(), uptimeFeed, "bridge feed");
     }
 
     function test_mainnetRunWithConfigUsesConfiguredCustodyRoute() public {
@@ -166,6 +208,10 @@ contract DeployMainnetTargetTest is Test {
 
     function _assertOwnedByTimelock(address target, address timelock, string memory label) internal view {
         assertEq(IOwnableView(target).owner(), timelock, string.concat(label, " owned by timelock"));
+    }
+
+    function _assertSharedBlocklist(address target, address expected, string memory label) internal view {
+        assertEq(IBlocklistView(target).blocklist(), expected, string.concat(label, " shared blocklist"));
     }
 
     function _setMainnetConfigEnv(

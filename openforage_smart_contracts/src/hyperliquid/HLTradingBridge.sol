@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {FinalizeDelayProfile} from "../FinalizeDelayProfile.sol";
 import {IBlocklist} from "../interfaces/IBlocklist.sol";
+import {ISequencerUptimeFeed} from "../interfaces/ISequencerUptimeFeed.sol";
 
 interface IUSDCTreasuryReturnPort {
     function recordPrincipalReturnUSDC(uint256 amount) external;
@@ -82,9 +83,14 @@ contract HLTradingBridge is
     error UnauthorizedVault(address caller);
     error WithdrawalIntentNotExpired();
     error NonZeroPrincipal(uint256 principal);
+    error SequencerUptimeFeedUnavailable(address feed);
+    error SequencerDown();
+    error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
 
     uint256 public constant DAY_SECONDS = 1 days;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
+    uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
+    uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
     uint16 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant DEFAULT_WITHDRAWAL_INTENT_TIMEOUT_SECONDS = 7 days;
 
@@ -118,6 +124,7 @@ contract HLTradingBridge is
     uint256 internal _pendingKeeperProposedAt;
     address internal _custodianExecutor;
     address internal _blocklist;
+    address internal _sequencerUptimeFeed;
     bool internal _directionalFreeze;
 
     struct WithdrawalIntent {
@@ -160,6 +167,7 @@ contract HLTradingBridge is
     event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
     event PendingKeeperCancelled(address indexed pendingKeeper);
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
+    event SequencerUptimeFeedSet(address indexed oldFeed, address indexed newFeed);
     event PerBlockDeployCapSet(uint256 oldCap, uint256 newCap);
     event PerDayDeployCapSet(uint256 oldCap, uint256 newCap);
     event ReturnCapitalCapsSet(uint16 oldPerCallBps, uint16 newPerCallBps, uint16 oldPerDayBps, uint16 newPerDayBps);
@@ -237,20 +245,23 @@ contract HLTradingBridge is
     {
         _requireKeeper();
         _requireNotBlocked(msg.sender);
+        _requireSequencerUp();
 
         uint256 applied = _normalizeCustodianNAV(bookValue, rawNav, observedAt, _appliedNAV, true);
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
         _lastNAVObservedAt = observedAt;
         _appliedNAV = applied;
-        if (_pendingDeployPrincipal != 0 && applied >= _deployedPrincipal) {
+
+        uint256 vaultNav = _normalizeAppliedNAVToCurrentBook(bookValue, applied);
+        if (_pendingDeployPrincipal != 0 && vaultNav >= _deployedPrincipal) {
             _pendingDeployPrincipal = 0;
         }
         uint256 lossNonce = 0;
-        if (applied < bookValue) {
+        if (vaultNav < _deployedPrincipal) {
             lossNonce = IRISKUSDVaultNAVPort(riskusdVault).latestLossNonce() + 1;
         }
-        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, applied, lossNonce, observedAt);
+        IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, vaultNav, lossNonce, observedAt);
 
         emit NAVPosted(vaultId, bookValue, rawNav, applied, observedAt);
     }
@@ -312,6 +323,21 @@ contract HLTradingBridge is
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);
         _enforceReturnCaps(amount);
+
+        IERC20 token = IERC20(usdc);
+        _consumeReconciledLiquidity(token, amount);
+        token.forceApprove(usdcTreasury, amount);
+        IUSDCTreasuryReturnPort(usdcTreasury).returnPnLUSDC(vaultId, amount);
+        token.forceApprove(usdcTreasury, 0);
+        emit PnLReturned(vaultId, amount);
+    }
+
+    function returnZeroPrincipalPnLUSDC(uint256 vaultId, uint256 amount) external onlyOwner nonReentrant {
+        if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
+        if (amount == 0) revert ZeroAmount();
+        _requireNotBlocked(msg.sender);
+        _requireNotBlocked(address(this));
+        _requireNotBlocked(usdcTreasury);
 
         IERC20 token = IERC20(usdc);
         _consumeReconciledLiquidity(token, amount);
@@ -386,7 +412,6 @@ contract HLTradingBridge is
         _requireNotBlocked(msg.sender);
         WithdrawalIntent storage intent = _withdrawalIntents[intentId];
         if (!intent.exists || intent.consumed) revert RequestMismatch();
-        if (intentId != _openWithdrawalIntentId) revert RequestMismatch();
         if (arrivedAmount != intent.amount) revert ArrivalAmountMismatch();
 
         uint256 currentBalance = IERC20(usdc).balanceOf(address(this));
@@ -395,7 +420,9 @@ contract HLTradingBridge is
 
         _reconciledReturnLiquidity += arrivedAmount;
         intent.consumed = true;
-        _openWithdrawalIntentId = bytes32(0);
+        if (intentId == _openWithdrawalIntentId) {
+            _openWithdrawalIntentId = bytes32(0);
+        }
         emit WithdrawalArrivalReconciled(intentId, arrivedAmount);
     }
 
@@ -409,7 +436,6 @@ contract HLTradingBridge is
         if (createdAt != 0 && block.timestamp < createdAt + withdrawalIntentTimeoutSeconds()) {
             revert WithdrawalIntentNotExpired();
         }
-        intent.consumed = true;
         _openWithdrawalIntentId = bytes32(0);
         emit WithdrawalIntentCancelled(intentId);
     }
@@ -467,6 +493,13 @@ contract HLTradingBridge is
         address old = _blocklist;
         _blocklist = blocklist_;
         emit BlocklistSet(old, blocklist_);
+    }
+
+    function setSequencerUptimeFeed(address feed_) external onlyOwner {
+        if (feed_ == address(0)) revert ZeroAddress();
+        address old = _sequencerUptimeFeed;
+        _sequencerUptimeFeed = feed_;
+        emit SequencerUptimeFeedSet(old, feed_);
     }
 
     function setPerBlockDeployCap(uint256 newCap) external onlyOwner {
@@ -612,6 +645,10 @@ contract HLTradingBridge is
         return _blocklist;
     }
 
+    function sequencerUptimeFeed() external view returns (address) {
+        return _sequencerUptimeFeed;
+    }
+
     function directionalFreeze() external view returns (bool) {
         return _directionalFreeze;
     }
@@ -679,7 +716,22 @@ contract HLTradingBridge is
         uint256 bookValue = _lastNAVBookValue;
 
         uint256 normalizedNav = _normalizeCustodianNAV(bookValue, nav, observedAt, _appliedNAV, false);
+        if (normalizedNav < _deployedPrincipal) return (false, 0);
+
         return (true, normalizedNav);
+    }
+
+    function _normalizeAppliedNAVToCurrentBook(uint256 bookValue, uint256 applied) internal view returns (uint256) {
+        uint256 principal = _deployedPrincipal;
+        uint256 normalized;
+        if (principal >= bookValue) {
+            normalized = applied + (principal - bookValue);
+        } else {
+            uint256 returnedAfterObservation = bookValue - principal;
+            normalized = applied > returnedAfterObservation ? applied - returnedAfterObservation : 0;
+        }
+        if (_directionalFreeze && normalized > applied) return applied;
+        return normalized;
     }
 
     function _normalizeCustodianNAV(
@@ -792,6 +844,45 @@ contract HLTradingBridge is
             if (blocked) revert BlockedAddress(account);
         } catch {
             revert BlocklistUnavailable(blocklist_);
+        }
+    }
+
+    function _requireSequencerUp() internal view {
+        address feed = _sequencerUptimeFeed;
+        if (feed == address(0)) {
+            if (block.chainid == ARBITRUM_ONE_CHAIN_ID) revert SequencerUptimeFeedUnavailable(feed);
+            return;
+        }
+
+        try ISequencerUptimeFeed(feed).latestRoundData() returns (
+            uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
+        ) {
+            if (updatedAt == 0 || updatedAt > block.timestamp || answeredInRound < roundId) {
+                revert SequencerUptimeFeedUnavailable(feed);
+            }
+            if (answer != 0) revert SequencerDown();
+            if (
+                startedAt == 0 || block.timestamp <= startedAt
+                    || block.timestamp - startedAt <= SEQUENCER_UPTIME_GRACE_PERIOD
+            ) {
+                revert SequencerGracePeriodNotOver(startedAt, SEQUENCER_UPTIME_GRACE_PERIOD);
+            }
+        } catch (bytes memory reason) {
+            if (reason.length >= 4) {
+                bytes4 selector;
+                assembly {
+                    selector := mload(add(reason, 32))
+                }
+                if (
+                    selector == SequencerUptimeFeedUnavailable.selector || selector == SequencerDown.selector
+                        || selector == SequencerGracePeriodNotOver.selector
+                ) {
+                    assembly {
+                        revert(add(reason, 32), mload(reason))
+                    }
+                }
+            }
+            revert SequencerUptimeFeedUnavailable(feed);
         }
     }
 
