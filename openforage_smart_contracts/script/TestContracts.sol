@@ -31,3 +31,7 @@ contract TestRISKUSD is RISKUSD {
         }
     }
 }
+
+interface IAllowlistSettable {
+    function setAllowlist(address allowlist_) external;
+}

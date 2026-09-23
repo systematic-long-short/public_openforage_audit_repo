@@ -6,12 +6,14 @@ import "forge-std/StdStorage.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./helpers/StakingQueueTestBase.sol";
+import "../src/modules/StakingQueueModule.sol";
 import "./helpers/ForageTokenTestBase.sol";
 import "./mocks/MockAtRISKUSD.sol";
 import "./mocks/MockForagePriceOracle.sol";
 import "./mocks/MockForageTokenLocking.sol";
 import "./mocks/MockRISKUSD.sol";
 import "./mocks/MockVaultRegistry.sol";
+import "./mocks/MockAllowlist.sol";
 
 contract OctaneFailingProbeVault {
     IERC20 public immutable riskusd;
@@ -197,6 +199,7 @@ contract OctaneStakingQueueRed is StakingQueueTestBase {
 
 contract OctaneStakingQueueForageLockRed is Test {
     StakingQueue public queue;
+    StakingQueueModule public queueModule;
     MockRISKUSD public riskusd;
     MockForageTokenLocking public forageLock;
     MockAtRISKUSD public vault0;
@@ -238,6 +241,15 @@ contract OctaneStakingQueueForageLockRed is Test {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         queue = StakingQueue(address(proxy));
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        queue.setAllowlist(address(mockAllowlist));
+
+        queueModule = new StakingQueueModule();
+        vm.prank(owner);
+        queue.setQueueModule(address(queueModule));
 
         vm.prank(owner);
         queue.setVaultId(registeredVaultId);
@@ -360,5 +372,10 @@ contract OctaneForageTokenRed is ForageTokenTestBase {
         bytes memory initData = abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         fresh = ForageToken(address(proxy));
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        fresh.setAllowlist(address(mockAllowlist));
     }
 }

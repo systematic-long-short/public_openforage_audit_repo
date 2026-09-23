@@ -7,6 +7,8 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {atRISKUSD} from "../../src/atRISKUSD.sol";
 import {RISKUSDVault} from "../../src/RISKUSDVault.sol";
+import {RISKUSDVaultModule} from "../../src/modules/RISKUSDVaultModule.sol";
+import {MockAllowlist} from "../mocks/MockAllowlist.sol";
 
 /// @dev Minimal 6-decimal mint/burn ERC20 for Halmos harnesses.
 ///      The production mocks keep call-tracking arrays for Foundry assertions;
@@ -83,7 +85,7 @@ contract Halmos_I2_BurnBeforeWithdraw is Test, SymTest {
     /// @dev Minimal bounded unit domain; wider value ranges are covered by Foundry fuzz.
     uint256 internal constant MAX_AMOUNT = 1;
     bytes32 internal constant INITIALIZABLE_STORAGE_SLOT =
-        0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        0xf0c57e16840df040_f15088dc2f81fe39_1c3923bec73e23a9_662efc9c229c6a00;
 
     RISKUSDVault internal vault;
     HalmosMintBurnERC20 internal usdc;
@@ -101,6 +103,9 @@ contract Halmos_I2_BurnBeforeWithdraw is Test, SymTest {
         vault = new RISKUSDVault();
         vm.store(address(vault), INITIALIZABLE_STORAGE_SLOT, bytes32(0));
         vault.initialize(address(usdc), address(riskusd), owner);
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule_));
 
         vm.startPrank(owner);
         vault.setPerBlockMintCap(10000, type(uint256).max);
@@ -142,11 +147,12 @@ contract Halmos_I2_BurnBeforeWithdraw is Test, SymTest {
 ///         symbolic burn/payout proof remains on `RISKUSDVault.redeem()`.
 contract Halmos_I2_BurnBeforeWithdraw_AtRISKUSD is Test, SymTest {
     bytes32 internal constant INITIALIZABLE_STORAGE_SLOT =
-        0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        0xf0c57e16840df040_f15088dc2f81fe39_1c3923bec73e23a9_662efc9c229c6a00;
 
     atRISKUSD internal noLockVault;
     HalmosMintBurnERC20 internal riskusd;
     HalmosYieldSource internal yieldSource;
+    MockAllowlist internal allowlist;
     address internal owner;
     address internal stakingQueue;
     address internal alice;
@@ -159,9 +165,14 @@ contract Halmos_I2_BurnBeforeWithdraw_AtRISKUSD is Test, SymTest {
         riskusd = new HalmosMintBurnERC20("RISKUSD", "RISKUSD");
         yieldSource = new HalmosYieldSource();
 
+        allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+
         noLockVault = new atRISKUSD();
         vm.store(address(noLockVault), INITIALIZABLE_STORAGE_SLOT, bytes32(0));
         noLockVault.initialize(address(riskusd), address(yieldSource), stakingQueue, 0, 0, 0, "0D", owner);
+        vm.prank(owner);
+        noLockVault.setAllowlist(address(allowlist));
         vm.prank(owner);
         noLockVault.setWeeklyWithdrawalCapBps(10_000);
     }

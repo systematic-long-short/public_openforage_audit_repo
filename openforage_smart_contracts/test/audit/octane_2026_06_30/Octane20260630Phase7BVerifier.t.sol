@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "./Octane20260630VaultBridgeRed.t.sol";
 import "../../../src/DelegatingVestingWallet.sol";
+import "../../mocks/MockAllowlist.sol";
 
 contract Octane20260630Phase7BMutableBlocklist {
     bool internal _broken;
@@ -55,8 +56,11 @@ contract Octane20260630Phase7BVerifierTest is Octane20260630VaultBridgeRedTest {
     function test_Phase7B_B04_childBlocklistRecoveryOnlyReplacesBrokenBlocklist() public {
         address beneficiary = makeAddr("phase7b.b04.beneficiary");
         address tokenSetter = makeAddr("phase7b.b04.tokenSetter");
-        DelegatingVestingWallet wallet =
-            new DelegatingVestingWallet(beneficiary, uint64(block.timestamp), 365 days, 30 days, tokenSetter);
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        DelegatingVestingWallet wallet = new DelegatingVestingWallet(
+            beneficiary, uint64(block.timestamp), 365 days, 30 days, tokenSetter, address(mockAllowlist)
+        );
         Octane20260630Phase7BMutableBlocklist oldBlocklist = new Octane20260630Phase7BMutableBlocklist();
         Octane20260630Phase7BMutableBlocklist replacement = new Octane20260630Phase7BMutableBlocklist();
 
@@ -75,15 +79,16 @@ contract Octane20260630Phase7BVerifierTest is Octane20260630VaultBridgeRedTest {
         assertEq(wallet.blocklist(), address(replacement), "broken child blocklist can be recovered");
     }
 
-    function test_Phase7B_B04_foundationPrimaryFinalizerHasNoExpiry() public {
+    function test_Phase7B_B04_foundationPrimaryFinalizerExpiresStaleProposal() public {
         address owner = makeAddr("phase7b.b04.foundationOwner");
         address newFoundationPrimary = makeAddr("phase7b.b04.newFoundationPrimary");
+        address oldFoundationPrimary = makeAddr("phase7b.b04.foundationPrimary");
         USDCTreasury treasury = _deployTreasury(
             address(new MockUSDC()),
             makeAddr("phase7b.b04.vault"),
             makeAddr("phase7b.b04.registry"),
             owner,
-            makeAddr("phase7b.b04.foundationPrimary"),
+            oldFoundationPrimary,
             makeAddr("phase7b.b04.foundationBackup"),
             makeAddr("phase7b.b04.protocolPrimary"),
             makeAddr("phase7b.b04.protocolBackup")
@@ -94,12 +99,17 @@ contract Octane20260630Phase7BVerifierTest is Octane20260630VaultBridgeRedTest {
         vm.warp(block.timestamp + 365 days);
 
         vm.prank(owner);
+        vm.expectRevert(USDCTreasury.ProposalExpired.selector);
         treasury.finalizeFoundationPrimary();
         assertEq(
             treasury.foundationPrimary(),
-            newFoundationPrimary,
-            "foundation primary finalizer remains executable after a stale delay"
+            oldFoundationPrimary,
+            "foundation primary finalizer must not execute after a stale delay"
         );
+
+        vm.prank(owner);
+        treasury.cancelPendingFoundationPrimary();
+        assertEq(treasury.pendingFoundationPrimary(), address(0), "stale proposal can be explicitly cancelled");
     }
 
     function test_Phase7B_B04_finalizeDelayProfileUsesProductionDelayOutsideLocalAndSepolia() public {

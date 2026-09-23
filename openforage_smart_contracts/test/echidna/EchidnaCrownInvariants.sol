@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../../src/RISKUSDVault.sol";
+import "../../src/modules/RISKUSDVaultModule.sol";
+import "../mocks/MockAllowlist.sol";
 
 contract EchidnaRiskUSD is ERC20 {
     constructor() ERC20("Echidna RISKUSD", "eRISKUSD") {}
@@ -95,6 +97,11 @@ contract EchidnaCrownInvariants {
             abi.encodeCall(RISKUSDVault.initialize, (address(usdc), address(riskusd), address(this)));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         vault = RISKUSDVault(address(proxy));
+        vault.setVaultModule(address(new RISKUSDVaultModule()));
+
+        MockAllowlist allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+        vault.setAllowlist(address(allowlistMock));
 
         vault.setPerBlockMintCap(10000, type(uint256).max);
         vault.setWeeklyMintCapBps(20000);

@@ -8,12 +8,14 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
 import {ForageGovernor} from "../../../src/ForageGovernor.sol";
 import {ForageToken} from "../../../src/ForageToken.sol";
 import {GuardianModule} from "../../../src/GuardianModule.sol";
+import {MockAllowlist} from "../../mocks/MockAllowlist.sol";
 
 abstract contract CantinaScan4RealGovernanceTestBase is Test {
     ForageGovernor public governor;
     ForageToken public token;
     GuardianModule public guardianModuleContract;
     TimelockController public timelock;
+    MockAllowlist public allowlistMock;
 
     address public deployer;
     address public proposer;
@@ -49,6 +51,9 @@ abstract contract CantinaScan4RealGovernanceTestBase is Test {
         guardian4 = makeAddr("guardian4");
         attacker = makeAddr("attacker");
 
+        allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+
         _deployRealForageToken();
         _delegateVotingPower();
         _deployGovernorAndGuardianModule();
@@ -58,6 +63,8 @@ abstract contract CantinaScan4RealGovernanceTestBase is Test {
         ForageToken tokenImpl = new ForageToken();
         bytes memory tokenInit = abi.encodeCall(ForageToken.initialize, (proposer, voter1, deployer));
         token = ForageToken(address(new ERC1967Proxy(address(tokenImpl), tokenInit)));
+        vm.prank(deployer);
+        token.setAllowlist(address(allowlistMock));
     }
 
     function _delegateVotingPower() internal {
@@ -115,6 +122,11 @@ abstract contract CantinaScan4RealGovernanceTestBase is Test {
         guardianModuleContract = GuardianModule(address(new ERC1967Proxy(address(guardianModuleImpl), guardianInit)));
 
         vm.stopPrank();
+
+        vm.prank(address(timelock));
+        governor.setAllowlist(address(allowlistMock));
+        vm.prank(address(timelock));
+        guardianModuleContract.setAllowlist(address(allowlistMock));
 
         _grantGovernorTimelockRoles();
         _setGuardianModule();

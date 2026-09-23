@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IForageGovernorPause.sol";
 import "./FinalizeDelayProfile.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IBlocklist.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
@@ -22,7 +23,8 @@ contract atRISKUSD is
     PausableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuard,
-    FinalizeDelayProfile
+    FinalizeDelayProfile,
+    AllowlistGatedUpgradeable
 {
     using SafeERC20 for IERC20;
 
@@ -193,7 +195,7 @@ contract atRISKUSD is
     // ============================================================
     // Core ERC-4626 Entry (StakingQueue-only)
     // ============================================================
-    function deposit(uint256 assets, address receiver) public override whenNotPaused nonReentrant returns (uint256) {
+    function deposit(uint256 assets, address receiver) public override onlyAllowedCaller whenNotPaused nonReentrant returns (uint256) {
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (assets == 0) revert ZeroAmount();
         _requireNoLossPending(); // OF-13-056: Block fresh inflows during loss
@@ -208,7 +210,7 @@ contract atRISKUSD is
         return shares;
     }
 
-    function mint(uint256 shares, address receiver) public override whenNotPaused nonReentrant returns (uint256) {
+    function mint(uint256 shares, address receiver) public override onlyAllowedCaller whenNotPaused nonReentrant returns (uint256) {
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
         _requireNoLossPending(); // OF-14-002: Block mint during lossPending (same as deposit)
@@ -246,6 +248,7 @@ contract atRISKUSD is
     function withdraw(uint256 assets, address receiver, address _owner)
         public
         override
+        onlyAllowedCaller
         whenNotPaused
         nonReentrant
         returns (uint256)
@@ -268,6 +271,7 @@ contract atRISKUSD is
     function redeem(uint256 shares, address receiver, address _owner)
         public
         override
+        onlyAllowedCaller
         whenNotPaused
         nonReentrant
         returns (uint256)
@@ -319,7 +323,7 @@ contract atRISKUSD is
     // ============================================================
     // Yield/Loss Controls (yieldSource-only)
     // ============================================================
-    function accrueYield(uint256 riskusdAmount) external whenNotPaused nonReentrant {
+    function accrueYield(uint256 riskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
         if (msg.sender != _yieldSource) revert UnauthorizedYieldSource();
         if (riskusdAmount == 0) revert ZeroAmount();
         _requireNoZeroAssetLegacySupply();
@@ -344,7 +348,7 @@ contract atRISKUSD is
     }
 
     /// @dev OF-L22: Loss reporting must work even when paused. Auth-gated by _yieldSource.
-    function absorbLoss(uint256 riskusdAmount) external nonReentrant {
+    function absorbLoss(uint256 riskusdAmount) external onlyAllowedCaller nonReentrant {
         if (msg.sender != _yieldSource) revert UnauthorizedYieldSource();
         if (riskusdAmount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
@@ -361,6 +365,13 @@ contract atRISKUSD is
         IERC20(asset()).safeTransfer(msg.sender, riskusdAmount);
 
         _decreaseLegitimateAssets(riskusdAmount);
+        // Mirror OF-I06 on the tier weekly withdrawal basis: a loss absorbed inside the current
+        // weekly window must not leave the weekly cap computed from stale (pre-loss) assets.
+        if (block.timestamp < _weeklyWithdrawalWindowStart + WEEKLY_WITHDRAWAL_WINDOW && _weeklyWithdrawalWindowStartAssets > 0) {
+            _weeklyWithdrawalWindowStartAssets = _weeklyWithdrawalWindowStartAssets >= riskusdAmount
+                ? _weeklyWithdrawalWindowStartAssets - riskusdAmount
+                : 0;
+        }
         _totalLossAbsorbed += riskusdAmount;
 
         emit LossAbsorbed(riskusdAmount);
@@ -369,7 +380,7 @@ contract atRISKUSD is
     // ============================================================
     // Cooldown Withdrawals
     // ============================================================
-    function requestWithdrawal(uint256 atriskusdAmount) external whenNotPaused nonReentrant {
+    function requestWithdrawal(uint256 atriskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
         if (atriskusdAmount == 0) revert ZeroAmount();
 
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[msg.sender]) {
@@ -403,7 +414,7 @@ contract atRISKUSD is
 
     /// @param minAmountOut OF-M11: minimum RISKUSD payout, reverts if below. Pass 0 to accept any amount.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal(uint256 minAmountOut) external nonReentrant {
+    function executeWithdrawal(uint256 minAmountOut) external onlyAllowedCaller nonReentrant {
         _executeWithdrawal(minAmountOut);
     }
 
@@ -411,7 +422,7 @@ contract atRISKUSD is
     /// @custom:deprecated OF-L09: Use executeWithdrawal(uint256 minAmountOut) instead for slippage protection.
     /// This overload passes minAmountOut=0, accepting any payout amount — vulnerable to sandwich attacks.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal() external nonReentrant {
+    function executeWithdrawal() external onlyAllowedCaller nonReentrant {
         emit DeprecatedWithdrawalUsed(msg.sender, _pendingWithdrawals[msg.sender].riskusdAmount);
         _executeWithdrawal(0);
     }
@@ -472,7 +483,7 @@ contract atRISKUSD is
 
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
     /// @dev OF-NEW-11 (12th audit): Gated by lossPending to prevent cancel→re-deposit optionality during loss window.
-    function cancelWithdrawal() external nonReentrant {
+    function cancelWithdrawal() external onlyAllowedCaller nonReentrant {
         PendingWithdrawal storage pw = _pendingWithdrawals[msg.sender];
         if (!pw.active) revert NoPendingWithdrawal();
         // OF-NEW-11 (12th audit): Block cancellation while loss is pending
@@ -496,6 +507,7 @@ contract atRISKUSD is
     // ============================================================
     function redeemForUpgrade(address depositor, uint256 shares)
         external
+        onlyAllowedCaller
         whenNotPaused
         nonReentrant
         returns (uint256 assets)
@@ -528,12 +540,15 @@ contract atRISKUSD is
 
     function redeemForReversion(address depositor, uint256 shares)
         external
+        onlyAllowedCaller
         whenNotPaused
         nonReentrant
         returns (uint256 assets)
     {
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
+        // OF-008: Block reversion if depositor has a pending withdrawal (sibling of redeemForUpgrade's guard)
+        if (_pendingWithdrawals[depositor].active) revert PendingWithdrawalExists();
 
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[depositor]) {
             revert LockupNotExpired(_lockExpiry[depositor]);
@@ -558,7 +573,7 @@ contract atRISKUSD is
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
     }
 
-    function renewLockup(address depositor) external whenNotPaused nonReentrant returns (uint256) {
+    function renewLockup(address depositor) external onlyAllowedCaller whenNotPaused nonReentrant returns (uint256) {
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
 
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[depositor]) {
@@ -577,7 +592,7 @@ contract atRISKUSD is
     // ============================================================
     // Auto-Renewal
     // ============================================================
-    function setAutoRenew(bool enabled) external {
+    function setAutoRenew(bool enabled) external onlyAllowedCaller {
         _autoRenewDisabled[msg.sender] = !enabled;
         _syncAutoRenewDisabledTracking(msg.sender);
         emit AutoRenewChanged(msg.sender, enabled);
@@ -588,7 +603,7 @@ contract atRISKUSD is
     // ============================================================
     /// @notice OF-H02: setYieldSource now only proposes — no instant effect.
     /// Use finalizeYieldSource() or acceptYieldSource() to complete the change.
-    function setYieldSource(address newYieldSource) external onlyOwner {
+    function setYieldSource(address newYieldSource) external onlyAllowedCaller onlyOwner {
         if (newYieldSource == address(0)) revert ZeroAddress();
         _pendingYieldSource = newYieldSource;
         _yieldSourceProposedAt = block.timestamp; // OF-002 (11th audit)
@@ -596,7 +611,7 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Owner-side finalization for yield source change (for contract recipients).
-    function finalizeYieldSource() external onlyOwner {
+    function finalizeYieldSource() external onlyAllowedCaller onlyOwner {
         if (_pendingYieldSource == address(0)) revert ZeroAddress();
         if (block.timestamp < _yieldSourceProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _yieldSourceProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -610,7 +625,7 @@ contract atRISKUSD is
 
     /// @notice OF-H02: setStakingQueue now only proposes — no instant effect.
     /// Use finalizeStakingQueue() or acceptStakingQueue() to complete the change.
-    function setStakingQueue(address newStakingQueue) external onlyOwner {
+    function setStakingQueue(address newStakingQueue) external onlyAllowedCaller onlyOwner {
         if (newStakingQueue == address(0)) revert ZeroAddress();
         _pendingStakingQueue = newStakingQueue;
         _stakingQueueProposedAt = block.timestamp; // OF-002 (11th audit)
@@ -618,7 +633,7 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Owner-side finalization for staking queue change (for contract recipients).
-    function finalizeStakingQueue() external onlyOwner {
+    function finalizeStakingQueue() external onlyAllowedCaller onlyOwner {
         if (_pendingStakingQueue == address(0)) revert ZeroAddress();
         if (block.timestamp < _stakingQueueProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _stakingQueueProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -630,7 +645,7 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Propose a new yield source (two-step handoff). Only owner can propose.
-    function proposeYieldSource(address newYieldSource_) external onlyOwner {
+    function proposeYieldSource(address newYieldSource_) external onlyAllowedCaller onlyOwner {
         if (newYieldSource_ == address(0)) revert ZeroAddress();
         _pendingYieldSource = newYieldSource_;
         _yieldSourceProposedAt = block.timestamp; // OF-002 (11th audit)
@@ -638,7 +653,7 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Accept the pending yield source role. Only the pending yield source can call.
-    function acceptYieldSource() external {
+    function acceptYieldSource() external onlyAllowedCaller {
         if (msg.sender != _pendingYieldSource) revert NotPendingYieldSource();
         if (block.timestamp < _yieldSourceProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _yieldSourceProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -656,13 +671,13 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Clear the pending yield source to prevent stale proposals surviving UUPS upgrades.
-    function clearPendingYieldSource() external onlyOwner {
+    function clearPendingYieldSource() external onlyAllowedCaller onlyOwner {
         _pendingYieldSource = address(0);
         _yieldSourceProposedAt = 0;
     }
 
     /// @notice OF-H02: Propose a new staking queue (two-step handoff). Only owner can propose.
-    function proposeStakingQueue(address newStakingQueue_) external onlyOwner {
+    function proposeStakingQueue(address newStakingQueue_) external onlyAllowedCaller onlyOwner {
         if (newStakingQueue_ == address(0)) revert ZeroAddress();
         _pendingStakingQueue = newStakingQueue_;
         _stakingQueueProposedAt = block.timestamp; // OF-002 (11th audit)
@@ -670,7 +685,7 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Accept the pending staking queue role. Only the pending staking queue can call.
-    function acceptStakingQueue() external {
+    function acceptStakingQueue() external onlyAllowedCaller {
         if (msg.sender != _pendingStakingQueue) revert NotPendingStakingQueue();
         if (block.timestamp < _stakingQueueProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _stakingQueueProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -687,13 +702,13 @@ contract atRISKUSD is
     }
 
     /// @notice OF-H02: Clear the pending staking queue to prevent stale proposals surviving UUPS upgrades.
-    function clearPendingStakingQueue() external onlyOwner {
+    function clearPendingStakingQueue() external onlyAllowedCaller onlyOwner {
         _pendingStakingQueue = address(0);
         _stakingQueueProposedAt = 0;
     }
 
     /// @notice OF-15-005: setForageGovernor now only proposes — no instant effect.
-    function setForageGovernor(address newGovernor_) external onlyOwner {
+    function setForageGovernor(address newGovernor_) external onlyAllowedCaller onlyOwner {
         if (newGovernor_ == address(0)) revert ZeroAddress();
         _pendingForageGovernor = newGovernor_;
         _pendingForageGovernorProposedAt = block.timestamp;
@@ -701,7 +716,7 @@ contract atRISKUSD is
     }
 
     /// @notice OF-15-005: Finalize the proposed ForageGovernor after FINALIZE_DELAY.
-    function finalizeForageGovernor() external onlyOwner {
+    function finalizeForageGovernor() external onlyAllowedCaller onlyOwner {
         if (_pendingForageGovernor == address(0)) revert NoPendingForageGovernor();
         if (block.timestamp < _pendingForageGovernorProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingForageGovernorProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -712,29 +727,29 @@ contract atRISKUSD is
         emit ForageGovernorSet(old, _forageGovernor);
     }
 
-    function clearPendingForageGovernor() external onlyOwner {
+    function clearPendingForageGovernor() external onlyAllowedCaller onlyOwner {
         _pendingForageGovernor = address(0);
         _pendingForageGovernorProposedAt = 0;
     }
 
-    function setBlocklist(address blocklist_) external onlyOwner {
+    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         address oldBlocklist = _blocklist;
         _blocklist = blocklist_;
         emit BlocklistSet(oldBlocklist, blocklist_);
     }
 
-    function setCooldownPeriod(uint256 newCooldownPeriod) external onlyOwner {
+    function setCooldownPeriod(uint256 newCooldownPeriod) external onlyAllowedCaller onlyOwner {
         uint256 old = _cooldownPeriod;
         _cooldownPeriod = newCooldownPeriod;
         emit CooldownPeriodUpdated(old, newCooldownPeriod);
     }
 
-    function setWeeklyWithdrawalCapBps(uint256 bps_) external onlyOwner {
+    function setWeeklyWithdrawalCapBps(uint256 bps_) external onlyAllowedCaller onlyOwner {
         _setWeeklyWithdrawalCapBps(bps_);
     }
 
-    function shrinkWeeklyWithdrawalCapBps(uint256 bps_) external {
+    function shrinkWeeklyWithdrawalCapBps(uint256 bps_) external onlyAllowedCaller {
         _requireEmergencyCapTightener();
         if (bps_ > _effectiveWeeklyWithdrawalCapBps()) revert CapTighteningOnly();
         _setWeeklyWithdrawalCapBps(bps_);
@@ -743,14 +758,14 @@ contract atRISKUSD is
     // ============================================================
     // Pause (owner, governor, or guardian module — OF-19-002)
     // ============================================================
-    function pause() external {
+    function pause() external onlyAllowedCaller {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert OwnableUnauthorizedAccount(msg.sender);
         }
         _pause();
     }
 
-    function unpause() external {
+    function unpause() external onlyAllowedCaller {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert OwnableUnauthorizedAccount(msg.sender);
         }
@@ -883,11 +898,11 @@ contract atRISKUSD is
     /// @notice Reinitializer for UUPS upgrade — seeds _legitimateAssets from raw asset balance.
     /// @dev OF-17-001: Uses IERC20(asset()).balanceOf(address(this)) instead of totalAssets()
     /// to break the circular dependency introduced by OF-16-007 (totalAssets returns _legitimateAssets).
-    function initializeV2() external reinitializer(2) onlyOwner {
+    function initializeV2() external onlyAllowedCaller reinitializer(2) onlyOwner {
         _legitimateAssets = IERC20(asset()).balanceOf(address(this));
     }
 
-    function initializeV3(string memory abbreviation_) external reinitializer(3) onlyOwner {
+    function initializeV3(string memory abbreviation_) external onlyAllowedCaller reinitializer(3) onlyOwner {
         _initializeMetadata(abbreviation_);
     }
 
@@ -908,8 +923,28 @@ contract atRISKUSD is
         _pendingForageGovernorProposedAt = 0;
     }
 
-    function renounceOwnership() public override onlyOwner {
+    function renounceOwnership() public override onlyAllowedCaller onlyOwner {
         revert RenounceOwnershipDisabled();
+    }
+
+    /// @notice UUPS upgrade entry point, gated before the proxy and owner checks.
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    /// @notice Ownership handoff entry point, gated before the owner check.
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    /// @notice Ownership acceptance entry point, gated before the pending-owner check.
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
+    }
+
+    /// @notice Point the caller gate at an allowlist registry; not itself gated.
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
     }
 
     // ============================================================
@@ -982,7 +1017,13 @@ contract atRISKUSD is
     /// @notice OF-16-019: Emergency override for permanently unreachable yield source.
     /// Only callable by owner. When set, _requireNoLossPending() is bypassed.
     /// OF-18-004: Cannot enable during active loss to prevent stale-price withdrawals.
-    function setEmergencyLossPendingOverride(bool override_) external onlyOwner {
+    /// @dev The activation-time validation does NOT re-engage: once set, the bypass persists
+    /// until yield-source finalization/acceptance or owner disable, and a loss that becomes
+    /// pending AFTER activation does not restore the gate (operations proceed at pre-loss
+    /// share prices during that window, throttled only by the weekly withdrawal cap). An
+    /// active override must therefore carry an off-chain operational alert and a reviewed
+    /// disable/rotation runbook.
+    function setEmergencyLossPendingOverride(bool override_) external onlyAllowedCaller onlyOwner {
         if (override_) {
             // OF-18-004: Block override activation during active loss
             (bool ok, bytes memory data) = _yieldSource.staticcall(abi.encodeWithSignature("riskusdVault()"));

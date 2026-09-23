@@ -1,0 +1,8 @@
+{
+  "lib/chainlink-ccip": {
+    "rev": "bccdd15b734ea6c0e6d1b3d36c482e64ced2d441"
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "rev": "7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf"
+  }
+}

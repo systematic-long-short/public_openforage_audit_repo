@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "forge-std/Test.sol";
 import "../../../src/DelegatingVestingWallet.sol";
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockForageTokenSimple.sol";
 
 interface IV12VestingExpected {
@@ -84,12 +85,17 @@ contract V12_74875_74876_VestingBindingTest is Test {
 
     DelegatingVestingWallet private wallet;
     MockForageTokenSimple private forage;
+    MockAllowlist private mockAllowlist;
 
     function setUp() public {
         beneficiary = makeAddr("beneficiary");
         tokenSetter = makeAddr("tokenSetter");
         startTimestamp = uint64(block.timestamp);
-        wallet = new DelegatingVestingWallet(beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetter);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        wallet = new DelegatingVestingWallet(
+            beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetter, address(mockAllowlist)
+        );
         forage = new MockForageTokenSimple();
     }
 

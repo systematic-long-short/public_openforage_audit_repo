@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "./helpers/RISKUSDVaultTestBase.sol";
+import "../src/modules/RISKUSDVaultModule.sol";
 
 contract RISKUSDVault_RollingDailyRedeemCap is RISKUSDVaultTestBase {
     function setUp() public override {
@@ -124,6 +125,11 @@ contract RISKUSDVault_RollingDailyRedeemCap is RISKUSDVaultTestBase {
             )
         );
         RISKUSDVault targetVault = RISKUSDVault(address(targetProxy));
+        vm.prank(owner);
+        targetVault.setAllowlist(address(allowlistMock));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        targetVault.setVaultModule(address(vaultModule_));
 
         assertEq(targetVault.custodian(), genesisCustodian, "genesis custodian");
         assertEq(targetVault.lossReporter(), genesisLossReporter, "genesis loss reporter");

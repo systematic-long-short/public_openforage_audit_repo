@@ -7,8 +7,10 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../../src/ForageToken.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/StakingQueue.sol";
+import "../../../src/modules/StakingQueueModule.sol";
 import "../../../src/VaultRegistry.sol";
 import "../../../src/atRISKUSD.sol";
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockYieldSourceForLossPending.sol";
 
 contract Octane20260630QueueRedTest is Test {
@@ -30,6 +32,7 @@ contract Octane20260630QueueRedTest is Test {
     }
 
     QueueFixture internal queueFixture;
+    MockAllowlist internal mockAllowlist;
 
     function test_V5_adminBackfillRewindsHeadForRevivedLegacyStandardEntry() public {
         QueueFixture storage f = queueFixture;
@@ -62,6 +65,8 @@ contract Octane20260630QueueRedTest is Test {
         f.bob = makeAddr("octane30.queue.bob");
         f.keeper = makeAddr("octane30.queue.keeper");
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
         f.riskusd = _deployMintableRiskUSD(f.owner);
         f.forage = _deployForageToken(f.owner, f.owner, f.owner);
         f.yieldSource = new MockYieldSourceForLossPending();
@@ -70,11 +75,23 @@ contract Octane20260630QueueRedTest is Test {
         f.vault1 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
         f.vault2 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
         f.vault3 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
+        vm.prank(f.owner);
+        f.vault0.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault1.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault2.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault3.setAllowlist(address(mockAllowlist));
         _setTierWithdrawalCaps(f);
 
         address[4] memory tierVaults = [address(f.vault0), address(f.vault1), address(f.vault2), address(f.vault3)];
         f.registry = _deployVaultRegistry(f.owner);
+        vm.prank(f.owner);
+        f.registry.setAllowlist(address(mockAllowlist));
         f.queue = _deployStakingQueue(address(f.riskusd), address(f.forage), tierVaults, address(f.registry), f.owner);
+        vm.prank(f.owner);
+        f.queue.setAllowlist(address(mockAllowlist));
         f.vaultId = _registerVault(f.registry, f.owner, "Octane 20260630 Queue", "O30Q", tierVaults, address(f.queue));
 
         vm.prank(f.owner);
@@ -122,6 +139,8 @@ contract Octane20260630QueueRedTest is Test {
     function _deployMintableRiskUSD(address owner) internal returns (RISKUSD riskusd) {
         riskusd = _deployRISKUSD(owner);
         vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
         riskusd.setMinter(address(this));
         vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
         riskusd.acceptMinter();
@@ -153,7 +172,11 @@ contract Octane20260630QueueRedTest is Test {
         StakingQueue implementation = new StakingQueue();
         bytes memory initData =
             abi.encodeCall(StakingQueue.initialize, (riskusd, forage, tierVaults, vaultRegistry, owner));
-        return StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueue deployed = StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueueModule module = new StakingQueueModule();
+        vm.prank(owner);
+        deployed.setQueueModule(address(module));
+        return deployed;
     }
 
     function _registerVault(

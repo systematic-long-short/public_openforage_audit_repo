@@ -2,9 +2,11 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
+import "../test/helpers/AllowlistHarness.sol";
 import "../test/mocks/MockUSDC.sol";
 import "../src/RISKUSD.sol";
 import "../src/RISKUSDVault.sol";
+import "../src/modules/RISKUSDVaultModule.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @dev Deploy a test environment with MockUSDC for E2E testing on Sepolia
@@ -36,6 +38,18 @@ contract DeployTestEnv is Script {
         ERC1967Proxy vaultProxy = new ERC1967Proxy(address(vaultImpl), vaultInit);
         address vault = address(vaultProxy);
 
+        RISKUSDVault(vault).setVaultModule(address(new RISKUSDVaultModule()));
+
+        // Deploy the real Allowlist, register the stack and gate both proxies
+        address allowlist = AllowlistHarness.deploy(deployer, deployer);
+        address[] memory systemAccounts = new address[](3);
+        systemAccounts[0] = deployer;
+        systemAccounts[1] = riskusd;
+        systemAccounts[2] = vault;
+        AllowlistHarness.setSystemAccounts(allowlist, systemAccounts);
+        IAllowlistSettable(riskusd).setAllowlist(allowlist);
+        IAllowlistSettable(vault).setAllowlist(allowlist);
+
         // Set vault as RISKUSD minter (finalize in separate tx via cast)
         RISKUSD(riskusd).setMinter(vault);
 
@@ -46,5 +60,6 @@ contract DeployTestEnv is Script {
         console.log("RISKUSDVault:", vault);
         console.log("Deployer USDC balance:", MockUSDC(mockUsdc).balanceOf(deployer));
         console.log("NOTE: Run 'cast send RISKUSD finalizeMinter()' in a separate tx after this completes");
+        console.log("Allowlist:", allowlist);
     }
 }

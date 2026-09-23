@@ -156,7 +156,7 @@ contract TimelockController_TC14_NonUpgradeable is TimelockControllerTestBase {
 
     function test_TC14_noImplementationSlot() public {
         // ERC-1967 implementation slot
-        bytes32 implSlot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        bytes32 implSlot = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
         bytes32 slotValue = vm.load(address(timelock), implSlot);
         assertEq(slotValue, bytes32(0), "ERC-1967 implementation slot must be empty (not a proxy)");
     }

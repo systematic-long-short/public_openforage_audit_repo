@@ -9,6 +9,7 @@ import "../../../src/ForageToken.sol";
 import "../../../src/RISKUSD.sol";
 import "../../helpers/ForageTokenTestBase.sol";
 import "../../helpers/RISKUSDTestBase.sol";
+import "../../mocks/MockAllowlist.sol";
 
 interface IV12BlocklistManaged {
     function setBlocklist(address blocklist_) external;
@@ -35,6 +36,11 @@ contract V12_74892_RISKUSDPrivilegedCallerBlocklistTest is RISKUSDTestBase, V12_
         super.setUp();
         blockGuardian = makeAddr("v12RiskusdBlockGuardian");
         registry = _deployBlocklist(blockGuardian, owner);
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
 
         vm.prank(owner);
         IV12BlocklistManaged(address(token)).setBlocklist(address(registry));
@@ -73,6 +79,11 @@ contract V12_74892_ForagePrivilegedCallerBlocklistTest is ForageTokenTestBase, V
         super.setUp();
         blockGuardian = makeAddr("v12ForageBlockGuardian");
         registry = _deployBlocklist(blockGuardian, owner);
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
 
         vm.prank(owner);
         IV12BlocklistManaged(address(token)).setBlocklist(address(registry));

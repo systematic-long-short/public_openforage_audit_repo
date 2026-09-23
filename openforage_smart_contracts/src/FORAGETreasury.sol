@@ -9,7 +9,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
+import "./AllowlistGatedUpgradeable.sol";
 import "./DelegatingVestingWallet.sol";
+import "./interfaces/IAllowlistSystemRegistrar.sol";
 
 interface IFORAGETreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
@@ -17,7 +19,13 @@ interface IFORAGETreasuryBlocklist {
 
 /// @title FORAGETreasury
 /// @notice Consolidated FORAGE distribution treasury for agent, depositor, and partnership programmes.
-contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, ReentrancyGuard {
+contract FORAGETreasury is
+    Initializable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    ReentrancyGuard,
+    AllowlistGatedUpgradeable
+{
     using SafeERC20 for IERC20;
 
     error ZeroAddress();
@@ -33,11 +41,16 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
     error BlockedRecipient();
     error BlocklistUnavailable(address blocklist);
     error RenounceOwnershipDisabled();
+    error RoundAlreadyPublished(uint256 roundId);
+    error UnauthorizedDistributor();
+    error CapNotShrunk();
 
     uint256 public constant AGENT_PROGRAM_CAP = 30_000_000e18;
     uint256 public constant DEPOSITOR_PROGRAM_CAP = 10_000_000e18;
     uint256 public constant PARTNERSHIP_PROGRAM_CAP = 40_000_000e18;
     uint256 public constant AGENT_CLAIM_COOLDOWN = 1 days;
+    bytes32 public constant AGENT_REWARD_LANE = keccak256("FORAGE_AGENT_REWARD");
+    bytes32 public constant DEPOSITOR_REWARD_LANE = keccak256("FORAGE_DEPOSITOR_REWARD");
 
     struct Round {
         bytes32 root;
@@ -59,7 +72,13 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
     uint256 public totalDepositorDistributed;
     uint256 public totalPartnershipDistributed;
 
-    uint256[40] private __gap;
+    address private _distributor;
+    address private _pendingDistributor;
+    uint256 private _distributorDailyCap;
+    uint256 private _distributorUsedToday;
+    uint256 private _distributorDayStart;
+
+    uint256[35] private __gap;
 
     event AgentRootPublished(uint256 indexed roundId, bytes32 root, uint256 totalAmount, uint64 deadline);
     event DepositorRootPublished(uint256 indexed roundId, bytes32 root, uint256 totalAmount, uint64 deadline);
@@ -78,35 +97,48 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         __Ownable_init(owner_);
         __Ownable2Step_init();
         _forageToken = IERC20(forageToken_);
+        _distributorDailyCap = 1_000_000e18;
     }
 
-    function setBlocklist(address blocklist_) external onlyOwner {
+    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         blocklist = blocklist_;
         emit BlocklistSet(blocklist_);
     }
 
-    function publishAgentRoot(uint256 roundId, bytes32 root, uint256 totalAmount, uint64 deadline) external onlyOwner {
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
+    function publishAgentRoot(uint256 roundId, bytes32 root, uint256 totalAmount, uint64 deadline)
+        external
+        onlyAllowedCaller
+        onlyOwner
+    {
         if (root == bytes32(0)) revert InvalidRoot();
         if (totalAmount == 0) revert ZeroAmount();
         if (totalAmount > AGENT_PROGRAM_CAP) revert ProgramCapExceeded();
+        if (agentRounds[roundId].root != bytes32(0)) revert RoundAlreadyPublished(roundId);
         agentRounds[roundId] = Round(root, totalAmount, deadline, 0, false);
         emit AgentRootPublished(roundId, root, totalAmount, deadline);
     }
 
     function publishDepositorRoot(uint256 roundId, bytes32 root, uint256 totalAmount, uint64 deadline)
         external
+        onlyAllowedCaller
         onlyOwner
     {
         if (root == bytes32(0)) revert InvalidRoot();
         if (totalAmount == 0) revert ZeroAmount();
         if (totalAmount > DEPOSITOR_PROGRAM_CAP) revert ProgramCapExceeded();
+        if (depositorRounds[roundId].root != bytes32(0)) revert RoundAlreadyPublished(roundId);
         depositorRounds[roundId] = Round(root, totalAmount, deadline, 0, false);
         emit DepositorRootPublished(roundId, root, totalAmount, deadline);
     }
 
     function claimAgent(uint256 roundId, address account, uint256 amount, bytes32[] calldata proof)
         external
+        onlyAllowedCaller
         nonReentrant
     {
         if (msg.sender != account) revert Unauthorized();
@@ -118,7 +150,7 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         Round storage round = agentRounds[roundId];
         if (totalAgentDistributed + amount > AGENT_PROGRAM_CAP) revert ProgramCapExceeded();
         totalAgentDistributed += amount;
-        _claim(round, agentClaimed[roundId][account], roundId, account, amount, proof);
+        _claim(round, agentClaimed[roundId][account], AGENT_REWARD_LANE, roundId, account, amount, proof);
         agentClaimed[roundId][account] = true;
         lastAgentClaimAt[account] = block.timestamp;
         emit AgentClaimed(roundId, account, amount);
@@ -126,6 +158,7 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
 
     function claimDepositor(uint256 roundId, address account, uint256 amount, bytes32[] calldata proof)
         external
+        onlyAllowedCaller
         nonReentrant
     {
         if (msg.sender != account) revert Unauthorized();
@@ -133,9 +166,30 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         Round storage round = depositorRounds[roundId];
         if (totalDepositorDistributed + amount > DEPOSITOR_PROGRAM_CAP) revert ProgramCapExceeded();
         totalDepositorDistributed += amount;
-        _claim(round, depositorClaimed[roundId][account], roundId, account, amount, proof);
+        _claim(round, depositorClaimed[roundId][account], DEPOSITOR_REWARD_LANE, roundId, account, amount, proof);
         depositorClaimed[roundId][account] = true;
         emit DepositorClaimed(roundId, account, amount);
+    }
+
+    function claimAgentFor(uint256 roundId, address account, uint256 amount, bytes32[] calldata proof)
+        external
+        onlyAllowedCaller
+        nonReentrant
+    {
+        if (msg.sender != _distributor) revert Unauthorized();
+        if (_isBlocked(account)) revert BlockedRecipient();
+        uint256 lastClaimAt = lastAgentClaimAt[account];
+        if (lastClaimAt != 0 && block.timestamp < lastClaimAt + AGENT_CLAIM_COOLDOWN) {
+            revert ClaimCooldownActive();
+        }
+        Round storage round = agentRounds[roundId];
+        if (totalAgentDistributed + amount > AGENT_PROGRAM_CAP) revert ProgramCapExceeded();
+        _consumeDistributorDailyCap(amount);
+        totalAgentDistributed += amount;
+        _claim(round, agentClaimed[roundId][account], AGENT_REWARD_LANE, roundId, account, amount, proof);
+        agentClaimed[roundId][account] = true;
+        lastAgentClaimAt[account] = block.timestamp;
+        emit AgentClaimed(roundId, account, amount);
     }
 
     function distributePartnership(
@@ -145,13 +199,14 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         uint64 start,
         uint64 duration,
         uint64 cliff
-    ) external onlyOwner nonReentrant returns (address wallet) {
+    ) external onlyAllowedCaller onlyOwner nonReentrant returns (address wallet) {
         if (beneficiary == address(0) || delegatee == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         if (totalPartnershipDistributed + amount > PARTNERSHIP_PROGRAM_CAP) revert ProgramCapExceeded();
         if (_isBlocked(beneficiary) || _isBlocked(delegatee)) revert BlockedRecipient();
 
-        wallet = address(new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this)));
+        wallet = address(new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this), allowlist()));
+        IAllowlistSystemRegistrar(allowlist()).setSystemAccount(wallet, true);
         DelegatingVestingWallet(wallet).setInitialDelegatee(delegatee);
         DelegatingVestingWallet(wallet).setBlocklist(blocklist);
         _forageToken.safeTransfer(wallet, amount);
@@ -161,14 +216,42 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         emit PartnershipDistributed(beneficiary, wallet, amount);
     }
 
-    function sweepExpiredAgentRound(uint256 roundId, address recipient) external nonReentrant {
+    function sweepExpiredAgentRound(uint256 roundId, address recipient) external onlyAllowedCaller nonReentrant {
         if (msg.sender != owner()) revert Unauthorized();
         _sweep(agentRounds[roundId], roundId, recipient);
     }
 
-    function sweepExpiredDepositorRound(uint256 roundId, address recipient) external nonReentrant {
+    function sweepExpiredDepositorRound(uint256 roundId, address recipient) external onlyAllowedCaller nonReentrant {
         if (msg.sender != owner()) revert Unauthorized();
         _sweep(depositorRounds[roundId], roundId, recipient);
+    }
+
+    function setDistributor(address distributor_) external onlyAllowedCaller onlyOwner {
+        if (distributor_ == address(0)) revert ZeroAddress();
+        _pendingDistributor = distributor_;
+    }
+
+    function acceptDistributor() external onlyAllowedCaller {
+        if (msg.sender != _pendingDistributor) revert UnauthorizedDistributor();
+        _distributor = msg.sender;
+        _pendingDistributor = address(0);
+    }
+
+    function shrinkDistributorDailyCap(uint256 newCap) external onlyAllowedCaller onlyOwner {
+        if (newCap >= _distributorDailyCap) revert CapNotShrunk();
+        _distributorDailyCap = newCap;
+    }
+
+    function distributor() external view returns (address) {
+        return _distributor;
+    }
+
+    function pendingDistributor() external view returns (address) {
+        return _pendingDistributor;
+    }
+
+    function distributorDailyCap() external view returns (uint256) {
+        return _distributorDailyCap;
     }
 
     function forageToken() external view returns (address) {
@@ -179,9 +262,32 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         revert RenounceOwnershipDisabled();
     }
 
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
+    }
+
+    function _consumeDistributorDailyCap(uint256 amount) internal {
+        uint256 dayStart = block.timestamp - (block.timestamp % 1 days);
+        if (_distributorDayStart != dayStart) {
+            _distributorDayStart = dayStart;
+            _distributorUsedToday = 0;
+        }
+        if (_distributorUsedToday + amount > _distributorDailyCap) revert ProgramCapExceeded();
+        _distributorUsedToday += amount;
+    }
+
     function _claim(
         Round storage round,
         bool alreadyClaimed,
+        bytes32 lane,
         uint256 roundId,
         address account,
         uint256 amount,
@@ -190,7 +296,7 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         if (alreadyClaimed) revert AlreadyClaimed();
         if (round.root == bytes32(0)) revert InvalidRoot();
         if (block.timestamp > round.deadline) revert RoundExpired();
-        if (!MerkleProof.verify(proof, round.root, _leaf(roundId, account, amount))) revert InvalidProof();
+        if (!MerkleProof.verify(proof, round.root, _leaf(lane, roundId, account, amount))) revert InvalidProof();
         if (round.claimedAmount + amount > round.totalAmount) revert ProgramCapExceeded();
         round.claimedAmount += amount;
         _forageToken.safeTransfer(account, amount);
@@ -209,8 +315,8 @@ contract FORAGETreasury is Initializable, Ownable2StepUpgradeable, UUPSUpgradeab
         emit RoundSwept(roundId, recipient, remaining);
     }
 
-    function _leaf(uint256 roundId, address account, uint256 amount) internal view returns (bytes32) {
-        return keccak256(bytes.concat(keccak256(abi.encode(address(this), roundId, account, amount))));
+    function _leaf(bytes32 lane, uint256 roundId, address account, uint256 amount) internal view returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(address(this), lane, roundId, account, amount))));
     }
 
     function _isBlocked(address account) internal view returns (bool) {

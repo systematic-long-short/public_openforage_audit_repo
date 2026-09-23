@@ -6,7 +6,9 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../src/RISKUSDVault.sol";
+import "../src/modules/RISKUSDVaultModule.sol";
 import "../src/StakingQueue.sol";
+import "../src/modules/StakingQueueModule.sol";
 import "../src/atRISKUSD.sol";
 import "./helpers/AtRISKUSDTestBase.sol";
 import "./mocks/MockForageTokenLocked.sol";
@@ -14,6 +16,7 @@ import "./mocks/MockRISKUSD.sol";
 import "./mocks/MockUSDC.sol";
 import "./mocks/MockVaultRegistry.sol";
 import "./mocks/MockYieldSourceForLossPending.sol";
+import "./mocks/MockAllowlist.sol";
 
 contract MaliciousRound4RISKUSD is ERC20 {
     bool public overmintByOne;
@@ -64,6 +67,14 @@ contract RISKUSDVault_I4_BackingPerShareMonotonicity is Test {
         bytes memory initData = abi.encodeCall(RISKUSDVault.initialize, (address(usdc), address(riskusd), owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         vault = RISKUSDVault(address(proxy));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule_));
+
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        vault.setAllowlist(address(allowlist));
 
         vm.startPrank(owner);
         vault.setPerBlockMintCap(10000, type(uint256).max);
@@ -406,10 +417,12 @@ contract StakingQueue_I4_BackingPerShareMonotonicity is Test {
         bytes4(keccak256("CombinedBackingPerShareDecreased(uint256,uint256)"));
 
     StakingQueue internal queue;
+    StakingQueueModule internal queueModule;
     MockRISKUSD internal riskusd;
     MockForageTokenLocked internal forage;
     MockVaultRegistry internal registry;
     MockYieldSourceForLossPending internal yieldSource;
+    MockAllowlist internal allowlist;
     atRISKUSD[4] internal tiers;
 
     address internal owner = makeAddr("timelock");
@@ -422,6 +435,9 @@ contract StakingQueue_I4_BackingPerShareMonotonicity is Test {
         forage = new MockForageTokenLocked();
         registry = new MockVaultRegistry();
         yieldSource = new MockYieldSourceForLossPending();
+
+        allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
 
         tiers[0] = _deployTier(0, 0);
         tiers[1] = _deployTier(90 days, 1);
@@ -442,6 +458,13 @@ contract StakingQueue_I4_BackingPerShareMonotonicity is Test {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         queue = StakingQueue(address(proxy));
+
+        vm.prank(owner);
+        queue.setAllowlist(address(allowlist));
+
+        queueModule = new StakingQueueModule();
+        vm.prank(owner);
+        queue.setQueueModule(address(queueModule));
 
         vm.prank(owner);
         queue.setVaultId(registeredVaultId);
@@ -544,7 +567,10 @@ contract StakingQueue_I4_BackingPerShareMonotonicity is Test {
             )
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
-        return atRISKUSD(address(proxy));
+        atRISKUSD tier = atRISKUSD(address(proxy));
+        vm.prank(owner);
+        tier.setAllowlist(address(allowlist));
+        return tier;
     }
 
     function _tierAbbreviation(uint8 tierId) internal pure returns (string memory) {

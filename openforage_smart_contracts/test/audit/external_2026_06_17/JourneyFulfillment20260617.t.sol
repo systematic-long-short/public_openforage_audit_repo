@@ -8,11 +8,14 @@ import "../../../src/Blocklist.sol";
 import "../../../src/ForageToken.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/RISKUSDVault.sol";
+import "../../../src/modules/RISKUSDVaultModule.sol";
 import "../../../src/StakingQueue.sol";
+import "../../../src/modules/StakingQueueModule.sol";
 import "../../../src/VaultRegistry.sol";
 import "../../../src/atRISKUSD.sol";
 
 // External-boundary mocks only: USDC and yield source.
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockUSDC.sol";
 import "../../mocks/MockYieldSourceForLossPending.sol";
 
@@ -33,6 +36,7 @@ contract JourneyFulfillment20260617Test is Test {
     }
 
     QueueJourneyFixture internal queueFixture;
+    MockAllowlist internal mockAllowlist;
 
     function test_depositorVaultJourneyDepositsMintsRedeemsAndHonorsBlocklist() public {
         // JOURNEY_BINDING_20260617: depositor.vault.deposit-mint-redeem
@@ -44,8 +48,16 @@ contract JourneyFulfillment20260617Test is Test {
 
         MockUSDC usdc = new MockUSDC();
         RISKUSD riskusd = _deployRISKUSD(owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
         RISKUSDVault vault = _deployRiskUSDVault(address(usdc), address(riskusd), owner);
+        vm.prank(owner);
+        vault.setAllowlist(address(mockAllowlist));
         Blocklist blocklist = _deployBlocklist(guardian, owner);
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mockAllowlist));
 
         vm.startPrank(owner);
         riskusd.setBlocklist(address(blocklist));
@@ -104,6 +116,8 @@ contract JourneyFulfillment20260617Test is Test {
         QueueJourneyFixture storage f = queueFixture;
         f.owner = makeAddr("queue-journey-owner");
         f.depositor = makeAddr("queue-journey-depositor");
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
         f.riskusd = _deployMintableRiskUSD(f.owner);
         f.forage = _deployForageToken(makeAddr("queue-journey-team"), makeAddr("queue-journey-treasury"), f.owner);
         f.yieldSource = new MockYieldSourceForLossPending();
@@ -111,10 +125,22 @@ contract JourneyFulfillment20260617Test is Test {
         f.vault1 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
         f.vault2 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
         f.vault3 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
+        vm.prank(f.owner);
+        f.vault0.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault1.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault2.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault3.setAllowlist(address(mockAllowlist));
         f.registry = _deployVaultRegistry(f.owner);
+        vm.prank(f.owner);
+        f.registry.setAllowlist(address(mockAllowlist));
 
         address[4] memory tierVaults = [address(f.vault0), address(f.vault1), address(f.vault2), address(f.vault3)];
         f.queue = _deployStakingQueue(address(f.riskusd), address(f.forage), tierVaults, address(f.registry), f.owner);
+        vm.prank(f.owner);
+        f.queue.setAllowlist(address(mockAllowlist));
         f.vaultId = _registerVault(f.registry, f.owner, "Journey Vault", "JV", tierVaults, address(f.queue));
 
         vm.prank(f.owner);
@@ -142,6 +168,8 @@ contract JourneyFulfillment20260617Test is Test {
     function _deployMintableRiskUSD(address owner) internal returns (RISKUSD riskusd) {
         riskusd = _deployRISKUSD(owner);
         vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
         riskusd.setMinter(address(this));
         vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
         riskusd.acceptMinter();
@@ -150,7 +178,11 @@ contract JourneyFulfillment20260617Test is Test {
     function _deployRiskUSDVault(address usdc, address riskusd, address owner) internal returns (RISKUSDVault) {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData = abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, owner, owner));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault_ = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault_.setVaultModule(address(vaultModule_));
+        return vault_;
     }
 
     function _deployForageToken(address teamVesting, address forageTreasury, address owner)
@@ -172,7 +204,11 @@ contract JourneyFulfillment20260617Test is Test {
         StakingQueue implementation = new StakingQueue();
         bytes memory initData =
             abi.encodeCall(StakingQueue.initialize, (riskusd, forage, tierVaults, vaultRegistry, owner));
-        return StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueue deployed = StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueueModule module = new StakingQueueModule();
+        vm.prank(owner);
+        deployed.setQueueModule(address(module));
+        return deployed;
     }
 
     function _deployVaultRegistry(address owner) internal returns (VaultRegistry) {

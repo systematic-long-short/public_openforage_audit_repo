@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./Deploy.s.sol";
+import "../src/Allowlist.sol";
 
 interface IOwnable2StepTarget {
     function owner() external view returns (address);
@@ -15,7 +16,6 @@ contract DeployMainnet is Deploy {
     error WrongMainnetDryRunChain(uint256 chainId);
 
     uint256 public constant MAINNET_CHAIN_ID = 42161;
-    address public constant ARBITRUM_ONE_SEQUENCER_UPTIME_FEED = 0xFdB631F5EE196F0ed6FAa767959853A9F217697D;
     uint256 public constant PRODUCTION_MIN_DELAY = 8 days;
     uint256 public constant PRODUCTION_VOTING_DELAY = 1 days;
     uint256 public constant PRODUCTION_VOTING_PERIOD = 5 days;
@@ -34,7 +34,8 @@ contract DeployMainnet is Deploy {
         address foundationBackup,
         address protocolPrimary,
         address protocolBackup,
-        address launchVotingDelegate
+        address launchVotingDelegate,
+        address sequencerUptimeFeed
     ) public override {
         _requireMainnetDryRunChain();
         cfgRequireExplicitGuardians = true;
@@ -52,6 +53,7 @@ contract DeployMainnet is Deploy {
                 keeper: vm.envAddress("KEEPER_ADDRESS"),
                 custodianExecutor: vm.envAddress("CUSTODIAN_EXECUTOR"),
                 coldAccount: vm.envAddress("COLD_ACCOUNT_ADDRESS"),
+                sequencerUptimeFeed: sequencerUptimeFeed,
                 hyperliquidSourceAccount: vm.envBytes32("HYPERLIQUID_SOURCE_ACCOUNT"),
                 withdrawalChainSelector: uint64(vm.envUint("WITHDRAWAL_CHAIN_SELECTOR")),
                 manifestPath: ""
@@ -77,6 +79,7 @@ contract DeployMainnet is Deploy {
                 keeper: _placeholder(7),
                 custodianExecutor: _placeholder(8),
                 coldAccount: _placeholder(9),
+                sequencerUptimeFeed: _placeholder(10),
                 hyperliquidSourceAccount: bytes32(uint256(uint160(_placeholder(9)))),
                 withdrawalChainSelector: uint64(MAINNET_CHAIN_ID),
                 manifestPath: ""
@@ -100,10 +103,6 @@ contract DeployMainnet is Deploy {
 
     function _timelockOperationDelay() internal pure override returns (uint256) {
         return PRODUCTION_MIN_DELAY;
-    }
-
-    function _sequencerUptimeFeed() internal pure override returns (address) {
-        return ARBITRUM_ONE_SEQUENCER_UPTIME_FEED;
     }
 
     function _afterInitialCustodianConfigProposed() internal override {
@@ -165,6 +164,8 @@ contract DeployMainnet is Deploy {
         _transferOwnershipThroughTimelock(deployedStakingQueue);
         _transferOwnershipThroughTimelock(deployedUSDCTreasury);
         _transferOwnershipThroughTimelock(deployedHLTradingBridge);
+        Allowlist(deployedAllowlist).setSystemAccount(address(this), false);
+        _transferOwnershipThroughTimelock(deployedAllowlist);
         _revokeDeployerTimelockRoles();
     }
 

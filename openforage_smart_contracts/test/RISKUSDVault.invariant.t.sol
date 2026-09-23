@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/RISKUSDVault.sol";
 import "./mocks/MockUSDC.sol";
 import "./mocks/MockRISKUSD.sol";
+import "./mocks/MockAllowlist.sol";
+import "../src/modules/RISKUSDVaultModule.sol";
 
 // ============================================================
 // TC-12: Invariant Tests
@@ -289,6 +291,15 @@ contract RISKUSDVault_TC12_Invariants is Test {
         bytes memory initData = abi.encodeCall(RISKUSDVault.initialize, (address(usdc), address(riskusd), owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         vault = RISKUSDVault(address(proxy));
+
+        RISKUSDVaultModule vaultModule = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule));
+
+        MockAllowlist allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+        vm.prank(owner);
+        vault.setAllowlist(address(allowlistMock));
 
         // Setup roles
         vm.startPrank(owner);

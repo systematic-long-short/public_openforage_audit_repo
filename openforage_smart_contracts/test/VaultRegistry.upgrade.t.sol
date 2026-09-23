@@ -53,7 +53,8 @@ contract VaultRegistryV4 is VaultRegistryV3 {
 // Requirements: R-04, R-50, R-51
 // ============================================================
 contract VaultRegistry_TC11_Upgrade is VaultRegistryTestBase {
-    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 internal constant ERC1967_IMPL_SLOT =
+        0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
 
     /// @dev TC-11 step 4: Non-owner calls upgradeToAndCall -- MUST revert OwnableUnauthorizedAccount.
     function test_TC11_unauthorizedUpgradeReverts() public {

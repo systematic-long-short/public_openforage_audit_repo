@@ -9,6 +9,7 @@ import "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorTimelo
 import "@openzeppelin/contracts-upgradeable/governance/TimelockControllerUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./GuardianModule.sol";
 import "./interfaces/IBlocklist.sol";
 
@@ -26,6 +27,7 @@ import "./interfaces/IBlocklist.sol";
 /// changes. Cached domain separator is auto-rebuilt on chain ID change per EIP-712 spec.
 contract ForageGovernor is
     Initializable,
+    AllowlistGatedUpgradeable,
     GovernorUpgradeable,
     GovernorSettingsUpgradeable,
     GovernorCountingSimpleUpgradeable,
@@ -48,6 +50,8 @@ contract ForageGovernor is
     error TooManyProposalActions(uint256 count, uint256 maximum);
     error GuardianActiveProposalQuotaReached(address guardian, uint256 active, uint256 maximum);
     error TimelockSelfProposerGrant();
+    error TimelockExternalProposerGrant(address account);
+    error SignatureVotingDisabled();
 
     // ── Custom events ────────────────────────────────────────────────────
     event QuorumBpsUpdated(uint256 oldQuorumBps, uint256 newQuorumBps);
@@ -192,7 +196,7 @@ contract ForageGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         string memory description
-    ) public override(GovernorUpgradeable) returns (uint256) {
+    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
         // Lazy cleanup of terminal proposals
         _cleanupTerminalProposals();
 
@@ -253,7 +257,7 @@ contract ForageGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         bytes32 descriptionHash
-    ) public override(GovernorUpgradeable) returns (uint256) {
+    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
         uint256 proposalId = getProposalId(targets, values, calldatas, descriptionHash);
         if (!_validateCancel(proposalId, _msgSender())) {
             revert GovernorUnableToCancel(proposalId, _msgSender());
@@ -296,7 +300,7 @@ contract ForageGovernor is
 
     /// @dev OF-13-016: _quorumBps is now snapshotted per-proposal at creation time.
     /// Changing quorum via governance only affects future proposals.
-    function setQuorumBps(uint256 quorumBps_) external {
+    function setQuorumBps(uint256 quorumBps_) external onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (quorumBps_ == 0 || quorumBps_ > 5000) revert InvalidParameter();
 
@@ -306,14 +310,14 @@ contract ForageGovernor is
         emit QuorumBpsUpdated(oldBps, quorumBps_);
     }
 
-    function setVotingDelay(uint48 newVotingDelay) public override(GovernorSettingsUpgradeable) {
+    function setVotingDelay(uint48 newVotingDelay) public override(GovernorSettingsUpgradeable) onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         // OF-001: No hardcoded minimum on votingDelay. Testnet fast profile: 0s. Mainnet / production: 86400s (1 day), set from genesis by the production deployer.
         // Transition via governance proposal; timelock delay protects against malicious changes.
         _setVotingDelay(newVotingDelay);
     }
 
-    function setVotingPeriod(uint32 newVotingPeriod) public override(GovernorSettingsUpgradeable) {
+    function setVotingPeriod(uint32 newVotingPeriod) public override(GovernorSettingsUpgradeable) onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (newVotingPeriod < MIN_VOTING_PERIOD) {
             revert VotingPeriodBelowMinimum(newVotingPeriod, MIN_VOTING_PERIOD);
@@ -322,7 +326,7 @@ contract ForageGovernor is
         _setVotingPeriod(newVotingPeriod);
     }
 
-    function setProposalThresholdBps(uint256 proposalThresholdBps_) external {
+    function setProposalThresholdBps(uint256 proposalThresholdBps_) external onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (proposalThresholdBps_ == 0 || proposalThresholdBps_ > 5000) revert InvalidParameter();
 
@@ -332,7 +336,7 @@ contract ForageGovernor is
         emit ProposalThresholdBpsUpdated(oldBps, proposalThresholdBps_);
     }
 
-    function setMaxActiveProposals(uint256 maxActiveProposals_) external {
+    function setMaxActiveProposals(uint256 maxActiveProposals_) external onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (maxActiveProposals_ == 0 || maxActiveProposals_ > 100) revert InvalidParameter();
 
@@ -342,7 +346,7 @@ contract ForageGovernor is
         emit MaxActiveProposalsUpdated(oldMax, maxActiveProposals_);
     }
 
-    function setGuardianModule(address guardianModule_) external {
+    function setGuardianModule(address guardianModule_) external onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         _validateGuardianModule(guardianModule_);
 
@@ -444,6 +448,7 @@ contract ForageGovernor is
     function updateTimelock(TimelockControllerUpgradeable newTimelock)
         public
         override(GovernorTimelockControlUpgradeable)
+        onlyAllowedCaller
     {
         if (address(newTimelock) == address(0)) revert ZeroAddress();
         if (address(newTimelock).code.length == 0) revert NotAContract();
@@ -454,7 +459,12 @@ contract ForageGovernor is
         super.updateTimelock(newTimelock);
     }
 
-    function relay(address target, uint256 value, bytes calldata data) public payable override(GovernorUpgradeable) {
+    function relay(address target, uint256 value, bytes calldata data)
+        public
+        payable
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+    {
         _enforceTimelockOperationGuards(_executor(), target, data);
         super.relay(target, value, data);
     }
@@ -480,13 +490,13 @@ contract ForageGovernor is
         address executor = _executor();
         // V28: prioritize unsafe delay-floor schedules before other timelock role guards.
         for (uint256 i = 0; i < targets.length;) {
-            _enforceTimelockOperation(executor, targets[i], calldatas[i], true, false);
+            _enforceTimelockOperation(executor, address(this), targets[i], calldatas[i], true, false);
             unchecked {
                 ++i;
             }
         }
         for (uint256 i = 0; i < targets.length;) {
-            _enforceTimelockOperation(executor, targets[i], calldatas[i], false, true);
+            _enforceTimelockOperation(executor, address(this), targets[i], calldatas[i], false, true);
             unchecked {
                 ++i;
             }
@@ -530,17 +540,18 @@ contract ForageGovernor is
         return GovernorTimelockControlUpgradeable._executor();
     }
 
-    function _enforceTimelockOperationGuards(address executor, address target, bytes memory data) internal pure {
-        _enforceTimelockOperation(executor, target, data, true, false);
-        _enforceTimelockOperation(executor, target, data, false, true);
+    function _enforceTimelockOperationGuards(address executor, address target, bytes memory data) internal view {
+        _enforceTimelockOperation(executor, address(this), target, data, true, false);
+        _enforceTimelockOperation(executor, address(this), target, data, false, true);
     }
 
     function _enforceTimelockOperation(
         address executor,
+        address allowedProposer,
         address target,
         bytes memory data,
         bool checkDelayFloor,
-        bool checkSelfProposerGrant
+        bool checkProposerGrant
     ) internal pure {
         if (target != executor || data.length < 4) return;
         bytes4 selector = _operationSelector(data);
@@ -550,15 +561,20 @@ contract ForageGovernor is
             _revertIfDelayBelowFloor(newDelay);
             return;
         }
-        if (checkSelfProposerGrant && selector == _timelockGrantRoleSelector()) {
+        if (checkProposerGrant && selector == _timelockGrantRoleSelector()) {
             (bytes32 role, address account) = abi.decode(payload, (bytes32, address));
-            if (role == _timelockProposerRole() && account == executor) revert TimelockSelfProposerGrant();
+            if (role == _timelockProposerRole()) {
+                if (account == executor) revert TimelockSelfProposerGrant();
+                if (account != allowedProposer) revert TimelockExternalProposerGrant(account);
+            }
             return;
         }
         if (selector == _timelockScheduleSelector()) {
             (address scheduledTarget,, bytes memory scheduledData,,,) =
                 abi.decode(payload, (address, uint256, bytes, bytes32, bytes32, uint256));
-            _enforceTimelockOperation(executor, scheduledTarget, scheduledData, checkDelayFloor, checkSelfProposerGrant);
+            _enforceTimelockOperation(
+                executor, allowedProposer, scheduledTarget, scheduledData, checkDelayFloor, checkProposerGrant
+            );
             return;
         }
         if (selector == _timelockScheduleBatchSelector()) {
@@ -566,7 +582,12 @@ contract ForageGovernor is
                 abi.decode(payload, (address[], uint256[], bytes[], bytes32, bytes32, uint256));
             for (uint256 i; i < scheduledTargets.length;) {
                 _enforceTimelockOperation(
-                    executor, scheduledTargets[i], scheduledPayloads[i], checkDelayFloor, checkSelfProposerGrant
+                    executor,
+                    allowedProposer,
+                    scheduledTargets[i],
+                    scheduledPayloads[i],
+                    checkDelayFloor,
+                    checkProposerGrant
                 );
                 unchecked {
                     ++i;
@@ -631,6 +652,121 @@ contract ForageGovernor is
         return weight;
     }
 
+    // ── Caller-gate overrides (DEC-1074) ──────────────────────────────────
+
+    function castVote(uint256 proposalId, uint8 support)
+        public
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+        returns (uint256)
+    {
+        return super.castVote(proposalId, support);
+    }
+
+    function castVoteWithReason(uint256 proposalId, uint8 support, string calldata reason)
+        public
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+        returns (uint256)
+    {
+        return super.castVoteWithReason(proposalId, support, reason);
+    }
+
+    function castVoteWithReasonAndParams(
+        uint256 proposalId,
+        uint8 support,
+        string calldata reason,
+        bytes memory params
+    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
+        return super.castVoteWithReasonAndParams(proposalId, support, reason, params);
+    }
+
+    function castVoteBySig(uint256, uint8, address, bytes memory)
+        public
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+        returns (uint256)
+    {
+        revert SignatureVotingDisabled();
+    }
+
+    function castVoteWithReasonAndParamsBySig(uint256, uint8, address, string calldata, bytes memory, bytes memory)
+        public
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+        returns (uint256)
+    {
+        revert SignatureVotingDisabled();
+    }
+
+    function queue(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
+        return super.queue(targets, values, calldatas, descriptionHash);
+    }
+
+    function execute(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) public payable override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
+        return super.execute(targets, values, calldatas, descriptionHash);
+    }
+
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override(UUPSUpgradeable)
+        onlyAllowedCaller
+    {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    function setProposalThreshold(uint256 newProposalThreshold)
+        public
+        override(GovernorSettingsUpgradeable)
+        onlyAllowedCaller
+    {
+        super.setProposalThreshold(newProposalThreshold);
+    }
+
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes memory data)
+        public
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+        returns (bytes4)
+    {
+        return super.onERC721Received(operator, from, tokenId, data);
+    }
+
+    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes memory data)
+        public
+        override(GovernorUpgradeable)
+        onlyAllowedCaller
+        returns (bytes4)
+    {
+        return super.onERC1155Received(operator, from, id, value, data);
+    }
+
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (bytes4) {
+        return super.onERC1155BatchReceived(operator, from, ids, values, data);
+    }
+
+    function setAllowlist(address allowlist_) external {
+        if (msg.sender != _executor()) revert Unauthorized();
+        _setAllowlist(allowlist_);
+    }
+
     function _authorizeUpgrade(address) internal override {
         if (msg.sender != _executor()) revert Unauthorized();
     }
@@ -650,7 +786,7 @@ contract ForageGovernor is
     /// proposals (Defeated, Expired, Executed, Canceled) from the active tracking array.
     /// Also called lazily in propose(), but this external version allows anyone to trigger
     /// cleanup without submitting a new proposal.
-    function cleanupDefeated() external {
+    function cleanupDefeated() external onlyAllowedCaller {
         _cleanupTerminalProposals();
     }
 

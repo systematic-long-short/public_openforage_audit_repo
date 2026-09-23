@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/VaultRegistry.sol";
 import "../src/GuardianModule.sol";
+import "./mocks/MockAllowlist.sol";
 
 // ============================================================
 // OF-16-002: VaultRegistry wind-down cooldown after loss resolution
@@ -24,6 +25,11 @@ contract Audit16_OF002_WindDownCooldown is Test {
         registry = VaultRegistry(address(proxy));
 
         vault = new MockRISKUSDVault16();
+
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(allowlist));
 
         // Wire RISKUSDVault reference
         vm.prank(owner);
@@ -107,6 +113,11 @@ contract Audit16_OF005_GuardianPermissionSeparation is Test {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         guardian = GuardianModule(address(proxy));
+
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(timelock);
+        guardian.setAllowlist(address(allowlist));
     }
 
     /// @dev A guardian cannot have both PAUSE and CANCEL permissions

@@ -9,6 +9,7 @@ import "../src/Blocklist.sol";
 import "../src/ForageToken.sol";
 import "../src/DelegatingVestingWallet.sol";
 import "./helpers/MerkleTreeHelper.sol";
+import "./mocks/MockAllowlist.sol";
 import "./mocks/MockForageTokenSimple.sol";
 
 contract RevertingFORAGETreasuryBlocklist {
@@ -37,6 +38,7 @@ contract FORAGETreasury_TargetPrograms is Test {
     MockForageTokenSimple internal forage;
     FORAGETreasury internal treasury;
     Blocklist internal blocklist;
+    MockAllowlist internal mockAllowlist;
 
     function setUp() public {
         forage = new MockForageTokenSimple();
@@ -51,8 +53,58 @@ contract FORAGETreasury_TargetPrograms is Test {
 
         forage.mint(address(treasury), TREASURY_ALLOCATION);
 
-        vm.prank(owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.startPrank(owner);
+        treasury.setAllowlist(address(mockAllowlist));
+        blocklist.setAllowlist(address(mockAllowlist));
         treasury.setBlocklist(address(blocklist));
+        vm.stopPrank();
+    }
+
+    function _agentRoot(FORAGETreasury pool, uint256 roundId, address[] memory accounts, uint256[] memory amounts)
+        internal
+        view
+        returns (bytes32)
+    {
+        return MerkleTreeHelper.computeRootWithLane(address(pool), pool.AGENT_REWARD_LANE(), roundId, accounts, amounts);
+    }
+
+    function _agentProof(
+        FORAGETreasury pool,
+        uint256 roundId,
+        address[] memory accounts,
+        uint256[] memory amounts,
+        address account,
+        uint256 amount
+    ) internal view returns (bytes32[] memory) {
+        return MerkleTreeHelper.getProofWithLane(
+            address(pool), pool.AGENT_REWARD_LANE(), roundId, accounts, amounts, account, amount
+        );
+    }
+
+    function _depositorRoot(FORAGETreasury pool, uint256 roundId, address[] memory accounts, uint256[] memory amounts)
+        internal
+        view
+        returns (bytes32)
+    {
+        return
+            MerkleTreeHelper.computeRootWithLane(
+                address(pool), pool.DEPOSITOR_REWARD_LANE(), roundId, accounts, amounts
+            );
+    }
+
+    function _depositorProof(
+        FORAGETreasury pool,
+        uint256 roundId,
+        address[] memory accounts,
+        uint256[] memory amounts,
+        address account,
+        uint256 amount
+    ) internal view returns (bytes32[] memory) {
+        return MerkleTreeHelper.getProofWithLane(
+            address(pool), pool.DEPOSITOR_REWARD_LANE(), roundId, accounts, amounts, account, amount
+        );
     }
 
     function test_TSCGB_A12_launchMintTargetsOnlyForageTreasuryAndTeam() public {
@@ -74,17 +126,15 @@ contract FORAGETreasury_TargetPrograms is Test {
         agents[0] = agent;
         uint256[] memory agentAmounts = new uint256[](1);
         agentAmounts[0] = 30e18;
-        bytes32 agentRoot = MerkleTreeHelper.computeRoot(address(treasury), 1, agents, agentAmounts);
-        bytes32[] memory agentProof =
-            MerkleTreeHelper.getProof(address(treasury), 1, agents, agentAmounts, agent, 30e18);
+        bytes32 agentRoot = _agentRoot(treasury, 1, agents, agentAmounts);
+        bytes32[] memory agentProof = _agentProof(treasury, 1, agents, agentAmounts, agent, 30e18);
 
         address[] memory depositors = new address[](1);
         depositors[0] = depositor;
         uint256[] memory depositorAmounts = new uint256[](1);
         depositorAmounts[0] = 10e18;
-        bytes32 depositorRoot = MerkleTreeHelper.computeRoot(address(treasury), 2, depositors, depositorAmounts);
-        bytes32[] memory depositorProof =
-            MerkleTreeHelper.getProof(address(treasury), 2, depositors, depositorAmounts, depositor, 10e18);
+        bytes32 depositorRoot = _depositorRoot(treasury, 2, depositors, depositorAmounts);
+        bytes32[] memory depositorProof = _depositorProof(treasury, 2, depositors, depositorAmounts, depositor, 10e18);
 
         vm.startPrank(owner);
         treasury.publishAgentRoot(1, agentRoot, 30e18, uint64(block.timestamp + 30 days));
@@ -118,21 +168,23 @@ contract FORAGETreasury_TargetPrograms is Test {
         agents[0] = agent;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 30_000_001e18;
-        bytes32 root = MerkleTreeHelper.computeRoot(address(treasury), 3, agents, amounts);
+        bytes32 root = _agentRoot(treasury, 3, agents, amounts);
 
         vm.prank(owner);
         vm.expectRevert(FORAGETreasury.ProgramCapExceeded.selector);
         treasury.publishAgentRoot(3, root, 30_000_001e18, uint64(block.timestamp + 30 days));
 
         amounts[0] = 1e18;
-        root = MerkleTreeHelper.computeRoot(address(treasury), 4, agents, amounts);
+        root = _agentRoot(treasury, 4, agents, amounts);
         vm.prank(owner);
         treasury.publishAgentRoot(4, root, 1e18, uint64(block.timestamp + 30 days));
 
-        bytes32[] memory proof = MerkleTreeHelper.getProof(address(treasury), 4, agents, amounts, agent, 1e18);
+        bytes32[] memory proof = _agentProof(treasury, 4, agents, amounts, agent, 1e18);
         vm.prank(agent);
         treasury.claimAgent(4, agent, 1e18, proof);
 
+        root = _agentRoot(treasury, 5, agents, amounts);
+        proof = _agentProof(treasury, 5, agents, amounts, agent, 1e18);
         vm.prank(owner);
         treasury.publishAgentRoot(5, root, 1e18, uint64(block.timestamp + 30 days));
 
@@ -148,18 +200,16 @@ contract FORAGETreasury_TargetPrograms is Test {
         uint256[] memory agentAmounts = new uint256[](2);
         agentAmounts[0] = 1e18;
         agentAmounts[1] = 1e18;
-        bytes32 agentRoot = MerkleTreeHelper.computeRoot(address(treasury), 11, agents, agentAmounts);
+        bytes32 agentRoot = _agentRoot(treasury, 11, agents, agentAmounts);
 
         vm.prank(owner);
         treasury.publishAgentRoot(11, agentRoot, 1e18, uint64(block.timestamp + 30 days));
 
-        bytes32[] memory agentProof =
-            MerkleTreeHelper.getProof(address(treasury), 11, agents, agentAmounts, agent, 1e18);
+        bytes32[] memory agentProof = _agentProof(treasury, 11, agents, agentAmounts, agent, 1e18);
         vm.prank(agent);
         treasury.claimAgent(11, agent, 1e18, agentProof);
 
-        bytes32[] memory secondAgentProof =
-            MerkleTreeHelper.getProof(address(treasury), 11, agents, agentAmounts, secondAgent, 1e18);
+        bytes32[] memory secondAgentProof = _agentProof(treasury, 11, agents, agentAmounts, secondAgent, 1e18);
         vm.prank(secondAgent);
         vm.expectRevert(FORAGETreasury.ProgramCapExceeded.selector);
         treasury.claimAgent(11, secondAgent, 1e18, secondAgentProof);
@@ -170,18 +220,17 @@ contract FORAGETreasury_TargetPrograms is Test {
         uint256[] memory depositorAmounts = new uint256[](2);
         depositorAmounts[0] = 1e18;
         depositorAmounts[1] = 1e18;
-        bytes32 depositorRoot = MerkleTreeHelper.computeRoot(address(treasury), 12, depositors, depositorAmounts);
+        bytes32 depositorRoot = _depositorRoot(treasury, 12, depositors, depositorAmounts);
 
         vm.prank(owner);
         treasury.publishDepositorRoot(12, depositorRoot, 1e18, uint64(block.timestamp + 30 days));
 
-        bytes32[] memory depositorProof =
-            MerkleTreeHelper.getProof(address(treasury), 12, depositors, depositorAmounts, depositor, 1e18);
+        bytes32[] memory depositorProof = _depositorProof(treasury, 12, depositors, depositorAmounts, depositor, 1e18);
         vm.prank(depositor);
         treasury.claimDepositor(12, depositor, 1e18, depositorProof);
 
         bytes32[] memory secondDepositorProof =
-            MerkleTreeHelper.getProof(address(treasury), 12, depositors, depositorAmounts, secondDepositor, 1e18);
+            _depositorProof(treasury, 12, depositors, depositorAmounts, secondDepositor, 1e18);
         vm.prank(secondDepositor);
         vm.expectRevert(FORAGETreasury.ProgramCapExceeded.selector);
         treasury.claimDepositor(12, secondDepositor, 1e18, secondDepositorProof);
@@ -194,17 +243,16 @@ contract FORAGETreasury_TargetPrograms is Test {
         agents[0] = agent;
         uint256[] memory agentAmounts = new uint256[](1);
         agentAmounts[0] = agentProgramCap;
-        bytes32 agentRoot = MerkleTreeHelper.computeRoot(address(treasury), 13, agents, agentAmounts);
-        bytes32[] memory agentProof =
-            MerkleTreeHelper.getProof(address(treasury), 13, agents, agentAmounts, agent, agentProgramCap);
+        bytes32 agentRoot = _agentRoot(treasury, 13, agents, agentAmounts);
+        bytes32[] memory agentProof = _agentProof(treasury, 13, agents, agentAmounts, agent, agentProgramCap);
 
         address[] memory secondAgents = new address[](1);
         secondAgents[0] = secondAgent;
         uint256[] memory secondAgentAmounts = new uint256[](1);
         secondAgentAmounts[0] = 1e18;
-        bytes32 secondAgentRoot = MerkleTreeHelper.computeRoot(address(treasury), 14, secondAgents, secondAgentAmounts);
+        bytes32 secondAgentRoot = _agentRoot(treasury, 14, secondAgents, secondAgentAmounts);
         bytes32[] memory secondAgentProof =
-            MerkleTreeHelper.getProof(address(treasury), 14, secondAgents, secondAgentAmounts, secondAgent, 1e18);
+            _agentProof(treasury, 14, secondAgents, secondAgentAmounts, secondAgent, 1e18);
 
         vm.startPrank(owner);
         treasury.publishAgentRoot(13, agentRoot, agentProgramCap, uint64(block.timestamp + 30 days));
@@ -225,20 +273,17 @@ contract FORAGETreasury_TargetPrograms is Test {
         depositors[0] = depositor;
         uint256[] memory depositorAmounts = new uint256[](1);
         depositorAmounts[0] = depositorProgramCap;
-        bytes32 depositorRoot = MerkleTreeHelper.computeRoot(address(treasury), 15, depositors, depositorAmounts);
-        bytes32[] memory depositorProof = MerkleTreeHelper.getProof(
-            address(treasury), 15, depositors, depositorAmounts, depositor, depositorProgramCap
-        );
+        bytes32 depositorRoot = _depositorRoot(treasury, 15, depositors, depositorAmounts);
+        bytes32[] memory depositorProof =
+            _depositorProof(treasury, 15, depositors, depositorAmounts, depositor, depositorProgramCap);
 
         address[] memory secondDepositors = new address[](1);
         secondDepositors[0] = secondDepositor;
         uint256[] memory secondDepositorAmounts = new uint256[](1);
         secondDepositorAmounts[0] = 1e18;
-        bytes32 secondDepositorRoot =
-            MerkleTreeHelper.computeRoot(address(treasury), 16, secondDepositors, secondDepositorAmounts);
-        bytes32[] memory secondDepositorProof = MerkleTreeHelper.getProof(
-            address(treasury), 16, secondDepositors, secondDepositorAmounts, secondDepositor, 1e18
-        );
+        bytes32 secondDepositorRoot = _depositorRoot(treasury, 16, secondDepositors, secondDepositorAmounts);
+        bytes32[] memory secondDepositorProof =
+            _depositorProof(treasury, 16, secondDepositors, secondDepositorAmounts, secondDepositor, 1e18);
 
         vm.startPrank(owner);
         treasury.publishDepositorRoot(15, depositorRoot, depositorProgramCap, uint64(block.timestamp + 30 days));
@@ -259,7 +304,7 @@ contract FORAGETreasury_TargetPrograms is Test {
         uint256[] memory amounts = new uint256[](2);
         amounts[0] = 10e18;
         amounts[1] = 20e18;
-        bytes32 root = MerkleTreeHelper.computeRoot(address(treasury), 6, agents, amounts);
+        bytes32 root = _agentRoot(treasury, 6, agents, amounts);
 
         vm.prank(owner);
         treasury.publishAgentRoot(6, root, 30e18, uint64(block.timestamp + 30 days));
@@ -267,13 +312,12 @@ contract FORAGETreasury_TargetPrograms is Test {
         vm.prank(guardian);
         blocklist.blockAddress(agent);
 
-        bytes32[] memory blockedProof = MerkleTreeHelper.getProof(address(treasury), 6, agents, amounts, agent, 10e18);
+        bytes32[] memory blockedProof = _agentProof(treasury, 6, agents, amounts, agent, 10e18);
         vm.prank(agent);
         vm.expectRevert(FORAGETreasury.BlockedRecipient.selector);
         treasury.claimAgent(6, agent, 10e18, blockedProof);
 
-        bytes32[] memory liveProof =
-            MerkleTreeHelper.getProof(address(treasury), 6, agents, amounts, secondAgent, 20e18);
+        bytes32[] memory liveProof = _agentProof(treasury, 6, agents, amounts, secondAgent, 20e18);
         vm.prank(secondAgent);
         treasury.claimAgent(6, secondAgent, 20e18, liveProof);
 
@@ -289,16 +333,15 @@ contract FORAGETreasury_TargetPrograms is Test {
         agents[0] = agent;
         uint256[] memory agentAmounts = new uint256[](1);
         agentAmounts[0] = 1e18;
-        bytes32 agentRoot = MerkleTreeHelper.computeRoot(address(treasury), 8, agents, agentAmounts);
-        bytes32[] memory agentProof = MerkleTreeHelper.getProof(address(treasury), 8, agents, agentAmounts, agent, 1e18);
+        bytes32 agentRoot = _agentRoot(treasury, 8, agents, agentAmounts);
+        bytes32[] memory agentProof = _agentProof(treasury, 8, agents, agentAmounts, agent, 1e18);
 
         address[] memory depositors = new address[](1);
         depositors[0] = depositor;
         uint256[] memory depositorAmounts = new uint256[](1);
         depositorAmounts[0] = 2e18;
-        bytes32 depositorRoot = MerkleTreeHelper.computeRoot(address(treasury), 9, depositors, depositorAmounts);
-        bytes32[] memory depositorProof =
-            MerkleTreeHelper.getProof(address(treasury), 9, depositors, depositorAmounts, depositor, 2e18);
+        bytes32 depositorRoot = _depositorRoot(treasury, 9, depositors, depositorAmounts);
+        bytes32[] memory depositorProof = _depositorProof(treasury, 9, depositors, depositorAmounts, depositor, 2e18);
 
         vm.startPrank(owner);
         treasury.publishAgentRoot(8, agentRoot, 1e18, uint64(block.timestamp + 30 days));
@@ -332,12 +375,15 @@ contract FORAGETreasury_TargetPrograms is Test {
         FORAGETreasury unwiredTreasury = FORAGETreasury(address(new ERC1967Proxy(address(implementation), initData)));
         forage.mint(address(unwiredTreasury), 10e18);
 
+        vm.prank(owner);
+        unwiredTreasury.setAllowlist(address(mockAllowlist));
+
         address[] memory agents = new address[](1);
         agents[0] = agent;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 1e18;
-        bytes32 root = MerkleTreeHelper.computeRoot(address(unwiredTreasury), 10, agents, amounts);
-        bytes32[] memory proof = MerkleTreeHelper.getProof(address(unwiredTreasury), 10, agents, amounts, agent, 1e18);
+        bytes32 root = _agentRoot(unwiredTreasury, 10, agents, amounts);
+        bytes32[] memory proof = _agentProof(unwiredTreasury, 10, agents, amounts, agent, 1e18);
 
         vm.startPrank(owner);
         vm.expectRevert(FORAGETreasury.ZeroAddress.selector);
@@ -355,7 +401,7 @@ contract FORAGETreasury_TargetPrograms is Test {
         agents[0] = agent;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 25e18;
-        bytes32 root = MerkleTreeHelper.computeRoot(address(treasury), 7, agents, amounts);
+        bytes32 root = _agentRoot(treasury, 7, agents, amounts);
 
         vm.prank(owner);
         treasury.publishAgentRoot(7, root, 25e18, uint64(block.timestamp + 1 days));
@@ -375,7 +421,7 @@ contract FORAGETreasury_TargetPrograms is Test {
         depositors[0] = depositor;
         uint256[] memory depositorAmounts = new uint256[](1);
         depositorAmounts[0] = 15e18;
-        bytes32 depositorRoot = MerkleTreeHelper.computeRoot(address(treasury), 8, depositors, depositorAmounts);
+        bytes32 depositorRoot = _depositorRoot(treasury, 8, depositors, depositorAmounts);
 
         vm.prank(owner);
         treasury.publishDepositorRoot(8, depositorRoot, 15e18, uint64(block.timestamp + 1 days));

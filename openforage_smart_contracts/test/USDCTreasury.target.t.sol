@@ -6,9 +6,11 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/Blocklist.sol";
 import "../src/RISKUSD.sol";
 import "../src/RISKUSDVault.sol";
+import "../src/modules/RISKUSDVaultModule.sol";
 import "../src/USDCTreasury.sol";
 import "../src/VaultRegistry.sol";
 import "../src/atRISKUSD.sol";
+import "./mocks/MockAllowlist.sol";
 import "./mocks/MockUSDC.sol";
 
 contract RevertingUSDCTreasuryBlocklist {
@@ -40,6 +42,7 @@ contract USDCTreasury_TargetAccounting is Test {
     address internal stakingQueue = makeAddr("staking-queue");
     uint256 internal vaultId;
     Blocklist internal blocklist;
+    MockAllowlist internal mockAllowlist;
 
     function setUp() public {
         usdc = new MockUSDC();
@@ -51,6 +54,9 @@ contract USDCTreasury_TargetAccounting is Test {
         RISKUSDVault vaultImplementation = new RISKUSDVault();
         bytes memory vaultInit = abi.encodeCall(RISKUSDVault.initialize, (address(usdc), address(riskusd), owner));
         riskusdVault = RISKUSDVault(address(new ERC1967Proxy(address(vaultImplementation), vaultInit)));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        riskusdVault.setVaultModule(address(vaultModule_));
 
         VaultRegistry registryImplementation = new VaultRegistry();
         bytes memory registryInit = abi.encodeCall(VaultRegistry.initialize, (owner));
@@ -64,11 +70,16 @@ contract USDCTreasury_TargetAccounting is Test {
         bytes memory blocklistInit = abi.encodeCall(Blocklist.initialize, (guardian, owner));
         blocklist = Blocklist(address(new ERC1967Proxy(address(blocklistImplementation), blocklistInit)));
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+
         address[4] memory tiers = [address(tier0), address(tier1), address(tier2), address(tier3)];
         uint256[4] memory lockups = [uint256(0), uint256(90 days), uint256(180 days), uint256(360 days)];
         uint16[4] memory yieldBps = [uint16(5000), uint16(5500), uint16(6000), uint16(6500)];
         uint16[4] memory fundingBps = [uint16(2000), uint16(1500), uint16(1000), uint16(500)];
         vm.startPrank(owner);
+        vaultRegistry.setAllowlist(address(mockAllowlist));
+        blocklist.setAllowlist(address(mockAllowlist));
         vaultRegistry.initializeV2(address(riskusdVault));
         vaultId = vaultRegistry.addVault(
             "Target Vault", "TV", tiers, stakingQueue, 10_000_000e6, lockups, yieldBps, fundingBps
@@ -93,6 +104,7 @@ contract USDCTreasury_TargetAccounting is Test {
         treasury = USDCTreasury(address(proxy));
 
         vm.startPrank(owner);
+        treasury.setAllowlist(address(mockAllowlist));
         treasury.setPnLAttestor(attestor);
         treasury.setHLTradingBridge(bridge);
         treasury.setBlocklist(address(blocklist));
@@ -105,6 +117,19 @@ contract USDCTreasury_TargetAccounting is Test {
             atRISKUSD.initialize, (address(riskusd), address(0), stakingQueue, lockup, 0, tierId, abbreviation, owner)
         );
         return atRISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+    }
+
+    function _recognizeProfit(USDCTreasury target, uint256 id, uint256 amount) internal {
+        vm.prank(attestor);
+        target.recognizePnL(id, int256(amount));
+    }
+
+    function _returnPnL(USDCTreasury target, uint256 id, uint256 amount) internal {
+        usdc.mint(bridge, amount);
+        vm.startPrank(bridge);
+        usdc.approve(address(target), amount);
+        target.returnPnLUSDC(id, amount);
+        vm.stopPrank();
     }
 
     function test_TSCGB_A2_profitRecognitionIsAccountingOnly() public {
@@ -240,14 +265,22 @@ contract USDCTreasury_TargetAccounting is Test {
         assertEq(treasury.earmarkBalance(treasury.EARMARK_AGENT_PAY()), 700e6, "second return goes to agent pay");
     }
 
-    function test_TSCGB_A4_returnPnLBooksFoundationAsFifteenPercentOfProfit() public {
-        uint256 pnl = 1_000e6;
+    function test_G2FRESH_CF09_returnPnLRequiresRecognizedProfit() public {
+        uint256 pnl = 100e6;
         usdc.mint(bridge, pnl);
 
         vm.startPrank(bridge);
         usdc.approve(address(treasury), pnl);
+        vm.expectRevert(abi.encodeWithSelector(USDCTreasury.PnLNotRecognized.selector, vaultId));
         treasury.returnPnLUSDC(vaultId, pnl);
         vm.stopPrank();
+    }
+
+    function test_TSCGB_A4_returnPnLBooksFoundationAsFifteenPercentOfProfit() public {
+        uint256 pnl = 1_000e6;
+
+        _recognizeProfit(treasury, vaultId, pnl);
+        _returnPnL(treasury, vaultId, pnl);
 
         assertEq(
             treasury.earmarkBalance(treasury.EARMARK_FOUNDATION()),
@@ -259,12 +292,9 @@ contract USDCTreasury_TargetAccounting is Test {
 
     function test_TSCGB_A5_disburseEnforcesPurposeEarmarkAndFoundationRollingCap() public {
         uint256 pnl = 1_000e6;
-        usdc.mint(bridge, pnl);
 
-        vm.startPrank(bridge);
-        usdc.approve(address(treasury), pnl);
-        treasury.returnPnLUSDC(vaultId, pnl);
-        vm.stopPrank();
+        _recognizeProfit(treasury, vaultId, pnl);
+        _returnPnL(treasury, vaultId, pnl);
 
         bytes32 foundationEarmark = treasury.EARMARK_FOUNDATION();
 
@@ -312,12 +342,10 @@ contract USDCTreasury_TargetAccounting is Test {
 
     function test_TSCGB_A5_agentPayPerPaymentDailyCapAndBatchLimit() public {
         uint256 pnl = 1_000e6;
-        usdc.mint(bridge, pnl);
 
-        vm.startPrank(bridge);
-        usdc.approve(address(treasury), pnl);
-        treasury.returnPnLUSDC(vaultId, pnl);
-        vm.stopPrank();
+        _recognizeProfit(treasury, vaultId, pnl);
+        _returnPnL(treasury, vaultId, pnl);
+        _returnPnL(treasury, vaultId, pnl);
 
         bytes32 agentPay = treasury.EARMARK_AGENT_PAY();
         uint256 maxAgentPayment = treasury.earmarkBalance(agentPay) * treasury.AGENT_PAY_CAP_BPS() / 10_000;
@@ -340,12 +368,9 @@ contract USDCTreasury_TargetAccounting is Test {
 
     function test_TSCGB_A6_blockedPrimaryFailsOverWithoutHaltingOtherEarmarks() public {
         uint256 pnl = 1_000e6;
-        usdc.mint(bridge, pnl);
 
-        vm.startPrank(bridge);
-        usdc.approve(address(treasury), pnl);
-        treasury.returnPnLUSDC(vaultId, pnl);
-        vm.stopPrank();
+        _recognizeProfit(treasury, vaultId, pnl);
+        _returnPnL(treasury, vaultId, pnl);
 
         vm.prank(guardian);
         blocklist.blockAddress(foundationPrimary);
@@ -389,17 +414,16 @@ contract USDCTreasury_TargetAccounting is Test {
         USDCTreasury unwiredTreasury = USDCTreasury(address(new ERC1967Proxy(address(implementation), initData)));
 
         vm.startPrank(owner);
+        unwiredTreasury.setAllowlist(address(mockAllowlist));
         unwiredTreasury.setHLTradingBridge(bridge);
+        unwiredTreasury.setPnLAttestor(attestor);
         vm.expectRevert(USDCTreasury.ZeroAddress.selector);
         unwiredTreasury.setBlocklist(address(0));
         vm.stopPrank();
 
         uint256 pnl = 100e6;
-        usdc.mint(bridge, pnl);
-        vm.startPrank(bridge);
-        usdc.approve(address(unwiredTreasury), pnl);
-        unwiredTreasury.returnPnLUSDC(vaultId, pnl);
-        vm.stopPrank();
+        _recognizeProfit(unwiredTreasury, vaultId, pnl);
+        _returnPnL(unwiredTreasury, vaultId, pnl);
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(USDCTreasury.BlocklistUnavailable.selector, address(0)));

@@ -5,11 +5,19 @@ import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
+import "./interfaces/IAllowlist.sol";
 
 /// @title Blocklist
 /// @notice Address-only emergency blocklist with single-stage guardian adds and delayed owner removals.
-contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, FinalizeDelayProfile {
+contract Blocklist is
+    Initializable,
+    AllowlistGatedUpgradeable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    FinalizeDelayProfile
+{
     using Checkpoints for Checkpoints.Trace208;
 
     error UnauthorizedGuardian();
@@ -47,6 +55,9 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     mapping(address => Checkpoints.Trace208) private _blockedUntilCheckpoints;
     mapping(address => uint256) private _preCheckpointBlockedUntil;
 
+    // Reserved storage for future versions (every other UUPS contract in the repo carries one).
+    uint256[49] private __gap;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -62,7 +73,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _guardian = guardian_;
     }
 
-    function blockAddress(address account) external {
+    function blockAddress(address account) external onlyAllowedCaller {
         if (msg.sender != _guardian) revert UnauthorizedGuardian();
         if (account == address(0)) revert ZeroAddress();
 
@@ -85,7 +96,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit AddressBlocked(account, newExpiry);
     }
 
-    function proposeUnblock(address account) external onlyOwner {
+    function proposeUnblock(address account) external onlyAllowedCaller onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         if (!isBlocked(account)) revert NotBlocked();
 
@@ -93,7 +104,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit UnblockProposed(account, block.timestamp);
     }
 
-    function finalizeUnblock(address account) external onlyOwner {
+    function finalizeUnblock(address account) external onlyAllowedCaller onlyOwner {
         uint256 proposedAt = pendingUnblock[account];
         if (proposedAt == 0) revert NoPendingUnblock();
         _requireProposalReady(proposedAt);
@@ -109,16 +120,17 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit AddressUnblocked(account);
     }
 
-    function cancelUnblock(address account) external onlyOwner {
+    function cancelUnblock(address account) external onlyAllowedCaller onlyOwner {
         if (pendingUnblock[account] == 0) revert NoPendingUnblock();
 
         pendingUnblock[account] = 0;
         emit UnblockCancelled(account);
     }
 
-    function proposeGuardian(address guardian_) external onlyOwner {
+    function proposeGuardian(address guardian_) external onlyAllowedCaller onlyOwner {
         if (guardian_ == address(0)) revert ZeroAddress();
         if (guardian_ == _guardian) revert InvalidGuardian();
+        if (!IAllowlist(allowlist()).isAllowed(guardian_)) revert IAllowlist.CallerNotAllowed(guardian_);
 
         _pendingGuardian = guardian_;
         _pendingGuardianProposedAt = block.timestamp;
@@ -126,9 +138,10 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit GuardianProposed(_guardian, guardian_, block.timestamp);
     }
 
-    function finalizeGuardian() external onlyOwner {
+    function finalizeGuardian() external onlyAllowedCaller onlyOwner {
         address newGuardian = _pendingGuardian;
         if (newGuardian == address(0)) revert NoPendingGuardian();
+        if (!IAllowlist(allowlist()).isAllowed(newGuardian)) revert IAllowlist.CallerNotAllowed(newGuardian);
         _requireProposalReady(_pendingGuardianProposedAt);
 
         address oldGuardian = _guardian;
@@ -139,7 +152,7 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit GuardianUpdated(oldGuardian, newGuardian);
     }
 
-    function cancelGuardianProposal() external onlyOwner {
+    function cancelGuardianProposal() external onlyAllowedCaller onlyOwner {
         address cancelledGuardian = _pendingGuardian;
         if (cancelledGuardian == address(0)) revert NoPendingGuardian();
 
@@ -171,7 +184,11 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     /// @notice Imports a precise legacy blocked interval for migration-time historical governance reads.
     /// @dev Writes an inclusive [start, end] interval and a clearing checkpoint at end + 1 when possible.
-    function importLegacyBlockedInterval(address account, uint256 start, uint256 end) external onlyOwner {
+    function importLegacyBlockedInterval(address account, uint256 start, uint256 end)
+        external
+        onlyAllowedCaller
+        onlyOwner
+    {
         if (account == address(0)) revert ZeroAddress();
         if (start > end || end > type(uint48).max) revert InvalidLegacyInterval();
 
@@ -227,4 +244,20 @@ contract Blocklist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
+    }
+
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
 }

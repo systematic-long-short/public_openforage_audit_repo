@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./helpers/DelegatingVestingWalletTestBase.sol";
+import "./mocks/MockAllowlist.sol";
 
 contract DelegatingVestingWalletStaticBlocklist {
     function isBlocked(address) external pure returns (bool) {
@@ -62,54 +63,67 @@ contract DelegatingVestingWallet_TC01_ConstructorHappy is DelegatingVestingWalle
 contract DelegatingVestingWallet_TC02_ConstructorValidation is Test {
     address internal beneficiary_;
     address internal tokenSetter_;
+    MockAllowlist internal mockAllowlist;
 
     function setUp() public {
         beneficiary_ = makeAddr("beneficiary");
         tokenSetter_ = makeAddr("tokenSetter");
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
     }
 
     /// @dev R-13: Zero beneficiary address MUST revert ZeroAddress().
     function test_TC02_revertZeroBeneficiary() public {
         vm.expectRevert(DelegatingVestingWallet.ZeroAddress.selector);
-        new DelegatingVestingWallet(address(0), uint64(block.timestamp), 86400, 3600, tokenSetter_);
+        new DelegatingVestingWallet(
+            address(0), uint64(block.timestamp), 86400, 3600, tokenSetter_, address(mockAllowlist)
+        );
     }
 
     /// @dev R-14: Zero duration MUST revert ZeroDuration().
     function test_TC02_revertZeroDuration() public {
         vm.expectRevert(DelegatingVestingWallet.ZeroDuration.selector);
-        new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 0, 0, tokenSetter_);
+        new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 0, 0, tokenSetter_, address(mockAllowlist));
     }
 
     /// @dev R-15: Cliff > duration MUST revert CliffExceedsDuration().
     function test_TC02_revertCliffExceedsDuration() public {
         vm.expectRevert(DelegatingVestingWallet.CliffExceedsDuration.selector);
-        new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 86400, 86401, tokenSetter_);
+        new DelegatingVestingWallet(
+            beneficiary_, uint64(block.timestamp), 86400, 86401, tokenSetter_, address(mockAllowlist)
+        );
     }
 
     /// @dev R-15: Large cliff exceeding duration also reverts.
     function test_TC02_revertCliffExceedsDurationLarge() public {
         vm.expectRevert(DelegatingVestingWallet.CliffExceedsDuration.selector);
-        new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 100, type(uint64).max, tokenSetter_);
+        new DelegatingVestingWallet(
+            beneficiary_, uint64(block.timestamp), 100, type(uint64).max, tokenSetter_, address(mockAllowlist)
+        );
     }
 
     /// @dev R-13: Zero tokenSetter address MUST revert ZeroAddress().
     function test_TC02_revertZeroTokenSetter() public {
         vm.expectRevert(DelegatingVestingWallet.ZeroAddress.selector);
-        new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 86400, 3600, address(0));
+        new DelegatingVestingWallet(
+            beneficiary_, uint64(block.timestamp), 86400, 3600, address(0), address(mockAllowlist)
+        );
     }
 
     /// @dev Valid edge case: cliff == duration MUST succeed.
     function test_TC02_validCliffEqualsDuration() public {
-        DelegatingVestingWallet w =
-            new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 86400, 86400, tokenSetter_);
+        DelegatingVestingWallet w = new DelegatingVestingWallet(
+            beneficiary_, uint64(block.timestamp), 86400, 86400, tokenSetter_, address(mockAllowlist)
+        );
         assertEq(w.cliff(), 86400);
         assertEq(w.duration(), 86400);
     }
 
     /// @dev Valid edge case: cliff == 0 MUST succeed.
     function test_TC02_validZeroCliff() public {
-        DelegatingVestingWallet w =
-            new DelegatingVestingWallet(beneficiary_, uint64(block.timestamp), 86400, 0, tokenSetter_);
+        DelegatingVestingWallet w = new DelegatingVestingWallet(
+            beneficiary_, uint64(block.timestamp), 86400, 0, tokenSetter_, address(mockAllowlist)
+        );
         assertEq(w.cliff(), 0);
     }
 }
@@ -562,7 +576,7 @@ contract DelegatingVestingWallet_TC11_NonUpgradeable is DelegatingVestingWalletT
     /// implementation slot is empty (no proxy delegation).
     function test_TC11_directDeployment() public view {
         // ERC-1967 implementation slot: bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1)
-        bytes32 implSlot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        bytes32 implSlot = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
         bytes32 stored = vm.load(address(wallet), implSlot);
         assertEq(stored, bytes32(0), "ERC-1967 implementation slot must be empty (R-23 - not a proxy)");
 

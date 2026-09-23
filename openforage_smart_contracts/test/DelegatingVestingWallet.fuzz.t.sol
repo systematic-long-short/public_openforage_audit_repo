@@ -3,12 +3,20 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/DelegatingVestingWallet.sol";
+import "./mocks/MockAllowlist.sol";
 import "./mocks/MockForageTokenSimple.sol";
 
 // ============================================================
 // TC-09: Fuzz Tests (R-02, R-05, R-06, R-28, R-29)
 // ============================================================
 contract DelegatingVestingWallet_TC09_Fuzz is Test {
+    MockAllowlist internal mockAllowlist;
+
+    function setUp() public {
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+    }
+
     /// @dev Fuzz 1: vestedAmount never exceeds totalAllocation for any parameters.
     function testFuzz_TC09_vestedNeverExceedsTotalAllocation(
         uint64 startTs,
@@ -27,7 +35,8 @@ contract DelegatingVestingWallet_TC09_Fuzz is Test {
         address ben = makeAddr("fuzzBeneficiary");
         address setter = makeAddr("fuzzSetter");
 
-        DelegatingVestingWallet w = new DelegatingVestingWallet(ben, startTs, duration, cliff, setter);
+        DelegatingVestingWallet w =
+            new DelegatingVestingWallet(ben, startTs, duration, cliff, setter, address(mockAllowlist));
 
         MockForageTokenSimple tok = new MockForageTokenSimple();
         tok.mint(address(w), uint256(totalAllocation));
@@ -53,7 +62,8 @@ contract DelegatingVestingWallet_TC09_Fuzz is Test {
         uint64 cliff = 31_557_600;
         uint256 total = 20_000_000e18;
 
-        DelegatingVestingWallet w = new DelegatingVestingWallet(ben, startTs, duration, cliff, setter);
+        DelegatingVestingWallet w =
+            new DelegatingVestingWallet(ben, startTs, duration, cliff, setter, address(mockAllowlist));
 
         MockForageTokenSimple tok = new MockForageTokenSimple();
         tok.mint(address(w), total);
@@ -75,7 +85,8 @@ contract DelegatingVestingWallet_TC09_Fuzz is Test {
         uint64 cliff = 31_557_600;
         uint256 total = 20_000_000e18;
 
-        DelegatingVestingWallet w = new DelegatingVestingWallet(ben, startTs, duration, cliff, setter);
+        DelegatingVestingWallet w =
+            new DelegatingVestingWallet(ben, startTs, duration, cliff, setter, address(mockAllowlist));
 
         MockForageTokenSimple tok = new MockForageTokenSimple();
         tok.mint(address(w), total);
@@ -108,7 +119,8 @@ contract DelegatingVestingWallet_TC09_Fuzz is Test {
 
         vm.assume(timestamp < startTs + cliff);
 
-        DelegatingVestingWallet w = new DelegatingVestingWallet(ben, startTs, duration, cliff, setter);
+        DelegatingVestingWallet w =
+            new DelegatingVestingWallet(ben, startTs, duration, cliff, setter, address(mockAllowlist));
 
         MockForageTokenSimple tok = new MockForageTokenSimple();
         tok.mint(address(w), total);
@@ -132,7 +144,8 @@ contract DelegatingVestingWallet_TC09_Fuzz is Test {
         uint64 cliff = 31_557_600;
         uint256 total = 20_000_000e18;
 
-        DelegatingVestingWallet w = new DelegatingVestingWallet(ben, startTs, duration, cliff, setter);
+        DelegatingVestingWallet w =
+            new DelegatingVestingWallet(ben, startTs, duration, cliff, setter, address(mockAllowlist));
 
         MockForageTokenSimple tok = new MockForageTokenSimple();
         tok.mint(address(w), total);

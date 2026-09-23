@@ -1058,6 +1058,8 @@ contract ForageGovernor_TC04_QueueExecuteCancelLifecycle is ForageGovernorTestBa
             );
             ERC1967Proxy prodProxy = new ERC1967Proxy(address(prodImpl), prodInitData);
             prodGovernor = ForageGovernor(payable(address(prodProxy)));
+            vm.prank(address(prodTimelock));
+            prodGovernor.setAllowlist(address(allowlistMock));
         }
 
         // Grant prodGovernor PROPOSER_ROLE on prodTimelock

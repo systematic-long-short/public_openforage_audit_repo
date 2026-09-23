@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../../src/Blocklist.sol";
 import "../../../src/ForageGovernor.sol";
 import "../../../src/ForageToken.sol";
+import "../../mocks/MockAllowlist.sol";
 import "../external_2026_06_12/fixtures/ExternalAuditLegacyUpgradeFixtures.sol";
 
 contract Octane20260625GovernanceTerminalEvidenceTest is Test {
@@ -276,7 +277,12 @@ contract Octane20260625GovernanceTerminalEvidenceTest is Test {
     {
         ForageToken implementation = new ForageToken();
         bytes memory initData = abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner));
-        return ForageToken(address(new ERC1967Proxy(address(implementation), initData)));
+        ForageToken token = ForageToken(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        token.setAllowlist(address(allowlist));
+        return token;
     }
 
     function _deployLegacyForageTokenWithoutDelegateSourceTracking(
@@ -296,12 +302,21 @@ contract Octane20260625GovernanceTerminalEvidenceTest is Test {
         ForageToken implementation = new ForageToken();
         vm.prank(owner);
         forage.upgradeToAndCall(address(implementation), "");
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        forage.setAllowlist(address(allowlist));
     }
 
     function _deployBlocklist(address guardian, address owner) internal returns (Blocklist) {
         Blocklist implementation = new Blocklist();
         bytes memory initData = abi.encodeCall(Blocklist.initialize, (guardian, owner));
-        return Blocklist(address(new ERC1967Proxy(address(implementation), initData)));
+        Blocklist blocklist = Blocklist(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        blocklist.setAllowlist(address(allowlist));
+        return blocklist;
     }
 
     function _deployGovernor(ForageToken forage, address owner, uint48 votingDelay) internal returns (ForageGovernor) {
@@ -316,7 +331,13 @@ contract Octane20260625GovernanceTerminalEvidenceTest is Test {
             ForageGovernor.initialize,
             (address(forage), address(timelock), votingDelay, uint32(3_600), uint256(100), uint256(400), address(0))
         );
-        return ForageGovernor(payable(address(new ERC1967Proxy(address(implementation), initData))));
+        ForageGovernor governor =
+            ForageGovernor(payable(address(new ERC1967Proxy(address(implementation), initData))));
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(address(timelock));
+        governor.setAllowlist(address(allowlist));
+        return governor;
     }
 
     function _propose(ForageGovernor governor, address proposer) internal returns (uint256 proposalId) {

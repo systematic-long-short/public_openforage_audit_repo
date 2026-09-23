@@ -5,10 +5,12 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../src/StakingQueue.sol";
+import "../src/modules/StakingQueueModule.sol";
 import "./mocks/MockRISKUSD.sol";
 import "./mocks/MockForageTokenLocked.sol";
 import "./mocks/MockAtRISKUSD.sol";
 import "./mocks/MockVaultRegistry.sol";
+import "./mocks/MockAllowlist.sol";
 
 // ============================================================
 // TC-14: Invariant Tests (R-21, R-22, R-28, R-29, R-35, R-36,
@@ -475,6 +477,7 @@ contract StakingQueue_TC14_Invariants is Test {
     MockAtRISKUSD public vault3;
     MockVaultRegistry public mockVaultRegistry;
     uint256 public registeredVaultId;
+    StakingQueueModule public queueModule;
     StakingQueueHandler public handler;
 
     address public owner;
@@ -508,6 +511,15 @@ contract StakingQueue_TC14_Invariants is Test {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         stakingQueue = StakingQueue(address(proxy));
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        stakingQueue.setAllowlist(address(mockAllowlist));
+
+        queueModule = new StakingQueueModule();
+        vm.prank(owner);
+        stakingQueue.setQueueModule(address(queueModule));
 
         // Link queue to its vault in the registry
         vm.prank(owner);

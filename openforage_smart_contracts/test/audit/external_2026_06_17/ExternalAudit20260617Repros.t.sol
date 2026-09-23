@@ -12,7 +12,9 @@ import "../../../src/ForageToken.sol";
 import "../../../src/GuardianModule.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/RISKUSDVault.sol";
+import "../../../src/modules/RISKUSDVaultModule.sol";
 import "../../../src/StakingQueue.sol";
+import "../../../src/modules/StakingQueueModule.sol";
 import "../../../src/USDCTreasury.sol";
 import "../../../src/VaultRegistry.sol";
 import "../../../src/atRISKUSD.sol";
@@ -20,10 +22,12 @@ import "../../../src/hyperliquid/HLTradingBridge.sol";
 
 // Mocks are external boundaries only: USDC and yield source fixtures.
 // Every OpenForage contract under test is imported from src/ and exercised directly.
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockUSDC.sol";
+import "../../mocks/MockSequencerUptimeFeedFixture.sol";
 import "../../mocks/MockYieldSourceForLossPending.sol";
 
-contract ExternalAudit20260617ReprosTest is Test {
+contract ExternalAudit20260617ReprosTest is MockSequencerUptimeFeedFixture {
     string internal constant REPRO_FILE = "test/audit/external_2026_06_17/ExternalAudit20260617Repros.t.sol";
     string internal constant BINDING_MARKER = "PHASE5_REPRO_BINDING: ";
 
@@ -59,6 +63,7 @@ contract ExternalAudit20260617ReprosTest is Test {
 
     QueueFixture internal queueFixture;
     BridgeFixture internal bridgeFixture;
+    MockAllowlist internal mockAllowlist;
 
     function test_phase5ReproFileCarriesConcreteMarkersForAllVendorFindings() public view {
         string memory repros = vm.readFile(REPRO_FILE);
@@ -109,6 +114,14 @@ contract ExternalAudit20260617ReprosTest is Test {
         ForageToken forage = _deployForageToken(makeAddr("ea17-treasury-team"), forageFunding, owner);
         Blocklist blocklist = _deployBlocklist(guardian, owner);
         FORAGETreasury treasury = _deployForageTreasury(address(forage), owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        forage.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        treasury.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mockAllowlist));
         vm.prank(forageFunding);
         forage.transfer(address(treasury), 40e18);
 
@@ -150,6 +163,10 @@ contract ExternalAudit20260617ReprosTest is Test {
         MockUSDC usdc = new MockUSDC();
 
         CustodianRegistry registry = _deployCustodianRegistry(owner, governor, oldGuardian);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
         HLTradingBridge bridge = _deployBridge(
             address(usdc),
             makeAddr("ea17-riskusd-vault"),
@@ -162,6 +179,8 @@ contract ExternalAudit20260617ReprosTest is Test {
             makeAddr("ea17-cold-account"),
             bytes32(uint256(uint160(address(0x1717))))
         );
+        vm.prank(owner);
+        bridge.setAllowlist(address(mockAllowlist));
 
         vm.prank(owner);
         registry.proposeGuardianModule(newGuardian);
@@ -210,6 +229,10 @@ contract ExternalAudit20260617ReprosTest is Test {
         permissions[3] = 1;
 
         GuardianModule module = _deployGuardianModule(governor, timelock, guardians, permissions);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(timelock);
+        module.setAllowlist(address(mockAllowlist));
         bytes32 slot = module.SLOT_GUARDIAN_SEAT();
 
         vm.prank(timelock);
@@ -256,6 +279,12 @@ contract ExternalAudit20260617ReprosTest is Test {
         RISKUSDVault vault = _deployRiskUSDVaultWithLossReporter(
             address(usdc), address(riskusd), owner, address(0xC0DE), address(treasury)
         );
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        treasury.setAllowlist(address(mockAllowlist));
 
         assertEq(vault.lossReporter(), address(treasury), "vault lossReporter is the USDCTreasury");
         assertTrue(
@@ -290,6 +319,12 @@ contract ExternalAudit20260617ReprosTest is Test {
 
         ForageToken forage = _deployForageToken(makeAddr("ea17-vote-team"), treasury, owner);
         Blocklist blocklist = _deployBlocklist(guardian, owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        forage.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mockAllowlist));
 
         vm.prank(treasury);
         forage.transfer(holder, 100e18);
@@ -298,13 +333,17 @@ contract ExternalAudit20260617ReprosTest is Test {
         vm.prank(holder);
         forage.delegate(delegatee);
 
-        uint256 cleanSnapshot = block.timestamp;
+        // via-IR re-evaluates block.timestamp locals at each use site: warp args stay
+        // textually distinct and the snapshot derives backward by local arithmetic at the end.
         vm.warp(block.timestamp + 1);
-        assertEq(forage.getPastVotes(delegatee, cleanSnapshot), 100e18, "setup: source votes existed before block");
+        assertEq(
+            forage.getPastVotes(delegatee, block.timestamp - 1), 100e18, "setup: source votes existed before block"
+        );
 
         vm.prank(guardian);
         blocklist.blockAddress(holder);
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 2);
+        uint256 cleanSnapshot = block.timestamp - 3;
 
         assertFalse(
             blocklist.wasEffectivelyBlockedAt(holder, cleanSnapshot),
@@ -332,6 +371,12 @@ contract ExternalAudit20260617ReprosTest is Test {
 
         ForageToken forage = _deployForageToken(makeAddr("ea17-expired-vote-team"), treasury, owner);
         Blocklist blocklist = _deployBlocklist(guardian, owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        forage.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mockAllowlist));
 
         vm.prank(treasury);
         forage.transfer(holder, 100e18);
@@ -342,10 +387,10 @@ contract ExternalAudit20260617ReprosTest is Test {
 
         vm.prank(guardian);
         blocklist.blockAddress(holder);
-        uint256 blockedSnapshot = block.timestamp;
         assertTrue(blocklist.isBlocked(holder), "setup: source is blocked at snapshot");
 
-        vm.warp(blockedSnapshot + blocklist.BLOCK_DURATION() + 1);
+        vm.warp(block.timestamp + blocklist.BLOCK_DURATION() + 1);
+        uint256 blockedSnapshot = block.timestamp - blocklist.BLOCK_DURATION() - 1;
         assertFalse(blocklist.isBlocked(holder), "setup: source is no longer blocked at query time");
 
         assertEq(
@@ -378,23 +423,43 @@ contract ExternalAudit20260617ReprosTest is Test {
         // PHASE5_REPRO_BINDING: OCTANE-05
         address owner = makeAddr("ea17-nav-owner");
         address keeper = makeAddr("ea17-nav-keeper");
+        address executor = makeAddr("ea17-nav-executor");
         MockUSDC usdc = new MockUSDC();
         RISKUSD riskusd = _deployRISKUSD(owner);
         RISKUSDVault vault = _deployRiskUSDVault(address(usdc), address(riskusd), owner);
+        CustodianRegistry registry =
+            _deployCustodianRegistry(owner, makeAddr("ea17-nav-governor"), makeAddr("ea17-nav-guardian"));
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
         HLTradingBridge bridge = _deployBridge(
             address(usdc),
             address(vault),
             makeAddr("ea17-nav-treasury"),
-            makeAddr("ea17-nav-registry"),
+            address(registry),
             owner,
             keeper,
-            makeAddr("ea17-nav-executor"),
+            executor,
             makeAddr("ea17-nav-guardian"),
             makeAddr("ea17-nav-cold"),
             bytes32(uint256(uint160(address(0x1705))))
         );
+        vm.prank(owner);
+        vault.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
+        bridge.setAllowlist(address(mockAllowlist));
         Blocklist blocklist = _deployBlocklist(makeAddr("ea17-nav-blocklist-guardian"), owner);
+        // The bridge only books `_deployedPrincipal` through the executor-driven deploy path, so
+        // the loss NAV below needs a finalized registry route and a real bridge-side deployment;
+        // a vault-side-only deployCapital leaves the bridge book at zero and records no loss.
+        CustodianRegistry.CustodianConfig memory hlConfig = registry.hyperLiquidLaunchConfig(
+            address(bridge), executor, 421_614, bytes32(uint256(uint160(address(0x1705)))), 10_000_000e6
+        );
         vm.startPrank(owner);
+        registry.proposeCustodianConfig(hlConfig);
         bridge.setBlocklist(address(blocklist));
         riskusd.setMinter(address(vault));
         vault.setDeploymentBufferBps(0);
@@ -402,6 +467,7 @@ contract ExternalAudit20260617ReprosTest is Test {
         vault.setDailyMintCapBps(10_000);
         vault.setCustodian(address(bridge));
         vm.warp(block.timestamp + vault.FINALIZE_DELAY() + 1);
+        registry.finalizeCustodianConfig(hlConfig.id);
         riskusd.finalizeMinter();
         vault.finalizeCustodian();
         vm.stopPrank();
@@ -413,8 +479,8 @@ contract ExternalAudit20260617ReprosTest is Test {
         vault.deposit(1_000e6);
         vm.stopPrank();
 
-        vm.prank(address(bridge));
-        vault.deployCapital(950e6);
+        vm.prank(executor);
+        bridge.deployToHyperLiquid(950e6);
         assertEq(vault.totalDeployed(), 950e6, "setup deploys real capital before the loss NAV");
 
         vm.prank(keeper);
@@ -466,17 +532,33 @@ contract ExternalAudit20260617ReprosTest is Test {
         f.bob = makeAddr("ea17-queue-bob");
         f.keeper = makeAddr("ea17-queue-keeper");
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
         f.riskusd = _deployMintableRiskUSD(f.owner);
         f.forage = _deployForageToken(makeAddr("ea17-queue-team"), f.owner, f.owner);
+        vm.prank(f.owner);
+        f.forage.setAllowlist(address(mockAllowlist));
         f.yieldSource = new MockYieldSourceForLossPending();
         f.vault0 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
         f.vault1 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
         f.vault2 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
         f.vault3 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), address(0), f.owner);
+        vm.prank(f.owner);
+        f.vault0.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault1.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault2.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault3.setAllowlist(address(mockAllowlist));
         f.registry = _deployVaultRegistry(f.owner);
+        vm.prank(f.owner);
+        f.registry.setAllowlist(address(mockAllowlist));
 
         address[4] memory tierVaults = [address(f.vault0), address(f.vault1), address(f.vault2), address(f.vault3)];
         f.queue = _deployStakingQueue(address(f.riskusd), address(f.forage), tierVaults, address(f.registry), f.owner);
+        vm.prank(f.owner);
+        f.queue.setAllowlist(address(mockAllowlist));
         f.vaultId = _registerVault(f.registry, f.owner, "EA17 Vault", "EA17", tierVaults, address(f.queue));
 
         vm.prank(f.owner);
@@ -528,7 +610,13 @@ contract ExternalAudit20260617ReprosTest is Test {
 
         f.usdc = new MockUSDC();
         f.riskusd = _deployRISKUSD(f.owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(f.owner);
+        f.riskusd.setAllowlist(address(mockAllowlist));
         f.vault = _deployRiskUSDVault(address(f.usdc), address(f.riskusd), f.owner);
+        vm.prank(f.owner);
+        f.vault.setAllowlist(address(mockAllowlist));
         f.blocklist = _deployBlocklist(makeAddr("ea17-bridge-blocklist-guardian"), f.owner);
         f.bridge = _deployBridge(
             address(f.usdc),
@@ -542,6 +630,8 @@ contract ExternalAudit20260617ReprosTest is Test {
             makeAddr("ea17-bridge-cold"),
             bytes32(uint256(uint160(address(0x1706))))
         );
+        vm.prank(f.owner);
+        f.bridge.setAllowlist(address(mockAllowlist));
 
         vm.startPrank(f.owner);
         f.bridge.setBlocklist(address(f.blocklist));
@@ -574,7 +664,11 @@ contract ExternalAudit20260617ReprosTest is Test {
         StakingQueue implementation = new StakingQueue();
         bytes memory initData =
             abi.encodeCall(StakingQueue.initialize, (riskusd, forage, tierVaults, vaultRegistry, owner));
-        return StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueue deployed = StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueueModule module = new StakingQueueModule();
+        vm.prank(owner);
+        deployed.setQueueModule(address(module));
+        return deployed;
     }
 
     function _deployAtRiskVault(address riskusd, address yieldSource, address stakingQueue, address owner)
@@ -630,6 +724,8 @@ contract ExternalAudit20260617ReprosTest is Test {
     function _deployMintableRiskUSD(address owner) internal returns (RISKUSD riskusd) {
         riskusd = _deployRISKUSD(owner);
         vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
         riskusd.setMinter(address(this));
         vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
         riskusd.acceptMinter();
@@ -658,7 +754,11 @@ contract ExternalAudit20260617ReprosTest is Test {
     function _deployRiskUSDVault(address usdc, address riskusd, address owner) internal returns (RISKUSDVault) {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData = abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, owner, owner));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault_ = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault_.setVaultModule(address(vaultModule_));
+        return vault_;
     }
 
     function _deployRiskUSDVaultWithLossReporter(
@@ -671,7 +771,11 @@ contract ExternalAudit20260617ReprosTest is Test {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData =
             abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, custodian, lossReporter));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault_ = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault_.setVaultModule(address(vaultModule_));
+        return vault_;
     }
 
     function _deployUSDCTreasury(
@@ -726,7 +830,12 @@ contract ExternalAudit20260617ReprosTest is Test {
                 executor,
                 guardianModule,
                 HLTradingBridge.RouteConfig({
-                    coldAccount: coldAccount, hyperliquidSourceAccount: sourceAccount, withdrawalChainSelector: 421_614
+                    coldAccount: coldAccount,
+                    hyperliquidSourceAccount: sourceAccount,
+                    withdrawalChainSelector: 421_614,
+                    sequencerUptimeFeed: _deployHealthySequencerUptimeFeed(
+                        implementation.SEQUENCER_UPTIME_GRACE_PERIOD()
+                    )
                 })
             )
         );

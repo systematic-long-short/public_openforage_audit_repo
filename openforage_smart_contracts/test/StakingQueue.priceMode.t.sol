@@ -127,7 +127,7 @@ contract StakingQueue_R32_PriceMode is StakingQueueTestBase {
         assertEq(queue.foragePriceUsd(), 1e6, "active after finalize");
     }
 
-    function test_PUBLIC_AUDIT_OR03_arbitrumOracleModeFailsLoudWithoutSequencerFeed() public {
+    function test_G2FRESH_OR03_arbitrumOracleModeFailsLoudWithoutSequencerFeed() public {
         _setOracleMode(1 hours);
         oracle.setRoundData(2e8, block.timestamp);
         vm.chainId(queue.ARBITRUM_ONE_CHAIN_ID());
@@ -136,7 +136,7 @@ contract StakingQueue_R32_PriceMode is StakingQueueTestBase {
         queue.effectiveForagePriceUsd();
     }
 
-    function test_PUBLIC_AUDIT_OR03_sequencerDownBlocksOraclePriorityFallback() public {
+    function test_G2FRESH_OR03_sequencerDownKeepsStrictViewsAndFallsBackToStandard() public {
         _setOracleMode(1 hours);
         vm.warp(10_000);
         oracle.setRoundData(2e8, block.timestamp);
@@ -148,12 +148,26 @@ contract StakingQueue_R32_PriceMode is StakingQueueTestBase {
         forage.mint(alice, 50e18);
         _fundUser(alice, STANDARD_DEPOSIT);
 
-        vm.prank(alice);
         vm.expectRevert(StakingQueue.SequencerDown.selector);
+        queue.effectiveForagePriceUsd();
+        vm.expectRevert(StakingQueue.SequencerDown.selector);
+        queue.priorityCapFor(alice);
+
+        uint256 queueId = queue.nextQueueId();
+        vm.expectEmit(true, true, false, true, address(queue));
+        emit StakingQueue.PriorityPriceUnavailable(queueId, alice, StakingQueue.SequencerDown.selector);
+        vm.expectEmit(true, true, false, true, address(queue));
+        emit StakingQueue.QueueJoined(queueId, alice, STANDARD_DEPOSIT, 0, false);
+        vm.prank(alice);
         queue.joinQueue(STANDARD_DEPOSIT, 0);
+
+        StakingQueue.QueueEntry memory entry = queue.getQueueEntry(queueId);
+        assertFalse(entry.priority, "sequencer-down intake should fall back to standard lane");
+        assertEq(queue.tierStandardQueueLength(0), 1, "standard fallback entry recorded");
+        assertEq(queue.forageLockedPerEntry(queueId), 0, "standard fallback locks no FORAGE");
     }
 
-    function test_PUBLIC_AUDIT_OR03_oracleModeResumesAfterSequencerGrace() public {
+    function test_G2FRESH_OR03_oracleModeResumesAfterSequencerGrace() public {
         _setOracleMode(1 hours);
         vm.warp(10_000);
         oracle.setRoundData(2e8, block.timestamp);

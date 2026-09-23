@@ -8,6 +8,7 @@ import "../src/CustodianRegistry.sol";
 import "../src/GuardianModule.sol";
 import "../src/RISKUSD.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
+import "./mocks/MockAllowlist.sol";
 
 contract TestnetFinalizeDelayTargetTest is Test {
     uint256 internal constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
@@ -25,12 +26,22 @@ contract TestnetFinalizeDelayTargetTest is Test {
         RISKUSD implementation = new RISKUSD();
         bytes memory initData = abi.encodeCall(RISKUSD.initialize, (owner));
         riskusd = RISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
     }
 
     function _deployRegistry() internal returns (CustodianRegistry registry) {
         CustodianRegistry implementation = new CustodianRegistry();
         bytes memory initData = abi.encodeCall(CustodianRegistry.initialize, (owner, governor, guardianModule));
         registry = CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
     }
 
     function _deployBridge() internal returns (HLTradingBridge tradingBridge) {
@@ -49,11 +60,17 @@ contract TestnetFinalizeDelayTargetTest is Test {
                 HLTradingBridge.RouteConfig({
                     coldAccount: makeAddr("cold-account"),
                     hyperliquidSourceAccount: peer,
-                    withdrawalChainSelector: uint64(ARBITRUM_SEPOLIA_CHAIN_ID)
+                    withdrawalChainSelector: uint64(ARBITRUM_SEPOLIA_CHAIN_ID),
+                    sequencerUptimeFeed: makeAddr("sequencer-uptime-feed")
                 })
             )
         );
         tradingBridge = HLTradingBridge(address(new ERC1967Proxy(address(implementation), initData)));
+
+        MockAllowlist mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        tradingBridge.setAllowlist(address(mockAllowlist));
     }
 
     function test_TSCGB_A25_testnetFinalizeDelayIsTenMinutesAndProductionDelayStaysTwoDays() public {

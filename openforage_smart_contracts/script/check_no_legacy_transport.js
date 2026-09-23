@@ -4,6 +4,37 @@
 const fs = require("fs");
 const path = require("path");
 
+function renderStandardLogLine(record) {
+  const information = String(record.information).replace(/[\r\n]+/g, "\\n");
+  return (
+    `severity=${record.severity} group=${record.groupId} log=${record.logId} ` +
+    `SERVICE=${record.service} SUB-SERVICE=${record.subService} ` +
+    `COMPONENT=${record.component} FUNCTION=${record.function} ` +
+    `FILE:${record.file}:${record.line} information=${information}`
+  );
+}
+
+let diagnosticLogId = 0;
+
+function writeDiagnosticError(information) {
+  diagnosticLogId += 1;
+  process.stderr.write(
+    `${renderStandardLogLine({
+      severity: "ERROR",
+      timestamp: new Date().toISOString(),
+      groupId: "-",
+      logId: diagnosticLogId,
+      service: "scripts",
+      subService: "smart_contracts",
+      component: "check_no_legacy_transport",
+      function: "writeDiagnosticError",
+      file: "openforage_smart_contracts/script/check_no_legacy_transport.js",
+      line: 12,
+      information,
+    })}\n`,
+  );
+}
+
 function findRoots() {
   const cwd = process.cwd();
   if (fs.existsSync(path.join(cwd, "foundry.toml")) && fs.existsSync(path.join(cwd, "src"))) {
@@ -148,7 +179,7 @@ const result = {
 
 const output = JSON.stringify(result);
 if (matches.length > 0) {
-  console.error(output);
+  writeDiagnosticError(output);
   process.exit(1);
 }
 

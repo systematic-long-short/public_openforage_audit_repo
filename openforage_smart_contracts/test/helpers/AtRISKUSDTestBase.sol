@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../src/atRISKUSD.sol";
 import "../mocks/MockRISKUSD.sol";
 import "../mocks/MockYieldSourceForLossPending.sol";
+import "../mocks/MockAllowlist.sol";
 
 /// @dev Abstract base for atRISKUSD tests.
 /// Deploys atRISKUSD behind an ERC1967 proxy with tier 1 config
@@ -16,6 +17,7 @@ abstract contract AtRISKUSDTestBase is Test {
     atRISKUSD public implementation;
     MockRISKUSD public riskusd;
     MockYieldSourceForLossPending public mockYieldSource;
+    MockAllowlist public allowlist;
 
     address public owner;
     address public yieldSource;
@@ -44,6 +46,10 @@ abstract contract AtRISKUSDTestBase is Test {
         // Deploy mock RISKUSD
         riskusd = new MockRISKUSD();
 
+        // Deploy the caller-gate allowlist and allow every test actor
+        allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+
         // Deploy implementation
         implementation = new atRISKUSD();
 
@@ -63,6 +69,8 @@ abstract contract AtRISKUSDTestBase is Test {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         vault = atRISKUSD(address(proxy));
+        vm.prank(owner);
+        vault.setAllowlist(address(allowlist));
         if (_legacyRaiseWeeklyWithdrawalCap()) {
             _raiseWeeklyWithdrawalCap(vault);
         }
@@ -124,7 +132,10 @@ abstract contract AtRISKUSDTestBase is Test {
             )
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-        return atRISKUSD(address(proxy));
+        atRISKUSD fresh = atRISKUSD(address(proxy));
+        vm.prank(owner);
+        fresh.setAllowlist(address(allowlist));
+        return fresh;
     }
 
     function _tierAbbreviation(uint8 tierId_) internal pure returns (string memory) {

@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/RISKUSD.sol";
+import "./mocks/MockAllowlist.sol";
 
 // ============================================================
 // TC-09: Invariant Tests
@@ -99,6 +100,7 @@ contract RISKUSDHandler is Test {
 contract RISKUSD_TC09_Invariants is Test {
     RISKUSD public token;
     RISKUSDHandler public handler;
+    MockAllowlist public allowlist;
 
     address public owner;
     address public minterAddr;
@@ -111,6 +113,12 @@ contract RISKUSD_TC09_Invariants is Test {
         RISKUSD impl = new RISKUSD();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(RISKUSD.initialize, (owner)));
         token = RISKUSD(address(proxy));
+
+        // KYC-01: wire the shared allowlist with every actor allowed.
+        allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        token.setAllowlist(address(allowlist));
 
         // Setup minter (propose + delay + finalize)
         vm.startPrank(owner);

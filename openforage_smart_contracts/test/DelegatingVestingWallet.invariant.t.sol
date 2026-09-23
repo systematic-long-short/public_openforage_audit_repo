@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/DelegatingVestingWallet.sol";
+import "./mocks/MockAllowlist.sol";
 import "./mocks/MockForageTokenSimple.sol";
 
 // ============================================================
@@ -79,6 +80,7 @@ contract DelegatingVestingWalletHandler is Test {
 contract DelegatingVestingWallet_TC07_Invariants is Test {
     DelegatingVestingWallet public wallet;
     MockForageTokenSimple public token;
+    MockAllowlist public mockAllowlist;
     DelegatingVestingWalletHandler public handler;
 
     address public beneficiary;
@@ -102,8 +104,13 @@ contract DelegatingVestingWallet_TC07_Invariants is Test {
 
         startTimestamp = uint64(block.timestamp);
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+
         // Deploy wallet
-        wallet = new DelegatingVestingWallet(beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr);
+        wallet = new DelegatingVestingWallet(
+            beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr, address(mockAllowlist)
+        );
 
         // Deploy and fund token
         token = new MockForageTokenSimple();

@@ -1,7 +1,8 @@
 # Review Commands
 
-These commands are intended as starting points for local smart-contract review.
-They do not replace reviewer-specific tooling.
+These commands are intended as starting points for local review of the
+`e5c2c76d55e197044e30392c407b52af598a1681` source snapshot. They do not replace
+reviewer-specific tooling or constitute a fresh security audit.
 
 ## Smart Contracts
 
@@ -9,30 +10,22 @@ They do not replace reviewer-specific tooling.
 git submodule update --init --recursive
 cd openforage_smart_contracts
 forge build --force
-forge test --match-path test/DeployMainnet.target.t.sol
-forge test --match-path test/hyperliquid/HLTradingBridge.target.t.sol
-forge test --match-path test/USDCTreasury.target.t.sol
-forge test --match-path test/audit/external_2026_06_12/ExternalAudit20260612Repros.t.sol
-forge test --match-path test/audit/external_2026_06_17/ExternalAudit20260617Repros.t.sol
-forge test --match-path test/audit/external_2026_06_17/JourneyFulfillment20260617.t.sol
-make audit-static
-make audit-formal
-make audit-fuzz
-make audit-foundry
+node script/check_i15_setters.js
+node script/check_semgrep_rule_coverage.js .semgrep/openforage.yml
+node script/check_no_legacy_transport.js
+forge test --match-path test/Allowlist.t.sol
+forge test --match-path test/AllowlistGated.storage.t.sol
+forge test --match-path 'test/*.gate.t.sol' --fuzz-runs 64
+forge test --match-path test/ForageToken.delegateGate.t.sol --fuzz-runs 64
+forge test --match-path test/Gate.sweep.t.sol
+forge test --match-path test/Allowlist.fuzz.t.sol --fuzz-runs 64
 ```
 
-The suite includes active red/regression guards. Treat any failures as review
-inputs against this smart-contract snapshot rather than as documentation setup
-requirements.
+The focused commands above were run during this refresh: the build completed
+with compiler warnings, the selected static helper checks passed, and the test
+commands passed 100 tests in total. The Allowlist fuzz suite used 64 runs.
 
-The latest retained evidence for these gates is under
-`documentation/smart_contract_audits/2026-06-09-audit/openforage-smart-contract-audit/`.
-
-`forge test --summary` is intentionally not listed as a default command for this
-scoped export. The transferred source is byte-identical to the private
-smart-contract tree, but this repository excludes private-monorepo
-web/keeper/config paths that the `HLLegacyTransportStaticTest` scan-count guard
-expects. Running the full summary here produces one known export-scope failure:
-`static scan scope regressed: 34 < 40`. In the private source environment, the
-same checker scans 75 files and the retained audit evidence records the full
-summary as passing.
+The full Foundry suite, Slither, Semgrep execution, Echidna, Halmos, and
+high-depth fuzz/invariant campaigns were not run for this refresh. The retained
+June audit evidence and the existing public suppression/waiver files are
+historical and do not verify the current source revision.

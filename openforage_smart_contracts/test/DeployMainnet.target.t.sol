@@ -71,6 +71,8 @@ contract DeployMainnetTargetTest is Test {
         RISKUSD riskusd = RISKUSD(deployer.deployedRiskusd());
         assertEq(riskusd.minter(), deployer.deployedRiskusdVault(), "vault minter finalized");
         assertEq(riskusd.pendingMinter(), address(0), "no pending minter remains");
+        assertTrue(riskusd.isTransferExempt(deployer.deployedRiskusdVault()), "vault pause exemption seeded");
+        assertTrue(riskusd.isTransferExempt(deployer.deployedStakingQueue()), "staking queue pause exemption seeded");
     }
 
     function test_mainnetDryRunHandsOwnershipAndTimelockRolesToGovernance() public {
@@ -114,7 +116,7 @@ contract DeployMainnetTargetTest is Test {
         );
     }
 
-    function test_PUBLIC_AUDIT_FO05_mainnetDryRunWiresSharedBlocklistAndSequencerFeed() public {
+    function test_G2FRESH_FO05_mainnetDryRunWiresSharedBlocklistAndSequencerFeed() public {
         vm.chainId(deployer.MAINNET_CHAIN_ID());
 
         deployer.runDryRunWithPlaceholders();
@@ -134,7 +136,7 @@ contract DeployMainnetTargetTest is Test {
         _assertSharedBlocklist(deployer.deployedAtRiskTier2(), sharedBlocklist, "tier 2");
         _assertSharedBlocklist(deployer.deployedAtRiskTier3(), sharedBlocklist, "tier 3");
 
-        address uptimeFeed = deployer.ARBITRUM_ONE_SEQUENCER_UPTIME_FEED();
+        address uptimeFeed = deployer.cfgSequencerUptimeFeed();
         assertNotEq(uptimeFeed, address(0), "sequencer feed constant");
         assertEq(StakingQueue(deployer.deployedStakingQueue()).sequencerUptimeFeed(), uptimeFeed, "queue feed");
         assertEq(HLTradingBridge(deployer.deployedHLTradingBridge()).sequencerUptimeFeed(), uptimeFeed, "bridge feed");
@@ -145,6 +147,7 @@ contract DeployMainnetTargetTest is Test {
         address keeper = address(0xCA11);
         address custodianExecutor = address(0xCECE);
         address coldAccount = address(0xC01D);
+        address sequencerFeed = address(0xF00D);
         bytes32 sourceAccount = bytes32(uint256(uint160(coldAccount)));
         _setMainnetConfigEnv(keeper, custodianExecutor, coldAccount, sourceAccount, uint64(deployer.MAINNET_CHAIN_ID()));
 
@@ -155,12 +158,14 @@ contract DeployMainnetTargetTest is Test {
             address(0x1004),
             address(0x1005),
             address(0x1006),
-            address(0x1007)
+            address(0x1007),
+            sequencerFeed
         );
 
         assertEq(deployer.cfgKeeper(), keeper, "keeper sourced from config env");
         assertEq(deployer.cfgCustodianExecutor(), custodianExecutor, "executor sourced from config env");
         assertEq(deployer.cfgColdAccount(), coldAccount, "cold account sourced from config env");
+        assertEq(deployer.cfgSequencerUptimeFeed(), sequencerFeed, "sequencer feed sourced from config");
         assertEq(deployer.cfgHyperliquidSourceAccount(), sourceAccount, "source account sourced from config env");
         assertEq(
             deployer.cfgWithdrawalChainSelector(),
