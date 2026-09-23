@@ -4,10 +4,12 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../src/StakingQueue.sol";
+import "../../src/modules/StakingQueueModule.sol";
 import "../mocks/MockRISKUSD.sol";
 import "../mocks/MockForageTokenLocked.sol";
 import "../mocks/MockAtRISKUSD.sol";
 import "../mocks/MockVaultRegistry.sol";
+import "../mocks/MockAllowlist.sol";
 
 /// @dev Abstract base for StakingQueue tests.
 /// Deploys StakingQueue behind an ERC1967 proxy with MockRISKUSD, MockForageTokenLocked,
@@ -17,6 +19,7 @@ import "../mocks/MockVaultRegistry.sol";
 abstract contract StakingQueueTestBase is Test {
     StakingQueue public queue;
     StakingQueue public implementation;
+    StakingQueueModule public queueModule;
     MockRISKUSD public riskusd;
     MockForageTokenLocked public forage;
     MockAtRISKUSD public vault0;
@@ -24,6 +27,7 @@ abstract contract StakingQueueTestBase is Test {
     MockAtRISKUSD public vault2;
     MockAtRISKUSD public vault3;
     MockVaultRegistry public mockVaultRegistry;
+    MockAllowlist public mockAllowlist;
     uint256 public registeredVaultId;
 
     address public owner;
@@ -78,6 +82,15 @@ abstract contract StakingQueueTestBase is Test {
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         queue = StakingQueue(address(proxy));
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        queue.setAllowlist(address(mockAllowlist));
+
+        queueModule = new StakingQueueModule();
+        vm.prank(owner);
+        queue.setQueueModule(address(queueModule));
+
         // Link queue to its vault in the registry
         vm.prank(owner);
         queue.setVaultId(registeredVaultId);
@@ -112,6 +125,8 @@ abstract contract StakingQueueTestBase is Test {
     }
 
     /// @dev Set the ForageGovernor on the queue (propose + warp + finalize).
+    // via-IR merges identical block.timestamp expressions across warp calls: each two-step
+    // helper's warp argument is textually distinct so chained finalizes really advance time.
     function _setGovernor() internal {
         vm.startPrank(owner);
         queue.setForageGovernor(governor);
@@ -124,7 +139,7 @@ abstract contract StakingQueueTestBase is Test {
     function _setForagePriceUsd(uint256 price) internal {
         vm.startPrank(owner);
         queue.setForagePriceUsd(price);
-        vm.warp(block.timestamp + 2 days + 1);
+        vm.warp(block.timestamp + 2 days + 2);
         queue.finalizeForagePriceUsd();
         vm.stopPrank();
     }
@@ -153,7 +168,12 @@ abstract contract StakingQueueTestBase is Test {
         bytes memory initData =
             abi.encodeCall(StakingQueue.initialize, (riskusd_, forage_, tierVaults_, vaultRegistry_, owner_));
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
-        return StakingQueue(address(proxy));
+        StakingQueue fresh = StakingQueue(address(proxy));
+        vm.prank(owner_);
+        fresh.setAllowlist(address(mockAllowlist));
+        vm.prank(owner_);
+        fresh.setQueueModule(address(queueModule));
+        return fresh;
     }
 
     /// @dev Approve StakingQueue to spend RISKUSD on behalf of the queue

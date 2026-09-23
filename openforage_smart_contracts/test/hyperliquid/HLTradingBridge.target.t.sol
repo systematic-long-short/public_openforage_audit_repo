@@ -8,10 +8,13 @@ import "../../src/Blocklist.sol";
 import "../../src/CustodianRegistry.sol";
 import "../../src/RISKUSD.sol";
 import "../../src/RISKUSDVault.sol";
+import "../../src/modules/RISKUSDVaultModule.sol";
 import "../../src/USDCTreasury.sol";
 import "../../src/hyperliquid/HLTradingBridge.sol";
+import "../mocks/MockAllowlist.sol";
 import "../mocks/MockSequencerUptimeFeed.sol";
 import "../mocks/MockUSDC.sol";
+import "../mocks/MockVaultRegistry.sol";
 
 contract RevertingHLBridgeBlocklist {
     function isBlocked(address) external pure returns (bool) {
@@ -27,6 +30,7 @@ contract HLTradingBridge_TargetCustody is Test {
     HLTradingBridge internal bridge;
     CustodianRegistry internal custodianRegistry;
     Blocklist internal blocklist;
+    MockAllowlist internal mockAllowlist;
     MockSequencerUptimeFeed internal sequencer;
 
     address internal owner = makeAddr("timelock");
@@ -35,13 +39,14 @@ contract HLTradingBridge_TargetCustody is Test {
     address internal keeper = makeAddr("keeper");
     address internal executor = makeAddr("executor");
     address internal guardianModule = makeAddr("guardian-module");
-    address internal vaultRegistry = makeAddr("vault-registry");
+    MockVaultRegistry internal vaultRegistry;
     address internal vaultDepositor = makeAddr("vault-depositor");
     address internal coldAccount = makeAddr("hyperliquid-cold-account");
     address internal foundationPrimary = makeAddr("foundation-primary");
     address internal foundationBackup = makeAddr("foundation-backup");
     address internal protocolPrimary = makeAddr("protocol-primary");
     address internal protocolBackup = makeAddr("protocol-backup");
+    address internal pnlAttestor = makeAddr("pnl-attestor");
     address internal newKeeper = makeAddr("new-keeper");
     bytes32 internal sourceAccount = bytes32(uint256(uint160(address(0xBEEF))));
 
@@ -50,20 +55,45 @@ contract HLTradingBridge_TargetCustody is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
 
         RISKUSD riskusdImplementation = new RISKUSD();
         bytes memory riskusdInit = abi.encodeCall(RISKUSD.initialize, (owner));
         riskusd = RISKUSD(address(new ERC1967Proxy(address(riskusdImplementation), riskusdInit)));
+        vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
 
         CustodianRegistry registryImplementation = new CustodianRegistry();
         bytes memory registryInit =
             abi.encodeCall(CustodianRegistry.initialize, (owner, forageGovernor, guardianModule));
         custodianRegistry = CustodianRegistry(address(new ERC1967Proxy(address(registryImplementation), registryInit)));
+        vm.prank(owner);
+        custodianRegistry.setAllowlist(address(mockAllowlist));
 
         RISKUSDVault vaultImplementation = new RISKUSDVault();
         bytes memory vaultInit =
             abi.encodeCall(RISKUSDVault.initializeTarget, (address(usdc), address(riskusd), owner, owner, owner));
         riskusdVault = RISKUSDVault(address(new ERC1967Proxy(address(vaultImplementation), vaultInit)));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        riskusdVault.setVaultModule(address(vaultModule_));
+        vm.prank(owner);
+        riskusdVault.setAllowlist(address(mockAllowlist));
+
+        // The treasury reads tier yield splits from the registry on recognizePnL; register the
+        // test vault with the same split schedule the assertions were built against.
+        vaultRegistry = new MockVaultRegistry();
+        vaultRegistry.addTestVault(
+            "Bridge Vault",
+            "BV",
+            [address(0), address(0), address(0), address(0)],
+            makeAddr("staking-queue"),
+            10_000_000e6,
+            [uint256(0), uint256(90 days), uint256(180 days), uint256(360 days)],
+            [uint16(5000), uint16(5500), uint16(6000), uint16(6500)],
+            [uint16(2000), uint16(1500), uint16(1000), uint16(500)]
+        );
 
         USDCTreasury treasuryImplementation = new USDCTreasury();
         bytes memory treasuryInit = abi.encodeCall(
@@ -71,7 +101,7 @@ contract HLTradingBridge_TargetCustody is Test {
             (
                 address(usdc),
                 address(riskusdVault),
-                vaultRegistry,
+                address(vaultRegistry),
                 owner,
                 foundationPrimary,
                 foundationBackup,
@@ -80,10 +110,14 @@ contract HLTradingBridge_TargetCustody is Test {
             )
         );
         treasury = USDCTreasury(address(new ERC1967Proxy(address(treasuryImplementation), treasuryInit)));
+        vm.prank(owner);
+        treasury.setAllowlist(address(mockAllowlist));
 
         Blocklist blocklistImplementation = new Blocklist();
         bytes memory blocklistInit = abi.encodeCall(Blocklist.initialize, (blocklistGuardian, owner));
         blocklist = Blocklist(address(new ERC1967Proxy(address(blocklistImplementation), blocklistInit)));
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mockAllowlist));
         sequencer = new MockSequencerUptimeFeed();
 
         HLTradingBridge implementation = new HLTradingBridge();
@@ -101,11 +135,14 @@ contract HLTradingBridge_TargetCustody is Test {
                 HLTradingBridge.RouteConfig({
                     coldAccount: coldAccount,
                     hyperliquidSourceAccount: sourceAccount,
-                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR
+                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR,
+                    sequencerUptimeFeed: address(sequencer)
                 })
             )
         );
         bridge = HLTradingBridge(address(new ERC1967Proxy(address(implementation), initData)));
+        vm.prank(owner);
+        bridge.setAllowlist(address(mockAllowlist));
 
         CustodianRegistry.CustodianConfig memory hlConfig =
             custodianRegistry.hyperLiquidLaunchConfig(address(bridge), executor, 421_614, sourceAccount, 10_000_000e6);
@@ -113,6 +150,7 @@ contract HLTradingBridge_TargetCustody is Test {
         vm.startPrank(owner);
         custodianRegistry.proposeCustodianConfig(hlConfig);
         treasury.setHLTradingBridge(address(bridge));
+        treasury.setPnLAttestor(pnlAttestor);
         treasury.setBlocklist(address(blocklist));
         bridge.setBlocklist(address(blocklist));
         riskusd.setBlocklist(address(blocklist));
@@ -128,6 +166,7 @@ contract HLTradingBridge_TargetCustody is Test {
         riskusd.finalizeMinter();
         riskusdVault.finalizeCustodian();
         vm.stopPrank();
+        sequencer.setRoundData(0, block.timestamp - bridge.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
 
         usdc.mint(vaultDepositor, 10_000_000e6);
         vm.startPrank(vaultDepositor);
@@ -152,11 +191,15 @@ contract HLTradingBridge_TargetCustody is Test {
                 HLTradingBridge.RouteConfig({
                     coldAccount: coldAccount,
                     hyperliquidSourceAccount: sourceAccount,
-                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR
+                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR,
+                    sequencerUptimeFeed: address(sequencer)
                 })
             )
         );
-        return HLTradingBridge(address(new ERC1967Proxy(address(implementation), initData)));
+        HLTradingBridge unwired = HLTradingBridge(address(new ERC1967Proxy(address(implementation), initData)));
+        vm.prank(owner);
+        unwired.setAllowlist(address(mockAllowlist));
+        return unwired;
     }
 
     function test_TSCGB_A14_keeperNAVIsClampedAndStaleReportsRevert() public {
@@ -174,15 +217,33 @@ contract HLTradingBridge_TargetCustody is Test {
         bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp - 1 days - 1);
     }
 
-    function test_PUBLIC_AUDIT_EC01_arbitrumNAVFailsLoudWithoutSequencerFeed() public {
-        vm.chainId(bridge.ARBITRUM_ONE_CHAIN_ID());
+    function test_G2FRESH_EC01_freshInitializerRejectsMissingSequencerFeed() public {
+        HLTradingBridge implementation = new HLTradingBridge();
+        bytes memory initData = abi.encodeCall(
+            HLTradingBridge.initialize,
+            (
+                address(usdc),
+                address(riskusdVault),
+                address(treasury),
+                address(custodianRegistry),
+                owner,
+                keeper,
+                executor,
+                guardianModule,
+                HLTradingBridge.RouteConfig({
+                    coldAccount: coldAccount,
+                    hyperliquidSourceAccount: sourceAccount,
+                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR,
+                    sequencerUptimeFeed: address(0)
+                })
+            )
+        );
 
-        vm.prank(keeper);
-        vm.expectRevert(abi.encodeWithSelector(HLTradingBridge.SequencerUptimeFeedUnavailable.selector, address(0)));
-        bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
+        vm.expectRevert(HLTradingBridge.ZeroAddress.selector);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
-    function test_PUBLIC_AUDIT_EC01_sequencerDownBlocksNAVAttestation() public {
+    function test_G2FRESH_EC01_sequencerDownBlocksNAVAttestation() public {
         sequencer.setRoundData(1, block.timestamp - bridge.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
         vm.prank(owner);
         bridge.setSequencerUptimeFeed(address(sequencer));
@@ -193,7 +254,7 @@ contract HLTradingBridge_TargetCustody is Test {
         bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
     }
 
-    function test_PUBLIC_AUDIT_EC01_sequencerGraceBlocksNAVAttestation() public {
+    function test_G2FRESH_EC01_sequencerGraceBlocksNAVAttestation() public {
         sequencer.setRoundData(0, block.timestamp, block.timestamp);
         vm.prank(owner);
         bridge.setSequencerUptimeFeed(address(sequencer));
@@ -207,7 +268,7 @@ contract HLTradingBridge_TargetCustody is Test {
         bridge.postNAV(VAULT_ID, 1_000_000e6, 1_000_000e6, block.timestamp);
     }
 
-    function test_PUBLIC_AUDIT_EC01_sequencerUpAfterGraceAllowsNAVAttestation() public {
+    function test_G2FRESH_EC01_sequencerUpAfterGraceAllowsNAVAttestation() public {
         sequencer.setRoundData(0, block.timestamp - bridge.SEQUENCER_UPTIME_GRACE_PERIOD() - 1, block.timestamp);
         vm.prank(owner);
         bridge.setSequencerUptimeFeed(address(sequencer));
@@ -316,6 +377,8 @@ contract HLTradingBridge_TargetCustody is Test {
         bridge.postNAV(VAULT_ID, 19_000e6, 19_000e6, block.timestamp);
         assertFalse(riskusdVault.lossPending(), "true remaining NAV after return must not create false loss pending");
 
+        vm.prank(pnlAttestor);
+        treasury.recognizePnL(VAULT_ID, 500e6);
         vm.prank(executor);
         bridge.returnPnLUSDC(VAULT_ID, 500e6);
         assertEq(custodianRegistry.deployedByCustodian(id), 19_000e6, "PnL return must not reduce deployed exposure");
@@ -356,18 +419,25 @@ contract HLTradingBridge_TargetCustody is Test {
         vm.prank(owner);
         riskusdVault.setMaxDeploymentRatioBps(10_000);
 
+        // via-IR (deploy profile) can float `block.timestamp`/`block.number` reads across
+        // `vm.warp`/`vm.roll` cheatcode calls — including hoisting the in-loop NAV timestamp
+        // above the day-advancing warp — so drive time and block height from explicit cursors.
+        uint256 currentTime = block.timestamp;
+        uint256 currentBlock = block.number;
         for (uint256 i; i < 10; ++i) {
             if (i == 5) {
-                vm.warp(block.timestamp + 1 days + 1);
+                currentTime += 1 days + 1;
+                vm.warp(currentTime);
             }
             uint256 deployedPrincipal = bridge.deployedPrincipal();
             if (deployedPrincipal != 0) {
                 vm.prank(keeper);
-                bridge.postNAV(VAULT_ID, deployedPrincipal, deployedPrincipal, block.timestamp);
+                bridge.postNAV(VAULT_ID, deployedPrincipal, deployedPrincipal, currentTime);
             }
             vm.prank(executor);
             bridge.deployToHyperLiquid(1_000_000e6);
-            vm.roll(block.number + 1);
+            currentBlock += 1;
+            vm.roll(currentBlock);
         }
         assertEq(custodianRegistry.deployedByCustodian(id), 10_000_000e6, "registry max exposure reached");
 
@@ -382,10 +452,12 @@ contract HLTradingBridge_TargetCustody is Test {
         bridge.returnPrincipalUSDC(1_000_000e6);
         assertEq(custodianRegistry.deployedByCustodian(id), 9_000_000e6, "principal return must restore capacity");
 
-        vm.warp(block.timestamp + 1 days + 1);
-        vm.roll(block.number + 1);
+        currentTime += 1 days + 1;
+        vm.warp(currentTime);
+        currentBlock += 1;
+        vm.roll(currentBlock);
         vm.prank(keeper);
-        bridge.postNAV(VAULT_ID, 9_000_000e6, 9_000_000e6, block.timestamp);
+        bridge.postNAV(VAULT_ID, 9_000_000e6, 9_000_000e6, currentTime);
 
         vm.prank(executor);
         bridge.deployToHyperLiquid(1_000_000e6);

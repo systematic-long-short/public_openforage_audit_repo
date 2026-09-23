@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "./helpers/RISKUSDTestBase.sol";
 import "./helpers/RISKUSDV2.sol";
+import "../src/interfaces/IAllowlist.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -70,7 +71,7 @@ contract RISKUSD_TC10_UnauthorizedMint is RISKUSDTestBase {
 // ============================================================
 contract RISKUSD_TC11_ImplDirectCall is RISKUSDTestBase {
     function _getImplementationAddress() internal view returns (address) {
-        bytes32 slot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        bytes32 slot = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
         return address(uint160(uint256(vm.load(address(token), slot))));
     }
 
@@ -86,8 +87,8 @@ contract RISKUSD_TC11_ImplDirectCall is RISKUSDTestBase {
         address implAddr = _getImplementationAddress();
         RISKUSD impl = RISKUSD(implAddr);
 
-        // Implementation not initialized: minter mapping is empty
-        vm.expectRevert(RISKUSD.UnauthorizedMinter.selector);
+        // KYC-01: the implementation is never initialized, so the gate fails first.
+        vm.expectRevert(IAllowlist.AllowlistUnavailable.selector);
         impl.mint(alice, 100e6);
     }
 
@@ -95,7 +96,8 @@ contract RISKUSD_TC11_ImplDirectCall is RISKUSDTestBase {
         address implAddr = _getImplementationAddress();
         RISKUSD impl = RISKUSD(implAddr);
 
-        vm.expectRevert(RISKUSD.UnauthorizedMinter.selector);
+        // KYC-01: the implementation is never initialized, so the gate fails first.
+        vm.expectRevert(IAllowlist.AllowlistUnavailable.selector);
         impl.burn(alice, 100e6);
     }
 
@@ -171,6 +173,11 @@ contract RISKUSD_TC11_ImplDirectCall is RISKUSDTestBase {
         uint256 i = 0;
         while (i < codeLen) {
             uint8 op = uint8(code[i]);
+            if (op == 0xfe) {
+                // Code-section terminator: via-IR appends a constants blob after it whose raw
+                // bytes decode to phantom opcodes (3 phantom 0xf4s there); trailing data is not code.
+                break;
+            }
             if (op == 0xf4) {
                 delegatecallCount++;
                 i++;
@@ -182,10 +189,9 @@ contract RISKUSD_TC11_ImplDirectCall is RISKUSDTestBase {
             }
         }
 
-        // OZ v5.6.1 UUPS path generates 2 DELEGATECALL opcodes via ERC1967Utils
-        // (Address.functionDelegateCall -> LowLevelCall.delegatecallNoReturn, plus
-        // the beacon upgrade path's copy). Any custom delegatecall would exceed this.
-        assertLe(delegatecallCount, 2, "Implementation contains more DELEGATECALL opcodes than expected from UUPS");
+        // OZ v5.6.1 UUPS generates exactly 1 DELEGATECALL (ERC1967Utils upgrade path:
+        // Address.functionDelegateCall). Any custom delegatecall would exceed this.
+        assertLe(delegatecallCount, 1, "Implementation contains more DELEGATECALL opcodes than expected from UUPS");
     }
 }
 
@@ -196,7 +202,7 @@ contract RISKUSD_TC11_ImplDirectCall is RISKUSDTestBase {
 // ============================================================
 contract RISKUSD_R27_Reentrancy is RISKUSDTestBase {
     // ReentrancyGuard namespaced storage slot (from OZ v5)
-    bytes32 constant REENTRANCY_GUARD_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
+    bytes32 constant REENTRANCY_GUARD_SLOT = 0x9b779b17422d0df9_2223018b32b4d1fa_46e071723d6817e2_486d003becc55f00;
     uint256 constant ENTERED = 2;
 
     function setUp() public override {

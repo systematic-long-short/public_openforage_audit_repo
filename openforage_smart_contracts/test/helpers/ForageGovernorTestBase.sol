@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/governance/IGovernor.sol";
 import "../../src/ForageGovernor.sol";
 import "../../src/GuardianModule.sol";
 import "../mocks/MockForageTokenVotes.sol";
+import "../mocks/MockAllowlist.sol";
 import "./MockPausable.sol";
 import "./RevertTarget.sol";
 
@@ -21,6 +22,7 @@ abstract contract ForageGovernorTestBase is Test {
     GuardianModule public guardianModuleContract;
     GuardianModule public guardianModuleImpl;
     MockForageTokenVotes public token;
+    MockAllowlist public allowlistMock;
     TimelockController public timelock;
     MockPausable public mockPausable;
     RevertTarget public revertTarget;
@@ -150,6 +152,12 @@ abstract contract ForageGovernorTestBase is Test {
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         governor = ForageGovernor(payable(address(proxy)));
 
+        // ── Wire the caller gate: allowlist mock, all callers allowed ────
+        allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+        vm.prank(address(timelock));
+        governor.setAllowlist(address(allowlistMock));
+
         // ── Deploy GuardianModule impl + proxy ──────────────────────────
         guardianModuleImpl = new GuardianModule();
 
@@ -168,6 +176,9 @@ abstract contract ForageGovernorTestBase is Test {
             abi.encodeCall(GuardianModule.initialize, (address(governor), address(timelock), guardians, permissions));
         ERC1967Proxy moduleProxy = new ERC1967Proxy(address(guardianModuleImpl), moduleInitData);
         guardianModuleContract = GuardianModule(address(moduleProxy));
+
+        vm.prank(address(timelock));
+        guardianModuleContract.setAllowlist(address(allowlistMock));
 
         // ── Configure TimelockController: grant governor PROPOSER_ROLE ──
         bytes32 PROPOSER_ROLE = keccak256("PROPOSER_ROLE");

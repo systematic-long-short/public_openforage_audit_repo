@@ -12,7 +12,7 @@ invariant = { runs = 1000, depth = 200 }
 ffi = true
 # Read-only filesystem access for the defence-in-depth traceability test
 # (test/audit/DefenceInDepthTraceability.t.sol uses vm.readFile to assert
-# every R-1..R-41 row in documentation/smart_contract_audits/defence_in_depth.md
+# every R-1..R-41 row in audits/defence_in_depth.md
 # has a live source/runbook anchor).
 fs_permissions = [
     { access = "read", path = "./src" },
@@ -25,8 +25,7 @@ fs_permissions = [
     { access = "read", path = "./echidna.yaml" },
     { access = "read", path = "./halmos.toml" },
     { access = "read", path = "./simplify_waivers.json" },
-    { access = "read", path = "../documentation" },
-    { access = "read", path = "../plans" },
+    { access = "read", path = "./audits" },
     { access = "read-write", path = "./deployments" },
 ]
 

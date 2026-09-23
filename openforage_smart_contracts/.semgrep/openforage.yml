@@ -40,3 +40,26 @@ rules:
       - pattern-regex: '(?s)function\s+deposit\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+redeem\s*\('
       - pattern-regex: '(?s)function\s+redeem\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+deployCapital\s*\('
       - pattern-regex: '(?s)function\s+deployCapital\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+returnCapital\s*\('
+
+  - id: openforage-allowlist-gate-missing-modifier
+    severity: ERROR
+    languages: [generic]
+    message: "OpenForage KYC-01/DEC-1074: every external or public state-changing function needs onlyAllowedCaller; only the explicit exempt allowlist may omit it."
+    paths:
+      include:
+        - "**/src/**/*.sol"
+      exclude:
+        - "**/src/interfaces/**"
+    patterns:
+      # Exempt allowlist, explicit and reviewable.
+      # Nine token selector signatures:
+      #   RISKUSD.transfer(address,uint256), RISKUSD.approve(address,uint256), RISKUSD.transferFrom(address,address,uint256)
+      #   atRISKUSD.transfer(address,uint256), atRISKUSD.approve(address,uint256), atRISKUSD.transferFrom(address,address,uint256)
+      #   ForageToken.transfer(address,uint256), ForageToken.approve(address,uint256), ForageToken.transferFrom(address,address,uint256)
+      # Allowlist.sol own surface: approve, approveOperator, revoke, shrinkApprovalsPerDayCap, setSystemAccount,
+      #   proposeRegistrar, finalizeRegistrar, cancelRegistrar, proposeGuardian, finalizeGuardian, cancelGuardian,
+      #   proposeSystemRegistrar, finalizeSystemRegistrar, cancelSystemRegistrar, initialize.
+      # AllowlistGatedUpgradeable own surface: allowlist, __AllowlistGated_init, _setAllowlist, _checkAllowedCaller.
+      # Bootstrap entry points: initialize, initializeTarget, setAllowlist, setVaultModule, setQueueModule.
+      # Delegatecall bodies: onlyDelegateCall functions run only through a gated forwarder; a direct call reverts.
+      - pattern-regex: 'function\s+(?!(?:transfer|approve|transferFrom|initialize|initializeTarget|setAllowlist|setVaultModule|setQueueModule|approveOperator|revoke|shrinkApprovalsPerDayCap|setSystemAccount|proposeRegistrar|finalizeRegistrar|cancelRegistrar|proposeGuardian|finalizeGuardian|cancelGuardian|proposeSystemRegistrar|finalizeSystemRegistrar|cancelSystemRegistrar)\b)[A-Za-z0-9_]+\s*\([^)]*\)(?![^{;]*\b(?:onlyAllowedCaller|onlyDelegateCall)\b)(?=[^{;]*\b(?:external|public)\b)(?![^{;]*\b(?:view|pure)\b)[^{;]*\{'

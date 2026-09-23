@@ -9,13 +9,15 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./interfaces/IBlocklist.sol";
+import "./AllowlistGatedUpgradeable.sol";
 
 contract ForageToken is
     Initializable,
     ERC20Upgradeable,
     Ownable2StepUpgradeable,
     ERC20VotesUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    AllowlistGatedUpgradeable
 {
     using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -38,6 +40,10 @@ contract ForageToken is
     error AllowanceChangeRequiresZero(address spender, uint256 currentAllowance, uint256 requestedAllowance);
     error LockBalanceExceedsBalance(address account, uint256 locked, uint256 balance);
     error TooManyAccountLockers(address account, uint256 maxLockers);
+    error TooManyDelegateSources(address delegatee, uint256 count, uint256 maximum);
+    error DelegateSourceTrackingFailed(address delegatee, address source);
+    error TargetHasNoCode(address target);
+    error InvalidBlocklist(address target);
 
     // Events
     event TokensReleased(address indexed to, uint256 amount);
@@ -57,6 +63,7 @@ contract ForageToken is
     uint256 public constant FORAGE_TREASURY_ALLOCATION =
         AGENT_ALLOCATION + DEPOSITOR_ALLOCATION + PARTNERSHIP_ALLOCATION;
     uint256 public constant MAX_LOCKERS_PER_ACCOUNT = 32;
+    uint256 public constant MAX_DELEGATE_SOURCES = 128;
 
     // State
     mapping(address => bool) internal _authorizedBurners;
@@ -113,14 +120,14 @@ contract ForageToken is
     /// All tokens are minted to specific addresses during initialize(). This function is
     /// effectively unreachable in production. Retained for backward compatibility.
     /// @dev DEPRECATED: Will be removed in a future upgrade.
-    function releaseTokens(address to, uint256 amount) external onlyOwner {
+    function releaseTokens(address to, uint256 amount) external onlyAllowedCaller onlyOwner {
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         _transfer(address(this), to, amount);
         emit TokensReleased(to, amount);
     }
 
-    function delegate(address delegatee) public override {
+    function delegate(address delegatee) public override onlyAllowedCaller {
         address account = _msgSender();
         _requireNotBlocked(account);
         if (delegatee != address(0)) {
@@ -158,7 +165,7 @@ contract ForageToken is
     /// @notice Seeds delegate-source trackers for delegations that existed before this implementation.
     /// @dev Pre-upgrade delegated votes fail closed while source tracking is missing or incomplete.
     /// Sources are intentionally allowed to already be blocked.
-    function syncDelegateSources(address[] calldata sources) external onlyOwner {
+    function syncDelegateSources(address[] calldata sources) external onlyAllowedCaller onlyOwner {
         for (uint256 i; i < sources.length;) {
             if (sources[i] == address(0)) revert ZeroAddress();
             _syncDelegateSourceContribution(sources[i]);
@@ -176,7 +183,7 @@ contract ForageToken is
     ///   (a) query ForageToken.lockerBalances(account, address(this)) before acting on assumed lock amounts, or
     ///   (b) monitor ForageUnlocked events indexed by their address to detect pro-rata reductions.
     /// Failure to do so may allow users to perform actions requiring more locked tokens than actually exist.
-    function burn(address from, uint256 amount) external {
+    function burn(address from, uint256 amount) external onlyAllowedCaller {
         if (!_authorizedBurners[msg.sender]) revert UnauthorizedBurner(msg.sender);
         _requireNotBlocked(msg.sender);
         if (from == address(0)) revert ZeroAddress();
@@ -253,7 +260,7 @@ contract ForageToken is
         emit ForageBurned(from, amount, msg.sender);
     }
 
-    function setAuthorizedBurner(address burner_, bool authorized_) external onlyOwner {
+    function setAuthorizedBurner(address burner_, bool authorized_) external onlyAllowedCaller onlyOwner {
         if (burner_ == address(0)) revert ZeroAddress();
         _authorizedBurners[burner_] = authorized_;
         emit AuthorizedBurnerUpdated(burner_, authorized_);
@@ -277,7 +284,7 @@ contract ForageToken is
         return super.transferFrom(from, to, value);
     }
 
-    function lock(address account, uint256 amount) external {
+    function lock(address account, uint256 amount) external onlyAllowedCaller {
         if (!_authorizedLockers[msg.sender]) revert UnauthorizedLocker(msg.sender);
         _requireNotBlocked(msg.sender);
         if (account == address(0)) revert ZeroAddress();
@@ -299,7 +306,7 @@ contract ForageToken is
         emit ForageLocked(account, amount, msg.sender);
     }
 
-    function unlock(address account, uint256 amount) external {
+    function unlock(address account, uint256 amount) external onlyAllowedCaller {
         if (!_authorizedLockers[msg.sender]) revert UnauthorizedLocker(msg.sender);
         _requireNotBlocked(msg.sender);
         if (account == address(0)) revert ZeroAddress();
@@ -323,13 +330,13 @@ contract ForageToken is
     /// ensure all active locks by this locker are cleared via unlockBatch() or direct unlock() calls.
     /// Recovery procedure if locks are stranded: re-authorize the locker temporarily, call
     /// unlockBatch() for all affected accounts, then deauthorize again.
-    function setAuthorizedLocker(address locker_, bool authorized_) external onlyOwner {
+    function setAuthorizedLocker(address locker_, bool authorized_) external onlyAllowedCaller onlyOwner {
         if (locker_ == address(0)) revert ZeroAddress();
         _authorizedLockers[locker_] = authorized_;
         emit AuthorizedLockerUpdated(locker_, authorized_);
     }
 
-    function setLockExempt(address account, bool exempt) external onlyOwner {
+    function setLockExempt(address account, bool exempt) external onlyAllowedCaller onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         // OF-15-020: Revert if granting exemption while account has active locks.
         // Lockers must explicitly unlock first via unlock/unlockBatch/emergencyUnlock.
@@ -358,7 +365,7 @@ contract ForageToken is
     /// @dev Only works when the locker has been deauthorized (_authorizedLockers[locker] == false).
     /// Reads _lockerBalances[account][locker], decrements _lockedBalances[account], clears the
     /// per-locker balance, removes locker from _accountLockers[account], and emits ForageUnlocked.
-    function emergencyUnlock(address account, address locker) external onlyOwner {
+    function emergencyUnlock(address account, address locker) external onlyAllowedCaller onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         if (locker == address(0)) revert ZeroAddress();
         _requireNotBlocked(account);
@@ -371,7 +378,7 @@ contract ForageToken is
         emit ForageUnlocked(account, lockerBal, locker);
     }
 
-    function unlockBatch(address[] calldata accounts, uint256[] calldata amounts) external {
+    function unlockBatch(address[] calldata accounts, uint256[] calldata amounts) external onlyAllowedCaller {
         if (!_authorizedLockers[msg.sender]) revert UnauthorizedLocker(msg.sender);
         _requireNotBlocked(msg.sender);
         // OF-L23: Use semantically correct error for array length mismatch
@@ -411,11 +418,25 @@ contract ForageToken is
         return _authorizedLockers[locker];
     }
 
-    function setBlocklist(address blocklist_) external onlyOwner {
+    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
+        _requireValidBlocklist(blocklist_);
         address oldBlocklist = _blocklist;
         _blocklist = blocklist_;
         emit BlocklistSet(oldBlocklist, blocklist_);
+    }
+
+    /// @dev Configuration-time code+interface probe (mirror of DelegatingVestingWallet's
+    /// `_requireValidBlocklist`): a blocklist that cannot answer `isBlocked`/`wasBlockedAt` would
+    /// silently brick every governance and FORAGE transfer path that consults it.
+    function _requireValidBlocklist(address blocklist_) private view {
+        if (blocklist_.code.length == 0) revert TargetHasNoCode(blocklist_);
+        try IBlocklist(blocklist_).isBlocked(address(this)) {} catch {
+            revert InvalidBlocklist(blocklist_);
+        }
+        try IBlocklist(blocklist_).wasBlockedAt(address(this), block.timestamp) {} catch {
+            revert InvalidBlocklist(blocklist_);
+        }
     }
 
     function blocklist() external view returns (address) {
@@ -449,6 +470,27 @@ contract ForageToken is
         _syncDelegateSourceContribution(to);
     }
 
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        onlyAllowedCaller
+    {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
+    }
+
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
     function renounceOwnership() public pure override {
         revert RenounceOwnershipDisabled();
     }
@@ -462,19 +504,32 @@ contract ForageToken is
         }
     }
 
+    function _recordHistoricalDelegateSource(address delegatee, address source) internal {
+        bool added = _historicalDelegateSources[delegatee].add(source);
+        if (!added && !_historicalDelegateSources[delegatee].contains(source)) {
+            revert DelegateSourceTrackingFailed(delegatee, source);
+        }
+    }
+
+    function _recordActiveDelegateSource(address delegatee, address source) internal {
+        bool added = _delegateSources[delegatee].add(source);
+        if (!added && !_delegateSources[delegatee].contains(source)) {
+            revert DelegateSourceTrackingFailed(delegatee, source);
+        }
+    }
+
     function _setDelegateSource(address source, address oldDelegate, address newDelegate) internal {
         if (oldDelegate != address(0)) {
             bool wasTracked = _delegateSources[oldDelegate].remove(source);
             if (wasTracked || _historicalDelegateSources[oldDelegate].contains(source)) {
-                _historicalDelegateSources[oldDelegate].add(source);
+                _recordHistoricalDelegateSource(oldDelegate, source);
                 _writeDelegateSourceCheckpoint(oldDelegate, source, 0);
             }
         }
         if (newDelegate != address(0)) {
             uint256 votes = balanceOf(source);
             if (votes == 0) return;
-            _delegateSources[newDelegate].add(source);
-            _historicalDelegateSources[newDelegate].add(source);
+            _trackDelegateSource(newDelegate, source);
             _writeDelegateSourceCheckpoint(newDelegate, source, votes);
         }
     }
@@ -488,15 +543,25 @@ contract ForageToken is
         if (votes == 0) {
             bool wasTracked = _delegateSources[delegatee].remove(source);
             if (wasTracked || _historicalDelegateSources[delegatee].contains(source)) {
-                _historicalDelegateSources[delegatee].add(source);
+                _recordHistoricalDelegateSource(delegatee, source);
                 _writeDelegateSourceCheckpoint(delegatee, source, 0);
             }
             return;
         }
 
-        _delegateSources[delegatee].add(source);
-        _historicalDelegateSources[delegatee].add(source);
+        _trackDelegateSource(delegatee, source);
         _writeDelegateSourceCheckpoint(delegatee, source, votes);
+    }
+
+    function _trackDelegateSource(address delegatee, address source) internal {
+        if (!_historicalDelegateSources[delegatee].contains(source)) {
+            uint256 sourceCount = _historicalDelegateSources[delegatee].length();
+            if (sourceCount >= MAX_DELEGATE_SOURCES) {
+                revert TooManyDelegateSources(delegatee, sourceCount, MAX_DELEGATE_SOURCES);
+            }
+            _recordHistoricalDelegateSource(delegatee, source);
+        }
+        _recordActiveDelegateSource(delegatee, source);
     }
 
     function _writeDelegateSourceCheckpoint(address delegatee, address source, uint256 votes) internal {

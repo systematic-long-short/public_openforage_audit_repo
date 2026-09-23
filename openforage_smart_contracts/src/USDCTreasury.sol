@@ -8,7 +8,9 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
+import "./interfaces/IVaultRegistry.sol";
 
 interface IUSDCTreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
@@ -27,7 +29,8 @@ contract USDCTreasury is
     Ownable2StepUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuard,
-    FinalizeDelayProfile
+    FinalizeDelayProfile,
+    AllowlistGatedUpgradeable
 {
     using SafeERC20 for IERC20;
 
@@ -35,6 +38,7 @@ contract USDCTreasury is
     error ZeroAmount();
     error UnauthorizedAttestor();
     error UnauthorizedBridge();
+    error UnauthorizedDistributor();
     error PurposeCapExceeded();
     error InsufficientEarmark();
     error DestinationNotAllowed();
@@ -47,6 +51,8 @@ contract USDCTreasury is
     error RenounceOwnershipDisabled();
     error PrincipalReturnsUseVault();
     error USDCAmountMismatch(uint256 expected, uint256 actual);
+    error PnLNotRecognized(uint256 vaultId);
+    error ProposalExpired();
 
     bytes32 public constant EARMARK_VAULT_TOP_UP = keccak256("VAULT_TOP_UP");
     bytes32 public constant EARMARK_AGENT_PAY = keccak256("AGENT_PAY");
@@ -61,6 +67,7 @@ contract USDCTreasury is
     uint256 public constant PROTOCOL_RETAINED_DAILY_CAP = 1_000_000e6;
     uint16 public constant AGENT_PAY_CAP_BPS = 1_000;
     uint256 public constant MAX_AGENT_PAY_BATCH = 100;
+    uint256 public constant PROPOSAL_EXPIRY = 30 days;
 
     IERC20 private _usdc;
     address public riskusdVault;
@@ -86,8 +93,12 @@ contract USDCTreasury is
     mapping(bytes32 => uint256) private _earmarkWindowStart;
     mapping(bytes32 => uint256) private _earmarkWindowUsed;
     mapping(uint256 => uint256) public fundedDepositorClaim;
+    mapping(uint256 => uint256) public pendingVaultTopUp;
 
-    uint256[31] private __gap;
+    address private _distributor;
+    address private _pendingDistributor;
+
+    uint256[28] private __gap;
 
     event PnLRecognized(uint256 indexed vaultId, int256 amount);
     event PrincipalReturned(uint256 amount);
@@ -98,9 +109,15 @@ contract USDCTreasury is
     event BlocklistSet(address indexed blocklist);
     event FoundationPrimaryProposed(address indexed wallet, uint256 proposedAt);
     event FoundationPrimaryFinalized(address indexed wallet);
+    event FoundationPrimaryCancelled(address indexed wallet);
 
     constructor() {
         _disableInitializers();
+    }
+
+    modifier onlyOwnerOrDistributor() {
+        if (msg.sender != owner() && msg.sender != _distributor) revert UnauthorizedDistributor();
+        _;
     }
 
     function initialize(
@@ -131,33 +148,58 @@ contract USDCTreasury is
         _earmarkWindowStart[EARMARK_FOUNDATION] = block.timestamp;
     }
 
-    function setPnLAttestor(address attestor) external onlyOwner {
+    function setPnLAttestor(address attestor) external onlyAllowedCaller onlyOwner {
         if (attestor == address(0)) revert ZeroAddress();
         pnlAttestor = attestor;
         emit PnLAttestorSet(attestor);
     }
 
-    function setHLTradingBridge(address bridge) external onlyOwner {
+    function setHLTradingBridge(address bridge) external onlyAllowedCaller onlyOwner {
         if (bridge == address(0)) revert ZeroAddress();
         hlTradingBridge = bridge;
         emit HLTradingBridgeSet(bridge);
     }
 
-    function setBlocklist(address blocklist_) external onlyOwner {
+    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         blocklist = blocklist_;
         emit BlocklistSet(blocklist_);
     }
 
-    function recognizePnL(uint256 vaultId, int256 amount) external {
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
+    function setDistributor(address distributor_) external onlyAllowedCaller onlyOwner {
+        if (distributor_ == address(0)) revert ZeroAddress();
+        _pendingDistributor = distributor_;
+    }
+
+    function acceptDistributor() external onlyAllowedCaller {
+        if (msg.sender != _pendingDistributor) revert UnauthorizedDistributor();
+        _distributor = msg.sender;
+        _pendingDistributor = address(0);
+    }
+
+    function distributor() external view returns (address) {
+        return _distributor;
+    }
+
+    function pendingDistributor() external view returns (address) {
+        return _pendingDistributor;
+    }
+
+    function recognizePnL(uint256 vaultId, int256 amount) external onlyAllowedCaller {
         if (msg.sender != pnlAttestor) revert UnauthorizedAttestor();
         if (amount >= 0) {
             uint256 profit = SignedMath.abs(amount);
             recognizedProfit[vaultId] += profit;
             uint256 depositorClaim = profit * 7_000 / 10_000;
             recognizedDepositorClaim[vaultId] += depositorClaim;
+            // Tier splits are read from the canonical registry record, not restated here (P42).
+            uint16[4] memory yieldSplits = IVaultRegistry(vaultRegistry).getVault(vaultId).yieldSplitsBps;
             for (uint8 i; i < 4; ++i) {
-                _tierAccountingValue[vaultId][i] += profit * (5_000 + uint256(i) * 500) / 10_000;
+                _tierAccountingValue[vaultId][i] += profit * uint256(yieldSplits[i]) / 10_000;
             }
         } else {
             uint256 loss = SignedMath.abs(amount);
@@ -173,19 +215,20 @@ contract USDCTreasury is
         revert PrincipalReturnsUseVault();
     }
 
-    function recordPrincipalReturnUSDC(uint256 amount) external nonReentrant {
+    function recordPrincipalReturnUSDC(uint256 amount) external onlyAllowedCaller nonReentrant {
         if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
         if (amount == 0) revert ZeroAmount();
         totalPrincipalReturned += amount;
         emit PrincipalReturned(amount);
     }
 
-    function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyOwner nonReentrant {
+    function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyAllowedCaller onlyOwner nonReentrant {
         IRISKUSDVaultLossSettlement(riskusdVault).burnForLoss(vaultId, riskusdAmount);
     }
 
     function coverAndBurnForLoss(uint256 vaultId, uint256 riskusdAmount, uint256 coverUsdcAmount)
         external
+        onlyAllowedCaller
         onlyOwner
         nonReentrant
     {
@@ -199,7 +242,7 @@ contract USDCTreasury is
         }
     }
 
-    function replenish(uint256 usdcAmount) external onlyOwner nonReentrant {
+    function replenish(uint256 usdcAmount) external onlyAllowedCaller onlyOwner nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
         _usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         _usdc.forceApprove(riskusdVault, usdcAmount);
@@ -207,9 +250,10 @@ contract USDCTreasury is
         _usdc.forceApprove(riskusdVault, 0);
     }
 
-    function returnPnLUSDC(uint256 vaultId, uint256 amount) external nonReentrant {
+    function returnPnLUSDC(uint256 vaultId, uint256 amount) external onlyAllowedCaller nonReentrant {
         if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
         if (amount == 0) revert ZeroAmount();
+        if (recognizedProfit[vaultId] == 0) revert PnLNotRecognized(vaultId);
         uint256 balanceBefore = _usdc.balanceOf(address(this));
         _usdc.safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = _usdc.balanceOf(address(this)) - balanceBefore;
@@ -225,6 +269,7 @@ contract USDCTreasury is
         }
         uint256 agent = amount - foundation - retained - vaultTopUp;
         fundedDepositorClaim[vaultId] = fundedClaim + vaultTopUp;
+        pendingVaultTopUp[vaultId] += vaultTopUp;
 
         earmarkBalance[EARMARK_FOUNDATION] += foundation;
         earmarkBalance[EARMARK_PROTOCOL_RETAINED] += retained;
@@ -233,13 +278,19 @@ contract USDCTreasury is
         emit PnLReturned(vaultId, amount);
     }
 
-    function disburse(bytes32 earmark, address recipient, uint256 amount) external onlyOwner nonReentrant {
+    function disburse(bytes32 earmark, address recipient, uint256 amount)
+        external
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
         _disburse(earmark, recipient, amount);
     }
 
     function disburseAgentPayBatch(address[] calldata recipients, uint256[] calldata amounts)
         external
-        onlyOwner
+        onlyAllowedCaller
+        onlyOwnerOrDistributor
         nonReentrant
     {
         uint256 count = recipients.length;
@@ -250,31 +301,40 @@ contract USDCTreasury is
         }
     }
 
-    function disburseFoundation(uint256 amount) external onlyOwner nonReentrant {
+    function disburseFoundation(uint256 amount) external onlyAllowedCaller onlyOwner nonReentrant {
         address recipient = _isBlocked(foundationPrimary) ? foundationBackup : foundationPrimary;
         _disburse(EARMARK_FOUNDATION, recipient, amount);
     }
 
-    function disburseProtocolRetained(uint256 amount) external onlyOwner nonReentrant {
+    function disburseProtocolRetained(uint256 amount) external onlyAllowedCaller onlyOwner nonReentrant {
         address recipient = _isBlocked(protocolPrimary) ? protocolBackup : protocolPrimary;
         _disburse(EARMARK_PROTOCOL_RETAINED, recipient, amount);
     }
 
-    function proposeFoundationPrimary(address wallet) external onlyOwner {
+    function proposeFoundationPrimary(address wallet) external onlyAllowedCaller onlyOwner {
         if (wallet == address(0)) revert ZeroAddress();
         pendingFoundationPrimary = wallet;
         pendingFoundationPrimaryAt = block.timestamp;
         emit FoundationPrimaryProposed(wallet, block.timestamp);
     }
 
-    function finalizeFoundationPrimary() external onlyOwner {
+    function finalizeFoundationPrimary() external onlyAllowedCaller onlyOwner {
         address wallet = pendingFoundationPrimary;
         if (wallet == address(0)) revert NoPendingWallet();
         if (block.timestamp < pendingFoundationPrimaryAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
+        if (block.timestamp > pendingFoundationPrimaryAt + PROPOSAL_EXPIRY) revert ProposalExpired();
         foundationPrimary = wallet;
         pendingFoundationPrimary = address(0);
         pendingFoundationPrimaryAt = 0;
         emit FoundationPrimaryFinalized(wallet);
+    }
+
+    function cancelPendingFoundationPrimary() external onlyAllowedCaller onlyOwner {
+        address wallet = pendingFoundationPrimary;
+        if (wallet == address(0)) revert NoPendingWallet();
+        pendingFoundationPrimary = address(0);
+        pendingFoundationPrimaryAt = 0;
+        emit FoundationPrimaryCancelled(wallet);
     }
 
     function tierAccountingAdjustmentBps(uint256 vaultId, uint8 tier) external view returns (int256) {
@@ -299,6 +359,18 @@ contract USDCTreasury is
 
     function renounceOwnership() public pure override {
         revert RenounceOwnershipDisabled();
+    }
+
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
     }
 
     function _disburse(bytes32 earmark, address recipient, uint256 amount) internal {
@@ -357,5 +429,9 @@ contract USDCTreasury is
         }
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _authorizeUpgrade(address) internal override onlyOwner {
+        // Match the codebase's upgrade-wipes-pending-proposals norm (OF-L06).
+        pendingFoundationPrimary = address(0);
+        pendingFoundationPrimaryAt = 0;
+    }
 }

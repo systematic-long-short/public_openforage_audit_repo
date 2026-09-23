@@ -4,10 +4,12 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../src/ForageToken.sol";
+import "../mocks/MockAllowlist.sol";
 
 abstract contract ForageTokenTestBase is Test {
     ForageToken public token;
     ForageToken public implementation;
+    MockAllowlist public allowlistMock;
 
     address public owner;
     address public teamVesting;
@@ -46,6 +48,11 @@ abstract contract ForageTokenTestBase is Test {
         bytes memory initData = abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         token = ForageToken(address(proxy));
+
+        allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+        vm.prank(owner);
+        token.setAllowlist(address(allowlistMock));
     }
 
     /// @dev Transfer tokens from a recipient to alice for testing

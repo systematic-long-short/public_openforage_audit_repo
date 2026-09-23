@@ -8,10 +8,28 @@ Agent export rules live in `AGENTS.md`. Refreshes are built on a public pull
 request branch from the allowlist in that file, with scan and review evidence
 attached to the PR before merge.
 
-Smart-contract source copied from private OpenForage commit
-`34c8793713556453bd5af450b17b215de88f0f45`.
+## Current Source Snapshot
 
-## Readiness Status
+The pinned private source revision for this refresh is
+`e5c2c76d55e197044e30392c407b52af598a1681`. All 26 production Solidity files
+under `contracts/src/` and all 18 ABI files under `contracts/abi/` are
+byte-identical to that revision. The refresh adds the investor `Allowlist`, its
+caller-gate mixin, the RISKUSD vault and staking-queue delegate modules, and
+their focused tests and support.
+
+This refresh is a source-snapshot preparation, not a new security audit. The
+historical audit packages below do not assess the current source revision.
+
+Validation for this refresh: `forge build --force` succeeded with compiler
+warnings; the bounded Allowlist and caller-gate runs passed 100 tests, including
+64 fuzz runs for the focused fuzz suite. The full suite and high-depth
+fuzz/invariant/formal campaigns were not run.
+
+## Historical Audit Records
+
+The following are records of earlier reviews and remediation. Their results
+apply to the code and scope reviewed at that time, not to source revision
+`e5c2c76d55e197044e30392c407b52af598a1681`.
 
 The June 9/10, 2026 mainnet-readiness audit package records:
 
@@ -40,20 +58,15 @@ source or were already fixed by the current source, and the portal-facing
 acknowledgment worksheets are included. Raw portal exports that contain local
 reproduction paths or internal provenance discussion are intentionally omitted.
 
-This scoped audit repository intentionally excludes surrounding private-monorepo
-web/keeper/config paths. Because of that, the wholesale `forge test --summary`
-command has one known export-scope failure in
-`HLLegacyTransportStaticTest.test_noLegacyTransportIdentifiersInActiveSurface`:
-the static checker sees fewer scanned files than it sees in the private
-monorepo. The contract build and focused readiness suites pass in this export;
-the private audit package retains the full source-environment `forge test
---summary` pass evidence.
+The full Foundry suite and high-depth audit campaigns have not been run against
+this refreshed snapshot. Historical full-suite evidence in the retained audit
+packages is not verification of the current source revision.
 
 ## Included
 
-- `openforage_smart_contracts/`: Solidity contracts, Foundry tests, generic
-  deploy scripts, static-analysis configuration, and pinned Solidity
-  dependencies.
+- `openforage_smart_contracts/`: production Solidity sources and ABI files,
+  selected current tests/helpers and generic tooling, build/static-analysis
+  configuration, and pinned Solidity dependencies.
 - `documentation/smart_contract_audits/2026-06-09-audit/`: latest audit report,
   finding consolidation, conformance, retest, review, and validation evidence.
 - `documentation/smart_contract_audits/2026-06-12-external-audit/`: external

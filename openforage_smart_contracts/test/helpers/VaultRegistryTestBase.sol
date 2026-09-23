@@ -4,12 +4,14 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../src/VaultRegistry.sol";
+import "../mocks/MockAllowlist.sol";
 
 /// @dev Abstract base for VaultRegistry tests.
 /// Deploys VaultRegistry behind an ERC1967 proxy with standard test addresses.
 abstract contract VaultRegistryTestBase is Test {
     VaultRegistry public registry;
     VaultRegistry public implementation;
+    MockAllowlist public mockAllowlist;
 
     address public owner;
     address public attacker;
@@ -29,6 +31,11 @@ abstract contract VaultRegistryTestBase is Test {
         bytes memory initData = abi.encodeCall(VaultRegistry.initialize, (owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         registry = VaultRegistry(address(proxy));
+
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
     }
 
     /// @dev Return valid test data for vault registration.

@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../../src/DelegatingVestingWallet.sol";
+import "../mocks/MockAllowlist.sol";
 import "../mocks/MockForageTokenSimple.sol";
 
 /// @dev Abstract base for DelegatingVestingWallet tests.
@@ -12,6 +13,7 @@ import "../mocks/MockForageTokenSimple.sol";
 abstract contract DelegatingVestingWalletTestBase is Test {
     DelegatingVestingWallet public wallet;
     MockForageTokenSimple public mockToken;
+    MockAllowlist public mockAllowlist;
 
     address public beneficiary;
     address public tokenSetterAddr;
@@ -38,9 +40,18 @@ abstract contract DelegatingVestingWalletTestBase is Test {
         // Deploy mock token
         mockToken = new MockForageTokenSimple();
 
+        // Deploy the allowlist the caller gate reads; every test actor is verified
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+
         // Deploy wallet — against the stub, this reverts with "STUB: not implemented",
         // causing setUp to fail and all tests in the contract to FAIL.
-        wallet = new DelegatingVestingWallet(beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr);
+        wallet = new DelegatingVestingWallet(
+            beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr, address(mockAllowlist)
+        );
+
+        vm.prank(tokenSetterAddr);
+        wallet.setAllowlist(address(mockAllowlist));
     }
 
     /// @dev Fund the wallet with FORAGE and set the token via tokenSetter.
@@ -65,6 +76,7 @@ abstract contract DelegatingVestingWalletTestBase is Test {
         internal
         returns (DelegatingVestingWallet)
     {
-        return new DelegatingVestingWallet(beneficiary_, start_, duration_, cliff_, tokenSetter_);
+        return
+            new DelegatingVestingWallet(beneficiary_, start_, duration_, cliff_, tokenSetter_, address(mockAllowlist));
     }
 }

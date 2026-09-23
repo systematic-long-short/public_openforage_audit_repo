@@ -9,11 +9,15 @@ import "../../../src/CustodianRegistry.sol";
 import "../../../src/FORAGETreasury.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/RISKUSDVault.sol";
+import "../../../src/modules/RISKUSDVaultModule.sol";
 import "../../../src/USDCTreasury.sol";
 import "../../../src/atRISKUSD.sol";
 import "../../../src/hyperliquid/HLTradingBridge.sol";
 import "../../../src/interfaces/IVaultRegistry.sol";
+import "../../mocks/MockAllowlist.sol";
+import "../../mocks/MockSequencerUptimeFeedFixture.sol";
 import "../../mocks/MockUSDC.sol";
+import "../../mocks/MockVaultRegistry.sol";
 
 contract Octane20260630FeeOnTransferUSDC is MockUSDC {
     address internal constant FEE_SINK = address(uint160(0xFEE));
@@ -29,7 +33,7 @@ contract Octane20260630FeeOnTransferUSDC is MockUSDC {
     }
 }
 
-contract Octane20260630VaultBridgeRedTest is Test {
+contract Octane20260630VaultBridgeRedTest is MockSequencerUptimeFeedFixture {
     struct BridgeFixture {
         MockUSDC usdc;
         RISKUSD riskusd;
@@ -51,6 +55,16 @@ contract Octane20260630VaultBridgeRedTest is Test {
     uint256 internal constant VAULT_ID = 1;
     uint256 internal constant OTHER_VAULT_ID = 2;
     uint64 internal constant WITHDRAWAL_CHAIN_SELECTOR = 421_614;
+
+    MockAllowlist internal allowlistMock;
+
+    function _mockAllowlist() internal returns (MockAllowlist) {
+        if (address(allowlistMock) == address(0)) {
+            allowlistMock = new MockAllowlist();
+            allowlistMock.setAllAllowed(true);
+        }
+        return allowlistMock;
+    }
 
     function test_V1_observationTimeLossSurvivesPostObservationPrincipalReturn() public {
         BridgeFixture memory f = _deployBridgeFixture();
@@ -98,7 +112,7 @@ contract Octane20260630VaultBridgeRedTest is Test {
         assertEq(f.vault.lossPendingVaultId(), OTHER_VAULT_ID, "new loss must bind to the new vault id");
     }
 
-    function test_V3_cancelledWithdrawalIntentCanReconcileLateArrival() public {
+    function test_V3_cancelledWithdrawalIntentCannotReconcileLateArrival() public {
         BridgeFixture memory f = _deployBridgeFixture();
         _deployAndPostHealthyNAV(f, 1_000_000e6);
 
@@ -110,12 +124,14 @@ contract Octane20260630VaultBridgeRedTest is Test {
         vm.prank(f.keeper);
         f.bridge.cancelWithdrawalIntent(intentId);
         assertEq(f.bridge.openWithdrawalIntentId(), bytes32(0), "setup: timeout cancel clears the open intent");
+        assertTrue(f.bridge.withdrawalIntentConsumed(intentId), "timeout cancel consumes the intent");
 
         f.usdc.mint(address(f.bridge), 100_000e6);
         vm.prank(f.keeper);
+        vm.expectRevert(HLTradingBridge.RequestMismatch.selector);
         f.bridge.reconcileWithdrawalArrival(intentId, 100_000e6);
 
-        assertEq(f.bridge.reconciledReturnLiquidity(), 100_000e6, "late arrival should become return liquidity");
+        assertEq(f.bridge.reconciledReturnLiquidity(), 0, "late arrival must not become return liquidity");
     }
 
     function test_V4_mintCapsKeepHighWaterBaselineAfterRedemption() public {
@@ -177,10 +193,15 @@ contract Octane20260630VaultBridgeRedTest is Test {
     function test_V7_zeroPrincipalReconciledPnLCanBeForwardedToTreasury() public {
         BridgeFixture memory f = _deployBridgeFixture();
         uint256 pnlAmount = 100_000e6;
+        address attestor = makeAddr("octane30.v7.attestor");
 
         assertEq(f.bridge.deployedPrincipal(), 0, "setup: bridge starts with zero deployed principal");
         assertEq(f.vault.totalDeployed(), 0, "setup: vault starts with zero deployed principal");
 
+        vm.prank(f.owner);
+        f.treasury.setPnLAttestor(attestor);
+        vm.prank(attestor);
+        f.treasury.recognizePnL(VAULT_ID, int256(pnlAmount));
         vm.prank(f.owner);
         bytes32 intentId = f.bridge
             .requestZeroPrincipalWithdrawalIntent(
@@ -205,7 +226,7 @@ contract Octane20260630VaultBridgeRedTest is Test {
         USDCTreasury treasury = _deployTreasury(
             address(usdc),
             makeAddr("octane30.v8.vault"),
-            makeAddr("octane30.v8.registry"),
+            address(_deployMockVaultRegistry()),
             owner,
             makeAddr("octane30.v8.foundationPrimary"),
             makeAddr("octane30.v8.foundationBackup"),
@@ -213,9 +234,14 @@ contract Octane20260630VaultBridgeRedTest is Test {
             makeAddr("octane30.v8.protocolBackup")
         );
         uint256 amount = 1_000e6;
+        address attestor = makeAddr("octane30.v8.attestor");
 
         vm.prank(owner);
         treasury.setHLTradingBridge(bridge);
+        vm.prank(owner);
+        treasury.setPnLAttestor(attestor);
+        vm.prank(attestor);
+        treasury.recognizePnL(VAULT_ID, int256(amount));
         usdc.mint(bridge, amount);
         vm.prank(bridge);
         usdc.approve(address(treasury), amount);
@@ -253,30 +279,22 @@ contract Octane20260630VaultBridgeRedTest is Test {
         assertEq(vault.totalDeployed(), 760e6, "deployment buffer must use active-page assets");
     }
 
-    function test_PNL_EXP_returnBeforeRecognitionOverAllocatesAgentEarmark() public {
+    function test_PNL_EXP_returnBeforeRecognitionRevertsBeforeAccounting() public {
         BridgeFixture memory f = _deployBridgeFixture();
         uint256 pnlAmount = 100_000e6;
         _deployAndPostHealthyNAV(f, 1_000_000e6);
         _requestAndReconcile(f, pnlAmount);
 
         vm.prank(f.executor);
+        vm.expectRevert(abi.encodeWithSelector(USDCTreasury.PnLNotRecognized.selector, VAULT_ID));
         f.bridge.returnPnLUSDC(VAULT_ID, pnlAmount);
 
         bytes32 agent = f.treasury.EARMARK_AGENT_PAY();
         bytes32 vaultTopUp = f.treasury.EARMARK_VAULT_TOP_UP();
         assertEq(f.treasury.earmarkBalance(vaultTopUp), 0, "unrecognized PnL leaves no depositor top-up");
-        assertEq(f.treasury.earmarkBalance(agent), 70_000e6, "residual PnL is over-allocated to agent pay");
-        assertEq(f.treasury.fundedDepositorClaim(VAULT_ID), 0, "late recognition cannot backfill prior return");
-
-        address attestor = makeAddr("octane30.pnl.attestor");
-        vm.prank(f.owner);
-        f.treasury.setPnLAttestor(attestor);
-        vm.prank(attestor);
-        f.treasury.recognizePnL(VAULT_ID, int256(pnlAmount));
-
-        assertEq(f.treasury.recognizedDepositorClaim(VAULT_ID), 70_000e6, "recognition records the missed claim");
-        assertEq(f.treasury.earmarkBalance(vaultTopUp), 0, "prior earmarks are not rebalanced after recognition");
-        assertEq(f.treasury.earmarkBalance(agent), 70_000e6, "agent earmark remains over-allocated");
+        assertEq(f.treasury.earmarkBalance(agent), 0, "unrecognized PnL leaves no agent residual");
+        assertEq(f.treasury.fundedDepositorClaim(VAULT_ID), 0, "failed return does not fund depositor claim");
+        assertEq(f.bridge.reconciledReturnLiquidity(), pnlAmount, "failed return does not consume liquidity");
     }
 
     function test_PNL_EXP_recognitionBeforeReturnFundsDepositorClaimBeforeAgent() public {
@@ -299,14 +317,16 @@ contract Octane20260630VaultBridgeRedTest is Test {
         assertEq(f.treasury.earmarkBalance(vaultTopUp), 70_000e6, "recognized depositor claim is funded first");
         assertEq(f.treasury.earmarkBalance(agent), 0, "agent receives no residual when claim consumes remainder");
         assertEq(f.treasury.fundedDepositorClaim(VAULT_ID), 70_000e6, "funded claim advances only on return");
+        assertEq(f.treasury.pendingVaultTopUp(VAULT_ID), 70_000e6, "top-up is explicit pending vault funding");
     }
 
-    function test_PNL_EXP_tierExchangeRateDoesNotMoveOnTreasuryPnLReturn() public {
+    function test_PNL_EXP_tierExchangeRateDoesNotMoveSilentlyAndTopUpIsExplicit() public {
         BridgeFixture memory f = _deployBridgeFixture();
         address stakingQueue = makeAddr("octane30.pnl.stakingQueue");
         atRISKUSD tier = _deployAtRiskTier(address(f.riskusd), address(f.treasury), stakingQueue, f.owner);
         uint256 initialAssets = 1_000e6;
         uint256 pnlAmount = 100_000e6;
+        address attestor = makeAddr("octane30.pnl.attestor.tier");
 
         vm.prank(f.vaultDepositor);
         f.riskusd.transfer(stakingQueue, initialAssets);
@@ -320,6 +340,10 @@ contract Octane20260630VaultBridgeRedTest is Test {
         uint256 shareValueBefore = tier.convertToAssets(shares);
         uint256 riskusdBalanceBefore = f.riskusd.balanceOf(address(tier));
 
+        vm.prank(f.owner);
+        f.treasury.setPnLAttestor(attestor);
+        vm.prank(attestor);
+        f.treasury.recognizePnL(VAULT_ID, int256(pnlAmount));
         vm.prank(f.owner);
         bytes32 intentId = f.bridge
             .requestZeroPrincipalWithdrawalIntent(
@@ -335,6 +359,7 @@ contract Octane20260630VaultBridgeRedTest is Test {
         assertEq(tier.convertToAssets(shares), shareValueBefore, "tier share value is unchanged");
         assertEq(f.riskusd.balanceOf(address(tier)), riskusdBalanceBefore, "tier receives no RISKUSD from treasury");
         assertEq(f.usdc.balanceOf(address(f.treasury)), pnlAmount, "PnL is held and earmarked in USDC treasury");
+        assertEq(f.treasury.pendingVaultTopUp(VAULT_ID), 70_000e6, "tier top-up is explicit instead of silent");
     }
 
     function test_PNL_EXP_staleObservedNAVRevertsBeforeVaultStateMutation() public {
@@ -388,20 +413,18 @@ contract Octane20260630VaultBridgeRedTest is Test {
         vm.prank(f.owner);
         vm.expectRevert(HLTradingBridge.ProposalExpired.selector);
         f.bridge.finalizeKeeper();
-        assertEq(f.bridge.pendingKeeper(), staleKeeper, "expired pending keeper remains until explicit cleanup");
+        assertEq(f.bridge.pendingKeeper(), address(0), "expired pending keeper is hidden from live pending view");
+        assertEq(f.bridge.pendingKeeperProposedAt(), 0, "expired pending keeper timestamp is hidden");
 
-        vm.prank(f.owner);
-        f.bridge.cancelPendingKeeper();
         vm.prank(f.owner);
         f.bridge.proposeKeeper(replacementKeeper);
 
-        assertEq(f.bridge.pendingKeeper(), replacementKeeper, "owner cleanup is required before reproposal");
+        assertEq(f.bridge.pendingKeeper(), replacementKeeper, "owner can repropose without manual cleanup");
     }
 
-    function test_PNL_EXP_republishingAgentRootResetsRoundAccountingButPreservesClaimFlag() public {
+    function test_PNL_EXP_republishingAgentRootRevertsAndPreservesRoundAccounting() public {
         address owner = makeAddr("octane30.pnl.forageTreasuryOwner");
         address agent = makeAddr("octane30.pnl.agent");
-        address sweepRecipient = makeAddr("octane30.pnl.sweepRecipient");
         MockUSDC forage = new MockUSDC();
         FORAGETreasury treasury = _deployForageTreasury(address(forage), owner);
         uint256 roundId = 77;
@@ -415,14 +438,49 @@ contract Octane20260630VaultBridgeRedTest is Test {
         _claimInitialAgentRound(treasury, owner, agent, roundId, 100e6);
 
         vm.warp(block.timestamp + treasury.AGENT_CLAIM_COOLDOWN() + 1);
-        uint64 secondDeadline = _republishAgentRound(treasury, owner, agent, roundId, secondAmount);
-        _assertAgentClaimStillBlocked(treasury, agent, roundId, secondAmount);
-
-        vm.warp(uint256(secondDeadline) + 1);
+        bytes32 secondRoot =
+            _forageTreasuryLeaf(address(treasury), treasury.AGENT_REWARD_LANE(), roundId, agent, secondAmount);
         vm.prank(owner);
-        treasury.sweepExpiredAgentRound(roundId, sweepRecipient);
+        vm.expectRevert(abi.encodeWithSelector(FORAGETreasury.RoundAlreadyPublished.selector, roundId));
+        treasury.publishAgentRoot(roundId, secondRoot, secondAmount, uint64(block.timestamp + 2 days));
 
-        assertEq(forage.balanceOf(sweepRecipient), secondAmount, "expired replacement root sweeps reset amount");
+        (,,, uint256 claimed, bool swept) = treasury.agentRounds(roundId);
+        assertEq(claimed, 100e6, "claimed accounting remains from original round");
+        assertFalse(swept, "sweep finality remains unchanged");
+    }
+
+    function test_PNL_EXP_forageTreasuryMerkleLeavesAreLaneScoped() public {
+        address owner = makeAddr("octane30.pnl.forageTreasuryLaneOwner");
+        address account = makeAddr("octane30.pnl.laneAccount");
+        MockUSDC forage = new MockUSDC();
+        FORAGETreasury treasury = _deployForageTreasury(address(forage), owner);
+        Blocklist blocklist = _deployBlocklist(makeAddr("octane30.pnl.laneBlocklistGuardian"), owner);
+        uint256 amount = 100e6;
+        uint256 roundId = 88;
+        bytes32[] memory emptyProof = new bytes32[](0);
+
+        vm.prank(owner);
+        treasury.setBlocklist(address(blocklist));
+        forage.mint(address(treasury), 300e6);
+
+        bytes32 agentRoot =
+            _forageTreasuryLeaf(address(treasury), treasury.AGENT_REWARD_LANE(), roundId, account, amount);
+        vm.prank(owner);
+        treasury.publishDepositorRoot(roundId, agentRoot, amount, uint64(block.timestamp + 10 days));
+
+        vm.prank(account);
+        vm.expectRevert(FORAGETreasury.InvalidProof.selector);
+        treasury.claimDepositor(roundId, account, amount, emptyProof);
+
+        uint256 validRoundId = 89;
+        bytes32 depositorRoot =
+            _forageTreasuryLeaf(address(treasury), treasury.DEPOSITOR_REWARD_LANE(), validRoundId, account, amount);
+        vm.prank(owner);
+        treasury.publishDepositorRoot(validRoundId, depositorRoot, amount, uint64(block.timestamp + 10 days));
+        vm.prank(account);
+        treasury.claimDepositor(validRoundId, account, amount, emptyProof);
+
+        assertEq(forage.balanceOf(account), amount, "same-lane depositor proof remains valid");
     }
 
     function _deployBridgeFixture() internal returns (BridgeFixture memory f) {
@@ -442,7 +500,7 @@ contract Octane20260630VaultBridgeRedTest is Test {
         f.treasury = _deployTreasury(
             address(f.usdc),
             address(f.vault),
-            makeAddr("octane30.bridge.vaultRegistry"),
+            address(_deployMockVaultRegistry()),
             f.owner,
             makeAddr("octane30.bridge.foundationPrimary"),
             makeAddr("octane30.bridge.foundationBackup"),
@@ -462,6 +520,8 @@ contract Octane20260630VaultBridgeRedTest is Test {
             f.coldAccount,
             f.sourceAccount
         );
+        vm.prank(f.owner);
+        f.bridge.setAllowlist(address(_mockAllowlist()));
 
         CustodianRegistry.CustodianConfig memory hlConfig = f.registry
             .hyperLiquidLaunchConfig(
@@ -524,7 +584,11 @@ contract Octane20260630VaultBridgeRedTest is Test {
     function _deployRISKUSD(address owner) internal returns (RISKUSD) {
         RISKUSD implementation = new RISKUSD();
         bytes memory initData = abi.encodeCall(RISKUSD.initialize, (owner));
-        return RISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSD token = RISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        token.setAllowlist(address(mock));
+        return token;
     }
 
     function _deployStandaloneVault(address usdc, address riskusd, address owner) internal returns (RISKUSDVault) {
@@ -541,7 +605,14 @@ contract Octane20260630VaultBridgeRedTest is Test {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData =
             abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, custodian, lossReporter));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        vault.setAllowlist(address(mock));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule_));
+        return vault;
     }
 
     function _deployTreasury(
@@ -559,7 +630,27 @@ contract Octane20260630VaultBridgeRedTest is Test {
             USDCTreasury.initialize,
             (usdc, vault, vaultRegistry, owner, foundationPrimary, foundationBackup, protocolPrimary, protocolBackup)
         );
-        return USDCTreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        USDCTreasury treasury = USDCTreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        treasury.setAllowlist(address(mock));
+        return treasury;
+    }
+
+    /// @dev The treasury reads tier yield splits from the registry on recognizePnL; register the
+    /// test vault (id 1) with the same split schedule the assertions were built against.
+    function _deployMockVaultRegistry() internal returns (MockVaultRegistry registry) {
+        registry = new MockVaultRegistry();
+        registry.addTestVault(
+            "Octane30 Vault",
+            "O30V",
+            [address(0), address(0), address(0), address(0)],
+            makeAddr("octane30.stakingQueue"),
+            10_000_000e6,
+            [uint256(0), uint256(90 days), uint256(180 days), uint256(360 days)],
+            [uint16(5000), uint16(5500), uint16(6000), uint16(6500)],
+            [uint16(2000), uint16(1500), uint16(1000), uint16(500)]
+        );
     }
 
     function _deployCustodianRegistry(address owner, address forageGovernor, address guardianModule)
@@ -568,13 +659,21 @@ contract Octane20260630VaultBridgeRedTest is Test {
     {
         CustodianRegistry implementation = new CustodianRegistry();
         bytes memory initData = abi.encodeCall(CustodianRegistry.initialize, (owner, forageGovernor, guardianModule));
-        return CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+        CustodianRegistry registry = CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        registry.setAllowlist(address(mock));
+        return registry;
     }
 
     function _deployBlocklist(address guardian, address owner) internal returns (Blocklist) {
         Blocklist implementation = new Blocklist();
         bytes memory initData = abi.encodeCall(Blocklist.initialize, (guardian, owner));
-        return Blocklist(address(new ERC1967Proxy(address(implementation), initData)));
+        Blocklist blocklist = Blocklist(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mock));
+        return blocklist;
     }
 
     function _deployAtRiskTier(address riskusd, address yieldSource, address stakingQueue, address owner)
@@ -584,13 +683,21 @@ contract Octane20260630VaultBridgeRedTest is Test {
         atRISKUSD implementation = new atRISKUSD();
         bytes memory initData =
             abi.encodeCall(atRISKUSD.initialize, (riskusd, yieldSource, stakingQueue, 0, 0, 0, "O30P", owner));
-        return atRISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        atRISKUSD tier = atRISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        tier.setAllowlist(address(mock));
+        return tier;
     }
 
     function _deployForageTreasury(address forageToken, address owner) internal returns (FORAGETreasury) {
         FORAGETreasury implementation = new FORAGETreasury();
         bytes memory initData = abi.encodeCall(FORAGETreasury.initialize, (forageToken, owner));
-        return FORAGETreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        FORAGETreasury treasury = FORAGETreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        treasury.setAllowlist(address(mock));
+        return treasury;
     }
 
     function _claimInitialAgentRound(
@@ -601,7 +708,7 @@ contract Octane20260630VaultBridgeRedTest is Test {
         uint256 amount
     ) internal {
         bytes32[] memory emptyProof = new bytes32[](0);
-        bytes32 root = _forageTreasuryLeaf(address(treasury), roundId, agent, amount);
+        bytes32 root = _forageTreasuryLeaf(address(treasury), treasury.AGENT_REWARD_LANE(), roundId, agent, amount);
         vm.prank(owner);
         treasury.publishAgentRoot(roundId, root, amount, uint64(block.timestamp + 10 days));
         vm.prank(agent);
@@ -619,7 +726,7 @@ contract Octane20260630VaultBridgeRedTest is Test {
         uint256 amount
     ) internal returns (uint64 deadline) {
         deadline = uint64(block.timestamp + 2 days);
-        bytes32 root = _forageTreasuryLeaf(address(treasury), roundId, agent, amount);
+        bytes32 root = _forageTreasuryLeaf(address(treasury), treasury.AGENT_REWARD_LANE(), roundId, agent, amount);
         vm.prank(owner);
         treasury.publishAgentRoot(roundId, root, amount, deadline);
 
@@ -642,12 +749,12 @@ contract Octane20260630VaultBridgeRedTest is Test {
         treasury.claimAgent(roundId, agent, amount, emptyProof);
     }
 
-    function _forageTreasuryLeaf(address treasury, uint256 roundId, address account, uint256 amount)
+    function _forageTreasuryLeaf(address treasury, bytes32 lane, uint256 roundId, address account, uint256 amount)
         internal
         pure
         returns (bytes32)
     {
-        return keccak256(bytes.concat(keccak256(abi.encode(treasury, roundId, account, amount))));
+        return keccak256(bytes.concat(keccak256(abi.encode(treasury, lane, roundId, account, amount))));
     }
 
     function _deployBridge(
@@ -677,7 +784,10 @@ contract Octane20260630VaultBridgeRedTest is Test {
                 HLTradingBridge.RouteConfig({
                     coldAccount: coldAccount,
                     hyperliquidSourceAccount: sourceAccount,
-                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR
+                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR,
+                    sequencerUptimeFeed: _deployHealthySequencerUptimeFeed(
+                        implementation.SEQUENCER_UPTIME_GRACE_PERIOD()
+                    )
                 })
             )
         );

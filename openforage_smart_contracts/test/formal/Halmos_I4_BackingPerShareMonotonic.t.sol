@@ -6,7 +6,9 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../../src/RISKUSDVault.sol";
+import "../../src/modules/RISKUSDVaultModule.sol";
 import "../mocks/MockUSDC.sol";
+import "../mocks/MockAllowlist.sol";
 
 contract HalmosRound4RISKUSD is ERC20 {
     bool public overmintByOne;
@@ -49,8 +51,14 @@ contract Halmos_I4_BackingPerShareMonotonic is Test, SymTest {
         bytes memory initData = abi.encodeCall(RISKUSDVault.initialize, (address(usdc), address(riskusd), owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         vault = RISKUSDVault(address(proxy));
+        RISKUSDVaultModule vaultModule = new RISKUSDVaultModule();
+
+        MockAllowlist allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
 
         vm.startPrank(owner);
+        vault.setAllowlist(address(allowlistMock));
+        vault.setVaultModule(address(vaultModule));
         vault.setPerBlockMintCap(10000, type(uint256).max);
         vault.setWeeklyMintCapBps(20000);
         vault.setWeeklyRedemptionCapBps(10000);

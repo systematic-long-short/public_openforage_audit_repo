@@ -435,6 +435,8 @@ contract AtRISKUSD_TC17_Invariant is AtRISKUSDTestBase {
         );
         ERC1967Proxy reentrancyProxy = new ERC1967Proxy(address(reentrancyImpl), reentrancyInitData);
         atRISKUSD reentrancyVault = atRISKUSD(address(reentrancyProxy));
+        vm.prank(owner);
+        reentrancyVault.setAllowlist(address(allowlist));
         attackToken.setTarget(reentrancyVault);
 
         handler = new AtRISKUSDHandler(vault, riskusd, yieldSource, stakingQueue, reentrancyVault, attackToken);

@@ -11,7 +11,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 // TC-16: UUPS Upgrade Tests (R-02, R-37)
 // ============================================================
 contract AtRISKUSD_TC16_Upgrade is AtRISKUSDTestBase {
-    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 internal constant ERC1967_IMPL_SLOT =
+        0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
 
     function setUp() public override {
         super.setUp();

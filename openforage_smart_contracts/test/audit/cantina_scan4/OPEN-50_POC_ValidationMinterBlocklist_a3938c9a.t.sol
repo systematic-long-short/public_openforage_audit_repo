@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../../src/Blocklist.sol";
 import "../../../src/RISKUSD.sol";
 import "../../helpers/RISKUSDTestBase.sol";
+import "../../mocks/MockAllowlist.sol";
 
 interface IPOCBlocklistManaged {
     function setBlocklist(address blocklist_) external;
@@ -20,6 +21,7 @@ interface IPOCBlocklistManaged {
 contract POC_ValidationMinterBlocklist_a3938c9a_Test is RISKUSDTestBase {
     Blocklist internal registry;
     address internal blockGuardian;
+    MockAllowlist internal mockAllowlist;
 
     function setUp() public override {
         super.setUp();
@@ -29,6 +31,11 @@ contract POC_ValidationMinterBlocklist_a3938c9a_Test is RISKUSDTestBase {
         bytes memory initData = abi.encodeCall(Blocklist.initialize, (blockGuardian, owner));
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         registry = Blocklist(address(proxy));
+
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
 
         vm.prank(owner);
         IPOCBlocklistManaged(address(token)).setBlocklist(address(registry));

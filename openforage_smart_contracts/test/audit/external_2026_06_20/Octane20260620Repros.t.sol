@@ -6,20 +6,25 @@ import "forge-std/StdStorage.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../../../src/Blocklist.sol";
+import "../../../src/CustodianRegistry.sol";
 import "../../../src/ForageToken.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/RISKUSDVault.sol";
+import "../../../src/modules/RISKUSDVaultModule.sol";
 import "../../../src/StakingQueue.sol";
+import "../../../src/modules/StakingQueueModule.sol";
 import "../../../src/VaultRegistry.sol";
 import "../../../src/atRISKUSD.sol";
 import "../../../src/hyperliquid/HLTradingBridge.sol";
 
 // External boundaries only: USDC and the atRISKUSD yield source.
 // OpenForage contracts under test are real src/ contracts.
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockUSDC.sol";
+import "../../mocks/MockSequencerUptimeFeedFixture.sol";
 import "../../mocks/MockYieldSourceForLossPending.sol";
 
-contract Octane20260620ReprosTest is Test {
+contract Octane20260620ReprosTest is MockSequencerUptimeFeedFixture {
     using stdStorage for StdStorage;
 
     string internal constant REPRO_FILE = "test/audit/external_2026_06_20/Octane20260620Repros.t.sol";
@@ -70,6 +75,7 @@ contract Octane20260620ReprosTest is Test {
     QueueFixture internal queueFixture;
     GovernanceFixture internal governanceFixture;
     BridgeFixture internal bridgeFixture;
+    MockAllowlist internal mockAllowlist;
 
     function test_phase5ReproFileCarriesConcreteMarkersForAllJune20TruePositiveIds() public view {
         string memory repros = vm.readFile(REPRO_FILE);
@@ -206,8 +212,8 @@ contract Octane20260620ReprosTest is Test {
         vm.prank(f.cleanSource);
         f.forage.delegate(f.delegatee);
 
-        uint256 snapshot = block.timestamp;
         vm.warp(block.timestamp + 1);
+        uint256 snapshot = block.timestamp - 1;
         _writeLegacyBlockedUntil(f.blocklist, f.blockedSource, snapshot + 30 days);
 
         assertTrue(f.blocklist.isBlocked(f.blockedSource), "setup: legacy mapping says the source is blocked");
@@ -239,8 +245,8 @@ contract Octane20260620ReprosTest is Test {
         vm.prank(f.cleanSource);
         f.forage.delegate(f.delegatee);
 
-        uint256 proposerSnapshot = block.timestamp;
         vm.warp(block.timestamp + 1);
+        uint256 proposerSnapshot = block.timestamp - 1;
         _writeLegacyBlockedUntil(f.blocklist, f.blockedSource, proposerSnapshot + 30 days);
 
         address[] memory sources = new address[](2);
@@ -272,8 +278,8 @@ contract Octane20260620ReprosTest is Test {
         vm.prank(f.cleanSource);
         f.forage.delegate(f.delegatee);
 
-        uint256 governanceSnapshot = block.timestamp;
         vm.warp(block.timestamp + 1);
+        uint256 governanceSnapshot = block.timestamp - 1;
         _writeLegacyBlockedUntil(f.blocklist, f.blockedSource, governanceSnapshot + 30 days);
 
         vm.warp(governanceSnapshot + 2 days);
@@ -342,18 +348,34 @@ contract Octane20260620ReprosTest is Test {
         f.carol = makeAddr("octane.queue.carol");
         f.keeper = makeAddr("octane.queue.keeper");
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
         f.riskusd = _deployMintableRiskUSD(f.owner);
         f.forage = _deployForageToken(f.owner, f.owner, f.owner);
+        vm.prank(f.owner);
+        f.forage.setAllowlist(address(mockAllowlist));
         f.yieldSource = new MockYieldSourceForLossPending();
 
         f.vault0 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
         f.vault1 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
         f.vault2 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
         f.vault3 = _deployAtRiskVault(address(f.riskusd), address(f.yieldSource), f.owner, f.owner);
+        vm.prank(f.owner);
+        f.vault0.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault1.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault2.setAllowlist(address(mockAllowlist));
+        vm.prank(f.owner);
+        f.vault3.setAllowlist(address(mockAllowlist));
 
         address[4] memory tierVaults = [address(f.vault0), address(f.vault1), address(f.vault2), address(f.vault3)];
         f.registry = _deployVaultRegistry(f.owner);
+        vm.prank(f.owner);
+        f.registry.setAllowlist(address(mockAllowlist));
         f.queue = _deployStakingQueue(address(f.riskusd), address(f.forage), tierVaults, address(f.registry), f.owner);
+        vm.prank(f.owner);
+        f.queue.setAllowlist(address(mockAllowlist));
         f.vaultId = _registerVault(f.registry, f.owner, "Octane Queue Vault", "OQV", tierVaults, address(f.queue));
 
         vm.prank(f.owner);
@@ -372,8 +394,14 @@ contract Octane20260620ReprosTest is Test {
         f.cleanSource = makeAddr("octane.gov.cleanSource");
         f.delegatee = makeAddr("octane.gov.delegatee");
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
         f.forage = _deployForageToken(f.owner, f.owner, f.owner);
+        vm.prank(f.owner);
+        f.forage.setAllowlist(address(mockAllowlist));
         f.blocklist = _deployBlocklist(f.guardian, f.owner);
+        vm.prank(f.owner);
+        f.blocklist.setAllowlist(address(mockAllowlist));
         vm.prank(f.owner);
         f.forage.setBlocklist(address(f.blocklist));
     }
@@ -389,13 +417,23 @@ contract Octane20260620ReprosTest is Test {
 
         f.usdc = new MockUSDC();
         f.riskusd = _deployRISKUSD(f.owner);
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(f.owner);
+        f.riskusd.setAllowlist(address(mockAllowlist));
         f.vault = _deployRiskUSDVault(address(f.usdc), address(f.riskusd), f.owner);
+        vm.prank(f.owner);
+        f.vault.setAllowlist(address(mockAllowlist));
         f.blocklist = _deployBlocklist(makeAddr("octane.bridge.guardian"), f.owner);
+        CustodianRegistry registry =
+            _deployCustodianRegistry(f.owner, makeAddr("octane.bridge.governor"), f.guardianModule);
+        vm.prank(f.owner);
+        registry.setAllowlist(address(mockAllowlist));
         f.bridge = _deployBridge(
             address(f.usdc),
             address(f.vault),
             makeAddr("octane.bridge.treasury"),
-            makeAddr("octane.bridge.registry"),
+            address(registry),
             f.owner,
             f.keeper,
             f.executor,
@@ -403,8 +441,18 @@ contract Octane20260620ReprosTest is Test {
             makeAddr("octane.bridge.coldAccount"),
             bytes32(uint256(0x1234))
         );
+        vm.prank(f.owner);
+        f.bridge.setAllowlist(address(mockAllowlist));
+
+        // The bridge only books `_deployedPrincipal` through the executor-driven deploy path, so
+        // the funded fixture finalizes the registry route and deploys bridge-side for real; a
+        // vault-side-only deployCapital leaves the bridge book at zero and posts record no loss.
+        CustodianRegistry.CustodianConfig memory hlConfig = registry.hyperLiquidLaunchConfig(
+            address(f.bridge), f.executor, 421_614, bytes32(uint256(0x1234)), 10_000_000e6
+        );
 
         vm.startPrank(f.owner);
+        registry.proposeCustodianConfig(hlConfig);
         f.bridge.setBlocklist(address(f.blocklist));
         f.vault.setBlocklist(address(f.blocklist));
         f.riskusd.setBlocklist(address(f.blocklist));
@@ -415,6 +463,7 @@ contract Octane20260620ReprosTest is Test {
         f.vault.setCustodian(address(f.bridge));
         f.vault.setManualAttestationReporter(f.reporter);
         vm.warp(block.timestamp + f.vault.FINALIZE_DELAY() + 1);
+        registry.finalizeCustodianConfig(hlConfig.id);
         f.riskusd.finalizeMinter();
         f.vault.finalizeCustodian();
         f.vault.finalizeManualAttestationReporter();
@@ -426,8 +475,8 @@ contract Octane20260620ReprosTest is Test {
         f.vault.deposit(1_000e6);
         vm.stopPrank();
 
-        vm.prank(address(f.bridge));
-        f.vault.deployCapital(950e6);
+        vm.prank(f.executor);
+        f.bridge.deployToHyperLiquid(950e6);
         vm.prank(f.keeper);
         f.bridge.postNAV(1, 950e6, 950e6, block.timestamp);
     }
@@ -499,6 +548,8 @@ contract Octane20260620ReprosTest is Test {
     function _deployMintableRiskUSD(address owner) internal returns (RISKUSD riskusd) {
         riskusd = _deployRISKUSD(owner);
         vm.prank(owner);
+        riskusd.setAllowlist(address(mockAllowlist));
+        vm.prank(owner);
         riskusd.setMinter(address(this));
         vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
         riskusd.acceptMinter();
@@ -526,6 +577,15 @@ contract Octane20260620ReprosTest is Test {
         return VaultRegistry(address(new ERC1967Proxy(address(implementation), initData)));
     }
 
+    function _deployCustodianRegistry(address owner, address governor, address guardianModule)
+        internal
+        returns (CustodianRegistry)
+    {
+        CustodianRegistry implementation = new CustodianRegistry();
+        bytes memory initData = abi.encodeCall(CustodianRegistry.initialize, (owner, governor, guardianModule));
+        return CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+    }
+
     function _deployStakingQueue(
         address riskusd,
         address forage,
@@ -536,13 +596,21 @@ contract Octane20260620ReprosTest is Test {
         StakingQueue implementation = new StakingQueue();
         bytes memory initData =
             abi.encodeCall(StakingQueue.initialize, (riskusd, forage, tierVaults, vaultRegistry, owner));
-        return StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueue deployed = StakingQueue(address(new ERC1967Proxy(address(implementation), initData)));
+        StakingQueueModule module = new StakingQueueModule();
+        vm.prank(owner);
+        deployed.setQueueModule(address(module));
+        return deployed;
     }
 
     function _deployRiskUSDVault(address usdc, address riskusd, address owner) internal returns (RISKUSDVault) {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData = abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, owner, owner));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault_ = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault_.setVaultModule(address(vaultModule_));
+        return vault_;
     }
 
     function _deployBridge(
@@ -570,7 +638,12 @@ contract Octane20260620ReprosTest is Test {
                 executor,
                 guardianModule,
                 HLTradingBridge.RouteConfig({
-                    coldAccount: coldAccount, hyperliquidSourceAccount: sourceAccount, withdrawalChainSelector: 421_614
+                    coldAccount: coldAccount,
+                    hyperliquidSourceAccount: sourceAccount,
+                    withdrawalChainSelector: 421_614,
+                    sequencerUptimeFeed: _deployHealthySequencerUptimeFeed(
+                        implementation.SEQUENCER_UPTIME_GRACE_PERIOD()
+                    )
                 })
             )
         );

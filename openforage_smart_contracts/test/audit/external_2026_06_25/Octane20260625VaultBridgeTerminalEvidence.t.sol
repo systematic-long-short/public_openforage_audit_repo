@@ -9,10 +9,13 @@ import "../../../src/Blocklist.sol";
 import "../../../src/CustodianRegistry.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/RISKUSDVault.sol";
+import "../../../src/modules/RISKUSDVaultModule.sol";
 import "../../../src/USDCTreasury.sol";
 import "../../../src/hyperliquid/HLTradingBridge.sol";
 import "../../../src/interfaces/IVaultRegistry.sol";
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockRISKUSD.sol";
+import "../../mocks/MockSequencerUptimeFeedFixture.sol";
 import "../../mocks/MockUSDC.sol";
 
 contract Octane20260625FixedAssetsVault {
@@ -62,7 +65,7 @@ contract Octane20260625BufferRegistry {
     function notifyLossResolved() external {}
 }
 
-contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
+contract Octane20260625VaultBridgeTerminalEvidenceTest is MockSequencerUptimeFeedFixture {
     using stdStorage for StdStorage;
 
     struct BridgeFixture {
@@ -84,6 +87,16 @@ contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
 
     uint256 internal constant VAULT_ID = 1;
     uint64 internal constant WITHDRAWAL_CHAIN_SELECTOR = 421_614;
+
+    MockAllowlist internal allowlistMock;
+
+    function _mockAllowlist() internal returns (MockAllowlist) {
+        if (address(allowlistMock) == address(0)) {
+            allowlistMock = new MockAllowlist();
+            allowlistMock.setAllAllowed(true);
+        }
+        return allowlistMock;
+    }
 
     function test_V4_redeemSucceedsBeforeLowerNAVPostsThenLossBlocksLaterRedeem() public {
         // PHASE15_REPRO_BINDING: V-4
@@ -441,6 +454,8 @@ contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
             f.coldAccount,
             f.sourceAccount
         );
+        vm.prank(f.owner);
+        f.bridge.setAllowlist(address(_mockAllowlist()));
 
         CustodianRegistry.CustodianConfig memory hlConfig = f.registry
             .hyperLiquidLaunchConfig(
@@ -504,19 +519,37 @@ contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
     {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData = abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, custodian, owner));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        vault.setAllowlist(address(mock));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule_));
+        return vault;
     }
 
     function _deployRISKUSD(address owner) internal returns (RISKUSD) {
         RISKUSD implementation = new RISKUSD();
         bytes memory initData = abi.encodeCall(RISKUSD.initialize, (owner));
-        return RISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSD token = RISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        token.setAllowlist(address(mock));
+        return token;
     }
 
     function _deployTargetVault(address usdc, address riskusd, address owner) internal returns (RISKUSDVault) {
         RISKUSDVault implementation = new RISKUSDVault();
         bytes memory initData = abi.encodeCall(RISKUSDVault.initializeTarget, (usdc, riskusd, owner, owner, owner));
-        return RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        RISKUSDVault vault = RISKUSDVault(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        vault.setAllowlist(address(mock));
+        RISKUSDVaultModule vaultModule_ = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule_));
+        return vault;
     }
 
     function _deployTreasury(
@@ -534,7 +567,11 @@ contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
             USDCTreasury.initialize,
             (usdc, vault, vaultRegistry, owner, foundationPrimary, foundationBackup, protocolPrimary, protocolBackup)
         );
-        return USDCTreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        USDCTreasury treasury = USDCTreasury(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        treasury.setAllowlist(address(mock));
+        return treasury;
     }
 
     function _deployCustodianRegistry(address owner, address forageGovernor, address guardianModule)
@@ -543,13 +580,21 @@ contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
     {
         CustodianRegistry implementation = new CustodianRegistry();
         bytes memory initData = abi.encodeCall(CustodianRegistry.initialize, (owner, forageGovernor, guardianModule));
-        return CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+        CustodianRegistry registry = CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        registry.setAllowlist(address(mock));
+        return registry;
     }
 
     function _deployBlocklist(address guardian, address owner) internal returns (Blocklist) {
         Blocklist implementation = new Blocklist();
         bytes memory initData = abi.encodeCall(Blocklist.initialize, (guardian, owner));
-        return Blocklist(address(new ERC1967Proxy(address(implementation), initData)));
+        Blocklist blocklist = Blocklist(address(new ERC1967Proxy(address(implementation), initData)));
+        MockAllowlist mock = _mockAllowlist();
+        vm.prank(owner);
+        blocklist.setAllowlist(address(mock));
+        return blocklist;
     }
 
     function _deployBridge(
@@ -579,7 +624,10 @@ contract Octane20260625VaultBridgeTerminalEvidenceTest is Test {
                 HLTradingBridge.RouteConfig({
                     coldAccount: coldAccount,
                     hyperliquidSourceAccount: sourceAccount,
-                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR
+                    withdrawalChainSelector: WITHDRAWAL_CHAIN_SELECTOR,
+                    sequencerUptimeFeed: _deployHealthySequencerUptimeFeed(
+                        implementation.SEQUENCER_UPTIME_GRACE_PERIOD()
+                    )
                 })
             )
         );

@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 import "../../../src/CustodianRegistry.sol";
+import "../../mocks/MockAllowlist.sol";
 
 interface ICustodianRegistryEmergencyReturn {
     function recordEmergencyReturn(bytes32 id, uint256 amount) external;
@@ -22,6 +23,7 @@ contract V12_74877_PausedReturnAccountingTest is Test {
     );
 
     CustodianRegistry internal registry;
+    MockAllowlist internal mockAllowlist;
 
     address internal owner = makeAddr("owner");
     address internal governor = makeAddr("governor");
@@ -35,6 +37,11 @@ contract V12_74877_PausedReturnAccountingTest is Test {
         CustodianRegistry implementation = new CustodianRegistry();
         bytes memory initData = abi.encodeCall(CustodianRegistry.initialize, (owner, governor, guardian));
         registry = CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
     }
 
     function test_74877_fix_recordReturnRevertsUnderGlobalPauseAndPreservesTotals() public {

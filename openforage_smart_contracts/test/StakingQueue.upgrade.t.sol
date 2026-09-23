@@ -12,7 +12,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 // Requirements: R-02, R-47
 // ============================================================
 contract StakingQueue_TC13_Upgrade is StakingQueueTestBase {
-    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
 
     /// @dev Helper to read the implementation address from the ERC1967 proxy storage slot.
     function _getImplementationAddress() internal view returns (address) {

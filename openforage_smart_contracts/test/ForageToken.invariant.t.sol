@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/ForageToken.sol";
+import "./mocks/MockAllowlist.sol";
 
 // ============================================================
 // TC-12: Invariant Tests
@@ -132,6 +133,11 @@ contract ForageToken_TC12_Invariants is Test {
             address(impl), abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner))
         );
         token = ForageToken(address(proxy));
+
+        MockAllowlist allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+        vm.prank(owner);
+        token.setAllowlist(address(allowlistMock));
 
         // Setup roles
         vm.startPrank(owner);

@@ -6,12 +6,16 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../../src/RISKUSDVault.sol";
 import "../mocks/MockUSDC.sol";
 import "../mocks/MockRISKUSD.sol";
+import "../mocks/MockAllowlist.sol";
+import "../../src/modules/RISKUSDVaultModule.sol";
 
 abstract contract RISKUSDVaultTestBase is Test {
     RISKUSDVault public vault;
     RISKUSDVault public implementation;
+    RISKUSDVaultModule public vaultModule;
     MockUSDC public usdc;
     MockRISKUSD public riskusd;
+    MockAllowlist public allowlistMock;
 
     address public deployer;
     address public owner; // TimelockController
@@ -51,11 +55,22 @@ abstract contract RISKUSDVaultTestBase is Test {
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
         vault = RISKUSDVault(address(proxy));
 
+        vaultModule = new RISKUSDVaultModule();
+        vm.prank(owner);
+        vault.setVaultModule(address(vaultModule));
+
+        allowlistMock = new MockAllowlist();
+        allowlistMock.setAllAllowed(true);
+        vm.prank(owner);
+        vault.setAllowlist(address(allowlistMock));
+
         _useLegacyRedemptionCapModel();
     }
 
     // --- Helper: setup roles ---
 
+    // via-IR merges identical block.timestamp expressions across warp calls: each role helper's
+    // warp argument is textually distinct so chained propose/finalize cycles really advance time.
     function _setupCustodian() internal {
         vm.startPrank(owner);
         vault.setCustodian(custodianAddr);
@@ -70,7 +85,7 @@ abstract contract RISKUSDVaultTestBase is Test {
     function _setupLossReporter() internal {
         vm.startPrank(owner);
         vault.setLossReporter(lossReporterAddr);
-        vm.warp(block.timestamp + 2 days + 1);
+        vm.warp(block.timestamp + 2 days + 2);
         vault.finalizeLossReporter();
         vm.stopPrank();
     }
@@ -78,7 +93,7 @@ abstract contract RISKUSDVaultTestBase is Test {
     function _setupGovernor() internal {
         vm.startPrank(owner);
         vault.setForageGovernor(governorAddr);
-        vm.warp(block.timestamp + 2 days + 1);
+        vm.warp(block.timestamp + 2 days + 3);
         vault.finalizeForageGovernor();
         vm.stopPrank();
     }

@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 
+import "../src/Allowlist.sol";
 import "../src/Blocklist.sol";
 import "../src/CustodianRegistry.sol";
 import "../src/DelegatingVestingWallet.sol";
@@ -19,6 +20,9 @@ import "../src/USDCTreasury.sol";
 import "../src/VaultRegistry.sol";
 import "../src/atRISKUSD.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
+import "../src/modules/RISKUSDVaultModule.sol";
+import "../src/modules/StakingQueueModule.sol";
+import {IAllowlistSettable} from "./TestContracts.sol";
 
 interface IForageGovernorWiredTarget {
     function FINALIZE_DELAY() external view returns (uint256);
@@ -30,6 +34,15 @@ interface ISharedBlocklistTarget {
     function blocklist() external view returns (address);
 }
 
+interface ISharedAllowlistTarget {
+    function allowlist() external view returns (address);
+}
+
+interface IModuleWiredTarget {
+    function vaultModule() external view returns (address);
+    function queueModule() external view returns (address);
+}
+
 /// @title Deploy
 /// @notice Target-only deployer for the fourteen-contract OpenForage smart-contract stack.
 /// @dev This deployer is intentionally limited to local dry-runs and Arbitrum Sepolia.
@@ -38,7 +51,9 @@ contract Deploy is Script {
     error WrongDeployChain(uint256 chainId);
     error ExpectedDeployChainMismatch(uint256 expectedChainId, uint256 actualChainId);
     error SharedBlocklistNotWired(address target, address expected, address actual);
+    error SharedAllowlistNotWired(address target, address expected, address actual);
     error SequencerUptimePolicyNotWired(address target, address expected, address actual);
+    error ModuleNotWired(address target, address expected, address actual);
 
     uint256 public constant LOCAL_CHAIN_ID = 31337;
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
@@ -62,6 +77,7 @@ contract Deploy is Script {
     uint16[4] public FUNDING_BPS = [uint16(2000), 1500, 1000, 500];
 
     address public deployedTimelock;
+    address public deployedAllowlist;
     address public deployedBlocklist;
     address public deployedCustodianRegistry;
     address public deployedVestingWallet;
@@ -80,6 +96,7 @@ contract Deploy is Script {
     address public deployedForageGovernor;
     address public deployedHLTradingBridge;
 
+    address public implAllowlist;
     address public implBlocklist;
     address public implCustodianRegistry;
     address public implFORAGETreasury;
@@ -87,9 +104,11 @@ contract Deploy is Script {
     address public implGuardianModule;
     address public implRiskusd;
     address public implRiskusdVault;
+    address public implRiskusdVaultModule;
     address public implVaultRegistry;
     address public implAtRiskUSD;
     address public implStakingQueue;
+    address public implStakingQueueModule;
     address public implUSDCTreasury;
     address public implForageGovernor;
     address public implHLTradingBridge;
@@ -105,9 +124,12 @@ contract Deploy is Script {
     address public cfgKeeper;
     address public cfgCustodianExecutor;
     address public cfgColdAccount;
+    address public cfgSequencerUptimeFeed;
     bytes32 public cfgHyperliquidSourceAccount;
     uint64 public cfgWithdrawalChainSelector;
     bool public cfgRequireExplicitGuardians;
+
+    event AllowlistDeployed(address allowlist);
 
     event TargetProxyAddresses(
         address blocklist,
@@ -125,8 +147,8 @@ contract Deploy is Script {
     );
 
     struct AddressLedger {
-        address[18] proxies;
-        address[13] impls;
+        address[19] proxies;
+        address[16] impls;
         address[11] configs;
     }
 
@@ -167,6 +189,7 @@ contract Deploy is Script {
             keeper: vm.envAddress("KEEPER_ADDRESS"),
             custodianExecutor: vm.envAddress("CUSTODIAN_EXECUTOR"),
             coldAccount: vm.envAddress("COLD_ACCOUNT_ADDRESS"),
+            sequencerUptimeFeed: vm.envAddress("SEQUENCER_UPTIME_FEED"),
             hyperliquidSourceAccount: vm.envBytes32("HYPERLIQUID_SOURCE_ACCOUNT"),
             withdrawalChainSelector: uint64(vm.envUint("WITHDRAWAL_CHAIN_SELECTOR")),
             manifestPath: vm.envOr("DEPLOYMENT_MANIFEST_PATH", string("deployments/arbitrum-sepolia/latest.json"))
@@ -179,6 +202,8 @@ contract Deploy is Script {
         }
 
         _deployWithConfig(cfg, deployer);
+
+        _revokeDeployerOperationalRoles(deployer);
 
         vm.stopBroadcast();
     }
@@ -213,7 +238,8 @@ contract Deploy is Script {
         address foundationBackup,
         address protocolPrimary,
         address protocolBackup,
-        address launchVotingDelegate
+        address launchVotingDelegate,
+        address sequencerUptimeFeed
     ) public virtual {
         _deployWithConfig(
             DeployConfig({
@@ -228,6 +254,7 @@ contract Deploy is Script {
                 keeper: msg.sender,
                 custodianExecutor: msg.sender,
                 coldAccount: msg.sender,
+                sequencerUptimeFeed: sequencerUptimeFeed,
                 hyperliquidSourceAccount: bytes32(uint256(uint160(msg.sender))),
                 withdrawalChainSelector: uint64(block.chainid),
                 manifestPath: ""
@@ -238,6 +265,7 @@ contract Deploy is Script {
 
     function getAddressLedger() external view returns (AddressLedger memory ledger) {
         ledger.proxies = [
+            deployedAllowlist,
             deployedTimelock,
             deployedBlocklist,
             deployedCustodianRegistry,
@@ -258,6 +286,7 @@ contract Deploy is Script {
             deployedHLTradingBridge
         ];
         ledger.impls = [
+            implAllowlist,
             implBlocklist,
             implCustodianRegistry,
             implFORAGETreasury,
@@ -265,9 +294,11 @@ contract Deploy is Script {
             implGuardianModule,
             implRiskusd,
             implRiskusdVault,
+            implRiskusdVaultModule,
             implVaultRegistry,
             implAtRiskUSD,
             implStakingQueue,
+            implStakingQueueModule,
             implUSDCTreasury,
             implForageGovernor,
             implHLTradingBridge
@@ -307,6 +338,7 @@ contract Deploy is Script {
         address keeper;
         address custodianExecutor;
         address coldAccount;
+        address sequencerUptimeFeed;
         bytes32 hyperliquidSourceAccount;
         uint64 withdrawalChainSelector;
         string manifestPath;
@@ -316,6 +348,7 @@ contract Deploy is Script {
         _recordConfig(cfg);
         _deployTimelock(cfg.deployer);
         _deployImplementations();
+        _deployAllowlist(cfg);
         PredictedAddresses memory predicted = _predictAddresses(createSender);
         _deployTokenAndTreasuries(cfg, predicted);
         _deployGovernanceAndRegistry(cfg, predicted);
@@ -337,6 +370,7 @@ contract Deploy is Script {
         require(cfg.keeper != address(0), "keeper required");
         require(cfg.custodianExecutor != address(0), "executor required");
         require(cfg.coldAccount != address(0), "cold account required");
+        require(cfg.sequencerUptimeFeed != address(0), "sequencer feed required");
         require(cfg.hyperliquidSourceAccount != bytes32(0), "source account required");
         require(cfg.withdrawalChainSelector != 0, "withdrawal chain required");
         require(cfg.foundationPrimary != cfg.foundationBackup, "foundation wallets must differ");
@@ -353,6 +387,7 @@ contract Deploy is Script {
         cfgKeeper = cfg.keeper;
         cfgCustodianExecutor = cfg.custodianExecutor;
         cfgColdAccount = cfg.coldAccount;
+        cfgSequencerUptimeFeed = cfg.sequencerUptimeFeed;
         cfgHyperliquidSourceAccount = cfg.hyperliquidSourceAccount;
         cfgWithdrawalChainSelector = cfg.withdrawalChainSelector;
     }
@@ -382,13 +417,13 @@ contract Deploy is Script {
     function _deployTimelock(address deployer) internal {
         address[] memory proposers = new address[](1);
         proposers[0] = deployer;
-        address[] memory executors = new address[](2);
+        address[] memory executors = new address[](1);
         executors[0] = deployer;
-        executors[1] = address(0);
         deployedTimelock = address(new TimelockController(_minDelay(), proposers, executors, deployer));
     }
 
     function _deployImplementations() internal {
+        implAllowlist = address(new Allowlist());
         implBlocklist = address(new Blocklist());
         implCustodianRegistry = address(new CustodianRegistry());
         implFORAGETreasury = address(new FORAGETreasury());
@@ -396,9 +431,11 @@ contract Deploy is Script {
         implGuardianModule = address(new GuardianModule());
         implRiskusd = address(new RISKUSD());
         implRiskusdVault = address(new RISKUSDVault());
+        implRiskusdVaultModule = address(new RISKUSDVaultModule());
         implVaultRegistry = address(new VaultRegistry());
         implAtRiskUSD = address(new atRISKUSD());
         implStakingQueue = address(new StakingQueue());
+        implStakingQueueModule = address(new StakingQueueModule());
         implUSDCTreasury = address(new USDCTreasury());
         implForageGovernor = address(new ForageGovernor());
         implHLTradingBridge = address(new HLTradingBridge());
@@ -425,6 +462,17 @@ contract Deploy is Script {
         predicted.stakingQueue = vm.computeCreateAddress(createSender, nonce++);
     }
 
+    function _deployAllowlist(DeployConfig memory cfg) internal {
+        deployedAllowlist = _proxy(
+            implAllowlist,
+            abi.encodeCall(
+                Allowlist.initialize,
+                (cfg.deployer, _guardianAddresses(cfg.deployer)[0], uint64(Allowlist(implAllowlist).FINALIZE_DELAY()))
+            )
+        );
+        Allowlist(deployedAllowlist).approveOperator(cfg.beneficiary);
+    }
+
     function _deployTokenAndTreasuries(DeployConfig memory cfg, PredictedAddresses memory predicted) internal {
         deployedVestingWallet = address(
             new DelegatingVestingWallet(
@@ -432,7 +480,8 @@ contract Deploy is Script {
                 _vestingStartTimestamp(),
                 uint64(VESTING_DURATION),
                 uint64(CLIFF_DURATION),
-                cfg.deployer
+                cfg.deployer,
+                deployedAllowlist
             )
         );
         _requirePredicted(deployedVestingWallet, predicted.vestingWallet);
@@ -535,7 +584,8 @@ contract Deploy is Script {
                     HLTradingBridge.RouteConfig({
                         coldAccount: cfg.coldAccount,
                         hyperliquidSourceAccount: cfg.hyperliquidSourceAccount,
-                        withdrawalChainSelector: cfg.withdrawalChainSelector
+                        withdrawalChainSelector: cfg.withdrawalChainSelector,
+                        sequencerUptimeFeed: cfg.sequencerUptimeFeed
                     })
                 )
             )
@@ -575,8 +625,12 @@ contract Deploy is Script {
     }
 
     function _wireTargetStack(DeployConfig memory cfg) internal {
+        _wireModules();
+        _wireSharedAllowlist(cfg);
+
         TimelockController(payable(deployedTimelock)).grantRole(PROPOSER_ROLE, deployedForageGovernor);
         TimelockController(payable(deployedTimelock)).grantRole(CANCELLER_ROLE, deployedForageGovernor);
+        TimelockController(payable(deployedTimelock)).grantRole(EXECUTOR_ROLE, deployedForageGovernor);
 
         DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);
         DelegatingVestingWallet(deployedVestingWallet).precommitForageToken(deployedForageToken);
@@ -605,9 +659,12 @@ contract Deploy is Script {
         RISKUSD(deployedRiskusd).setMinter(deployedRiskusdVault);
         _afterRiskusdMinterProposed();
         RISKUSD(deployedRiskusd).setBlocklist(deployedBlocklist);
+        RISKUSD(deployedRiskusd).setTransferExempt(deployedRiskusdVault, true);
+        RISKUSD(deployedRiskusd).setTransferExempt(deployedStakingQueue, true);
 
         RISKUSDVault(deployedRiskusdVault).setBlocklist(deployedBlocklist);
         RISKUSDVault(deployedRiskusdVault).setDailyRedemptionCapBps(200);
+        RISKUSDVault(deployedRiskusdVault).setMinimumFirstDeposit(2, 200_000e6);
 
         ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);
         ForageToken(deployedForageToken).setAuthorizedLocker(deployedStakingQueue, true);
@@ -623,7 +680,7 @@ contract Deploy is Script {
         StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);
         StakingQueue(deployedStakingQueue).setExpiredLockupProcessor(cfg.keeper, true);
 
-        _wireSequencerUptimePolicy();
+        _wireSequencerUptimePolicy(cfg.sequencerUptimeFeed);
 
         _wireForageGovernorPauseControls();
 
@@ -635,7 +692,8 @@ contract Deploy is Script {
         DelegatingVestingWallet(deployedVestingWallet).setBlocklist(deployedBlocklist);
 
         _assertSharedBlocklistMandate();
-        _assertSequencerUptimePolicyWiring();
+        _assertModuleWiring();
+        _assertSequencerUptimePolicyWiring(cfg.sequencerUptimeFeed);
 
         CustodianRegistry.CustodianConfig memory config = CustodianRegistry(deployedCustodianRegistry)
             .hyperLiquidLaunchConfig(
@@ -657,6 +715,63 @@ contract Deploy is Script {
         _registerPausableTarget(deployedAtRiskTier3);
         _registerPausableTarget(deployedHLTradingBridge);
         _registerPausableTarget(deployedCustodianRegistry);
+    }
+
+    function _wireModules() internal {
+        RISKUSDVault(deployedRiskusdVault).setVaultModule(implRiskusdVaultModule);
+        StakingQueue(deployedStakingQueue).setQueueModule(implStakingQueueModule);
+    }
+
+    function _wireSharedAllowlist(DeployConfig memory cfg) internal {
+        Allowlist registry = Allowlist(deployedAllowlist);
+        address[] memory targets = _allowlistTargets();
+        for (uint256 i; i < targets.length;) {
+            registry.setSystemAccount(targets[i], true);
+            unchecked {
+                ++i;
+            }
+        }
+        registry.setSystemAccount(deployedTimelock, true);
+        registry.setSystemAccount(cfg.keeper, true);
+        registry.setSystemAccount(cfg.custodianExecutor, true);
+        registry.setSystemAccount(cfg.launchVotingDelegate, true);
+        registry.setSystemAccount(cfg.deployer, true);
+
+        registry.proposeRegistrar(cfg.keeper);
+
+        for (uint256 i; i < targets.length;) {
+            if (targets[i] != deployedGuardianModule && targets[i] != deployedForageGovernor) {
+                IAllowlistSettable(targets[i]).setAllowlist(deployedAllowlist);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        _timelockCall(deployedGuardianModule, abi.encodeCall(IAllowlistSettable.setAllowlist, (deployedAllowlist)));
+        _timelockCall(deployedForageGovernor, abi.encodeCall(IAllowlistSettable.setAllowlist, (deployedAllowlist)));
+
+        _assertSharedAllowlistMandate();
+    }
+
+    function _allowlistTargets() internal view returns (address[] memory targets) {
+        targets = new address[](17);
+        targets[0] = deployedBlocklist;
+        targets[1] = deployedCustodianRegistry;
+        targets[2] = deployedVestingWallet;
+        targets[3] = deployedFORAGETreasury;
+        targets[4] = deployedForageToken;
+        targets[5] = deployedGuardianModule;
+        targets[6] = deployedRiskusd;
+        targets[7] = deployedRiskusdVault;
+        targets[8] = deployedVaultRegistry;
+        targets[9] = deployedAtRiskTier0;
+        targets[10] = deployedAtRiskTier1;
+        targets[11] = deployedAtRiskTier2;
+        targets[12] = deployedAtRiskTier3;
+        targets[13] = deployedStakingQueue;
+        targets[14] = deployedUSDCTreasury;
+        targets[15] = deployedForageGovernor;
+        targets[16] = deployedHLTradingBridge;
     }
 
     function _deployAtRisk(uint8 tier, string memory abbreviation, address stakingQueue_) internal returns (address) {
@@ -687,20 +802,11 @@ contract Deploy is Script {
 
     function _afterRiskusdMinterProposed() internal virtual {}
 
-    function _sequencerUptimeFeed() internal pure virtual returns (address) {
-        return address(0);
-    }
-
-    function _wireSequencerUptimePolicy() internal {
-        address feed = _sequencerUptimeFeed();
-        if (feed == address(0)) return;
+    function _wireSequencerUptimePolicy(address feed) internal {
         StakingQueue(deployedStakingQueue).setSequencerUptimeFeed(feed);
-        HLTradingBridge(deployedHLTradingBridge).setSequencerUptimeFeed(feed);
     }
 
-    function _assertSequencerUptimePolicyWiring() internal view {
-        address feed = _sequencerUptimeFeed();
-        if (feed == address(0)) return;
+    function _assertSequencerUptimePolicyWiring(address feed) internal view {
         _requireSequencerUptimeFeed(deployedStakingQueue, feed);
         _requireSequencerUptimeFeed(deployedHLTradingBridge, feed);
     }
@@ -725,6 +831,42 @@ contract Deploy is Script {
     function _requireSharedBlocklist(address target, address expected) internal view {
         address actual = ISharedBlocklistTarget(target).blocklist();
         if (actual != expected) revert SharedBlocklistNotWired(target, expected, actual);
+    }
+
+    function _assertSharedAllowlistMandate() internal view {
+        address expected = deployedAllowlist;
+        if (expected == address(0)) revert SharedAllowlistNotWired(address(0), expected, address(0));
+        address[] memory targets = _allowlistTargets();
+        for (uint256 i; i < targets.length;) {
+            _requireSharedAllowlist(targets[i], expected);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _requireSharedAllowlist(address target, address expected) internal view {
+        address actual = ISharedAllowlistTarget(target).allowlist();
+        if (actual != expected) revert SharedAllowlistNotWired(target, expected, actual);
+    }
+
+    function _assertModuleWiring() internal view {
+        address vaultModule = implRiskusdVaultModule;
+        if (vaultModule == address(0)) revert ModuleNotWired(address(0), vaultModule, address(0));
+        _requireVaultModule(deployedRiskusdVault, vaultModule);
+        address queueModule = implStakingQueueModule;
+        if (queueModule == address(0)) revert ModuleNotWired(address(0), queueModule, address(0));
+        _requireQueueModule(deployedStakingQueue, queueModule);
+    }
+
+    function _requireVaultModule(address target, address expected) internal view {
+        address actual = IModuleWiredTarget(target).vaultModule();
+        if (actual != expected) revert ModuleNotWired(target, expected, actual);
+    }
+
+    function _requireQueueModule(address target, address expected) internal view {
+        address actual = IModuleWiredTarget(target).queueModule();
+        if (actual != expected) revert ModuleNotWired(target, expected, actual);
     }
 
     function _requireSequencerUptimeFeed(address target, address expected) internal view {
@@ -791,6 +933,13 @@ contract Deploy is Script {
         timelock.execute(target, 0, data, bytes32(0), salt);
     }
 
+    function _revokeDeployerOperationalRoles(address deployer) internal {
+        TimelockController timelock = TimelockController(payable(deployedTimelock));
+        timelock.revokeRole(PROPOSER_ROLE, deployer);
+        timelock.revokeRole(CANCELLER_ROLE, deployer);
+        timelock.revokeRole(EXECUTOR_ROLE, deployer);
+    }
+
     function _proxy(address implementation, bytes memory initData) internal returns (address) {
         return address(new ERC1967Proxy(implementation, initData));
     }
@@ -817,6 +966,8 @@ contract Deploy is Script {
     }
 
     function _emitAndWriteManifest(string memory manifestPath) internal {
+        emit AllowlistDeployed(deployedAllowlist);
+
         emit TargetProxyAddresses(
             deployedBlocklist,
             deployedCustodianRegistry,
@@ -832,11 +983,15 @@ contract Deploy is Script {
             deployedHLTradingBridge
         );
 
+        console.log("implRiskusdVaultModule:", implRiskusdVaultModule);
+        console.log("implStakingQueueModule:", implStakingQueueModule);
+
         if (bytes(manifestPath).length == 0) return;
 
         string memory root = "target_sc_gap";
         vm.serializeUint(root, "chainId", block.chainid);
         vm.serializeAddress(root, "usdc", cfgUsdc);
+        vm.serializeAddress(root, "allowlist", deployedAllowlist);
         vm.serializeAddress(root, "blocklist", deployedBlocklist);
         vm.serializeAddress(root, "custodianRegistry", deployedCustodianRegistry);
         vm.serializeAddress(root, "riskusd", deployedRiskusd);
@@ -850,7 +1005,10 @@ contract Deploy is Script {
         vm.serializeAddress(root, "guardianModule", deployedGuardianModule);
         vm.serializeAddress(root, "hlTradingBridge", deployedHLTradingBridge);
         vm.serializeAddress(root, "hyperliquidColdAccount", cfgColdAccount);
+        vm.serializeAddress(root, "sequencerUptimeFeed", cfgSequencerUptimeFeed);
         vm.serializeAddress(root, "stakingQueue", deployedStakingQueue);
+        vm.serializeAddress(root, "riskusdVaultModule", implRiskusdVaultModule);
+        vm.serializeAddress(root, "stakingQueueModule", implStakingQueueModule);
         address[] memory vestingWallets = new address[](1);
         vestingWallets[0] = deployedVestingWallet;
         vm.serializeAddress(root, "delegatingVestingWallets", vestingWallets);

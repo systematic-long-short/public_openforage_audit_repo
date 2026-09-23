@@ -2,15 +2,24 @@
 
 ## Source Scope
 
-This snapshot is limited to one component tree:
+This snapshot is limited to the public-safe portion of one component tree:
 
 - `openforage_smart_contracts/`
 
-The source files are copied from the current working tree of the private
-OpenForage repository's smart-contract/audit surface at commit
-`34c8793713556453bd5af450b17b215de88f0f45`. Local generated artifacts,
-environment files, and unrelated private monorepo trees are intentionally
-omitted.
+The production Solidity files in `contracts/src/` and ABI files in
+`contracts/abi/` are copied byte-for-byte from private OpenForage commit
+`e5c2c76d55e197044e30392c407b52af598a1681` (26 Solidity files and 18 ABI
+files). A deterministic per-file SHA-256 inventory comparison confirmed exact
+parity. Tests and helpers were selected individually for the current source
+changes and investor eligibility gate; the private `contracts/` tree was not
+copied wholesale. Generated artifacts, deployment manifests, local caches,
+private environment files, private audit provenance, and unrelated monorepo
+trees are omitted.
+
+The refresh includes the `Allowlist` registry and caller-gate mixin, plus the
+RISKUSD vault and staking-queue delegate modules. The mainnet dry-run script
+contains no hard-coded sequencer feed address; the feed is supplied by
+configuration, with a deterministic placeholder in the dry-run path.
 
 ## Documentation Scope
 
@@ -51,6 +60,10 @@ repository's current dependency commits:
 Run `git submodule update --init --recursive` before building or testing the
 smart contracts.
 
+The source repository's vendored dependency trees were not exported. Their Git
+tree hashes did not match the root trees of the existing pinned commits, so the
+public submodule pins were left unchanged.
+
 ## Out Of Scope
 
 - Private monorepo modules outside the exported smart-contract tree.
@@ -60,6 +73,9 @@ smart contracts.
 - Internal project/spec/tasklist/prompt artifacts.
 - Raw external portal exports containing local reproduction paths or internal
   provenance discussion.
+- Private-only suppression/waiver refreshes and their generated audit
+  baselines. The pre-existing public suppression/waiver files are retained as
+  historical snapshot data and were not revalidated against the current source.
 - Deployment manifests, keeper configuration, public cloud resource names, and
   generated broadcast output.
 - Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.

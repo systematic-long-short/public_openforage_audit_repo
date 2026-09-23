@@ -19,6 +19,9 @@ contract StakingQueue_TC11_Auth is StakingQueueTestBase {
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         StakingQueue freshQueue = StakingQueue(address(proxy));
 
+        vm.prank(owner);
+        freshQueue.setAllowlist(address(mockAllowlist));
+
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
         freshQueue.setVaultId(registeredVaultId);

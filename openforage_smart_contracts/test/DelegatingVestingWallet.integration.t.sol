@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/DelegatingVestingWallet.sol";
+import "./mocks/MockAllowlist.sol";
 import "./mocks/MockForageTokenVotes.sol";
 
 // ============================================================
@@ -12,6 +13,7 @@ import "./mocks/MockForageTokenVotes.sol";
 contract DelegatingVestingWallet_TC12_VotingPower is Test {
     DelegatingVestingWallet public wallet;
     MockForageTokenVotes public votesToken;
+    MockAllowlist public mockAllowlist;
 
     address public beneficiary;
     address public tokenSetterAddr;
@@ -31,8 +33,13 @@ contract DelegatingVestingWallet_TC12_VotingPower is Test {
 
         startTimestamp = uint64(block.timestamp);
 
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+
         // Deploy wallet
-        wallet = new DelegatingVestingWallet(beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr);
+        wallet = new DelegatingVestingWallet(
+            beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr, address(mockAllowlist)
+        );
 
         // Deploy ERC20Votes token and fund wallet
         votesToken = new MockForageTokenVotes();
@@ -53,8 +60,9 @@ contract DelegatingVestingWallet_TC12_VotingPower is Test {
     }
 
     function test_TC12_rescueBeforeForageTokenSetReverts() public {
-        DelegatingVestingWallet freshWallet =
-            new DelegatingVestingWallet(beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr);
+        DelegatingVestingWallet freshWallet = new DelegatingVestingWallet(
+            beneficiary, startTimestamp, TEAM_DURATION, TEAM_CLIFF, tokenSetterAddr, address(mockAllowlist)
+        );
         votesToken.mint(address(freshWallet), 1 ether);
 
         vm.prank(beneficiary);

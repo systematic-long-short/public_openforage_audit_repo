@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./FinalizeDelayProfile.sol";
+import "./AllowlistGatedUpgradeable.sol";
 
 /// @title CustodianRegistry
 /// @notice R-27/F11 registry shape for N trading custodians.
@@ -15,7 +16,8 @@ contract CustodianRegistry is
     Ownable2StepUpgradeable,
     PausableUpgradeable,
     UUPSUpgradeable,
-    FinalizeDelayProfile
+    FinalizeDelayProfile,
+    AllowlistGatedUpgradeable
 {
     enum CustodianKind {
         None,
@@ -125,6 +127,7 @@ contract CustodianRegistry is
     error ProposalExpired();
     error RenounceOwnershipDisabled();
     error CustodianNAVDeltaCapExceeded(bytes32 id, uint256 previousNAV, uint256 newNAV);
+    error StaleCustodianConfigEpoch(bytes32 id, uint64 expected, uint64 actual);
 
     bytes32 public constant HYPERLIQUID_CUSTODIAN_ID = keccak256("HYPERLIQUID");
     bytes32 public constant LIGHTER_CUSTODIAN_ID = keccak256("LIGHTER");
@@ -158,6 +161,9 @@ contract CustodianRegistry is
     mapping(bytes32 => mapping(bytes32 => PendingAllowedPeer)) private _pendingAllowedPeers;
     mapping(bytes32 => mapping(bytes32 => mapping(address => bool))) private _allowedRoles;
     mapping(bytes32 => mapping(bytes32 => mapping(address => PendingCustodianRole))) private _pendingAllowedRoles;
+    mapping(bytes32 => uint64) private _custodianConfigEpoch;
+    mapping(bytes32 => mapping(bytes32 => uint64)) private _pendingAllowedPeerConfigEpoch;
+    mapping(bytes32 => mapping(bytes32 => mapping(address => uint64))) private _pendingAllowedRoleConfigEpoch;
     bytes32[] private _custodianIds;
     uint256 private _totalDeployed;
     address private _forageGovernor;
@@ -167,7 +173,7 @@ contract CustodianRegistry is
     uint256 private _pendingForageGovernorProposedAt;
     uint256 private _pendingGuardianModuleProposedAt;
 
-    uint256[39] private __gap;
+    uint256[36] private __gap;
 
     constructor() {
         _disableInitializers();
@@ -180,6 +186,10 @@ contract CustodianRegistry is
         __Pausable_init();
         _forageGovernor = forageGovernor_;
         _guardianModule = guardianModule_;
+    }
+
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
     }
 
     modifier onlyPauseControl() {
@@ -196,14 +206,14 @@ contract CustodianRegistry is
         _;
     }
 
-    function proposeCustodianConfig(CustodianConfig calldata config) external onlyOwner {
+    function proposeCustodianConfig(CustodianConfig calldata config) external onlyAllowedCaller onlyOwner {
         _validateConfig(config);
         _pendingCustodianConfigs[config.id] =
             PendingCustodianConfig({config: config, proposedAt: block.timestamp, exists: true});
         emit CustodianConfigProposed(config.id, config.kind, config.bridge, config.executor);
     }
 
-    function finalizeCustodianConfig(bytes32 id) external onlyOwner {
+    function finalizeCustodianConfig(bytes32 id) external onlyAllowedCaller onlyOwner {
         PendingCustodianConfig storage pending = _pendingCustodianConfigs[id];
         if (!pending.exists) revert NoPendingCustodianConfig(id);
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -218,6 +228,7 @@ contract CustodianRegistry is
         } else {
             _setCoreRoles(id, state.bridge, state.executor, false);
         }
+        _custodianConfigEpoch[id] += 1;
 
         state.kind = config.kind;
         state.bridge = config.bridge;
@@ -245,18 +256,18 @@ contract CustodianRegistry is
         emit CustodianConfigFinalized(id, config.kind, config.bridge, config.executor);
     }
 
-    function cancelPendingCustodianConfig(bytes32 id) external onlyOwner {
+    function cancelPendingCustodianConfig(bytes32 id) external onlyAllowedCaller onlyOwner {
         if (!_pendingCustodianConfigs[id].exists) revert NoPendingCustodianConfig(id);
         delete _pendingCustodianConfigs[id];
     }
 
-    function setCustodianPaused(bytes32 id, bool paused_) external onlyPauseControl {
+    function setCustodianPaused(bytes32 id, bool paused_) external onlyAllowedCaller onlyPauseControl {
         CustodianState storage state = _requireCustodian(id);
         state.paused = paused_;
         emit CustodianPausedSet(id, paused_);
     }
 
-    function setAllowedPeer(bytes32 id, bytes32 peer, bool allowed) external onlyOwner {
+    function setAllowedPeer(bytes32 id, bytes32 peer, bool allowed) external onlyAllowedCaller onlyOwner {
         _requireCustodian(id);
         if (peer == bytes32(0)) revert ZeroBytes32();
         if (!allowed) {
@@ -268,29 +279,36 @@ contract CustodianRegistry is
         _proposeAllowedPeer(id, peer);
     }
 
-    function proposeAllowedPeer(bytes32 id, bytes32 peer) external onlyOwner {
+    function proposeAllowedPeer(bytes32 id, bytes32 peer) external onlyAllowedCaller onlyOwner {
         _requireCustodian(id);
         if (peer == bytes32(0)) revert ZeroBytes32();
         _proposeAllowedPeer(id, peer);
     }
 
-    function finalizeAllowedPeer(bytes32 id, bytes32 peer) external onlyOwner {
+    function finalizeAllowedPeer(bytes32 id, bytes32 peer) external onlyAllowedCaller onlyOwner {
         _requireCustodian(id);
         if (peer == bytes32(0)) revert ZeroBytes32();
         PendingAllowedPeer storage pending = _pendingAllowedPeers[id][peer];
         if (!pending.exists) revert NoPendingAllowedPeer(id, peer);
         _validatePendingDelay(pending.proposedAt);
+        _validateConfigEpoch(id, _pendingAllowedPeerConfigEpoch[id][peer]);
         delete _pendingAllowedPeers[id][peer];
+        delete _pendingAllowedPeerConfigEpoch[id][peer];
         _allowedPeers[id][peer] = true;
         emit CustodianPeerAllowed(id, peer, true);
     }
 
-    function cancelPendingAllowedPeer(bytes32 id, bytes32 peer) external onlyOwner {
+    function cancelPendingAllowedPeer(bytes32 id, bytes32 peer) external onlyAllowedCaller onlyOwner {
         if (!_pendingAllowedPeers[id][peer].exists) revert NoPendingAllowedPeer(id, peer);
         delete _pendingAllowedPeers[id][peer];
+        delete _pendingAllowedPeerConfigEpoch[id][peer];
     }
 
-    function setCustodianRole(bytes32 id, bytes32 role, address account, bool allowed) external onlyOwner {
+    function setCustodianRole(bytes32 id, bytes32 role, address account, bool allowed)
+        external
+        onlyAllowedCaller
+        onlyOwner
+    {
         _requireCustodian(id);
         if (role == bytes32(0)) revert ZeroBytes32();
         if (account == address(0)) revert ZeroAddress();
@@ -302,33 +320,41 @@ contract CustodianRegistry is
         _proposeCustodianRole(id, role, account);
     }
 
-    function proposeCustodianRole(bytes32 id, bytes32 role, address account) external onlyOwner {
+    function proposeCustodianRole(bytes32 id, bytes32 role, address account) external onlyAllowedCaller onlyOwner {
         _requireCustodian(id);
         if (role == bytes32(0)) revert ZeroBytes32();
         if (account == address(0)) revert ZeroAddress();
         _proposeCustodianRole(id, role, account);
     }
 
-    function finalizeCustodianRole(bytes32 id, bytes32 role, address account) external onlyOwner {
+    function finalizeCustodianRole(bytes32 id, bytes32 role, address account) external onlyAllowedCaller onlyOwner {
         _requireCustodian(id);
         if (role == bytes32(0)) revert ZeroBytes32();
         if (account == address(0)) revert ZeroAddress();
         PendingCustodianRole storage pending = _pendingAllowedRoles[id][role][account];
         if (!pending.exists) revert NoPendingCustodianRole(id, role, account);
         _validatePendingDelay(pending.proposedAt);
+        _validateConfigEpoch(id, _pendingAllowedRoleConfigEpoch[id][role][account]);
         delete _pendingAllowedRoles[id][role][account];
+        delete _pendingAllowedRoleConfigEpoch[id][role][account];
         _setRole(id, role, account, true);
     }
 
-    function cancelPendingCustodianRole(bytes32 id, bytes32 role, address account) external onlyOwner {
+    function cancelPendingCustodianRole(bytes32 id, bytes32 role, address account)
+        external
+        onlyAllowedCaller
+        onlyOwner
+    {
         if (!_pendingAllowedRoles[id][role][account].exists) {
             revert NoPendingCustodianRole(id, role, account);
         }
         delete _pendingAllowedRoles[id][role][account];
+        delete _pendingAllowedRoleConfigEpoch[id][role][account];
     }
 
     function recordDeployment(bytes32 id, uint256 amount)
         external
+        onlyAllowedCaller
         whenNotPaused
         onlyCustodianRole(id, ROLE_ACCOUNTANT)
     {
@@ -342,7 +368,12 @@ contract CustodianRegistry is
     }
 
     /// @notice Return accounting is intentionally live while the custodian is paused.
-    function recordReturn(bytes32 id, uint256 amount) external whenNotPaused onlyCustodianRole(id, ROLE_ACCOUNTANT) {
+    function recordReturn(bytes32 id, uint256 amount)
+        external
+        onlyAllowedCaller
+        whenNotPaused
+        onlyCustodianRole(id, ROLE_ACCOUNTANT)
+    {
         uint256 deployed = _applyReturnAccounting(id, amount);
         emit CustodianReturnRecorded(id, amount, deployed);
     }
@@ -350,6 +381,7 @@ contract CustodianRegistry is
     /// @notice Named escape hatch for return accounting while the registry-wide pause is active.
     function recordEmergencyReturn(bytes32 id, uint256 amount)
         external
+        onlyAllowedCaller
         whenPaused
         onlyCustodianRole(id, ROLE_ACCOUNTANT)
     {
@@ -358,7 +390,12 @@ contract CustodianRegistry is
         emit CustodianReturnRecorded(id, amount, deployed);
     }
 
-    function recordNAV(bytes32 id, uint256 nav) external whenNotPaused onlyCustodianRole(id, ROLE_NAV_ATTESTER) {
+    function recordNAV(bytes32 id, uint256 nav)
+        external
+        onlyAllowedCaller
+        whenNotPaused
+        onlyCustodianRole(id, ROLE_NAV_ATTESTER)
+    {
         CustodianState storage state = _requireCustodian(id);
         if (state.paused) revert CustodianPaused(id);
         if (nav == 0) revert ZeroAmount();
@@ -368,14 +405,14 @@ contract CustodianRegistry is
         emit CustodianNAVRecorded(id, nav, block.timestamp);
     }
 
-    function proposeForageGovernor(address newGovernor) external onlyOwner {
+    function proposeForageGovernor(address newGovernor) external onlyAllowedCaller onlyOwner {
         if (newGovernor == address(0)) revert ZeroAddress();
         _pendingForageGovernor = newGovernor;
         _pendingForageGovernorProposedAt = block.timestamp;
         emit ForageGovernorProposed(_forageGovernor, newGovernor);
     }
 
-    function finalizeForageGovernor() external onlyOwner {
+    function finalizeForageGovernor() external onlyAllowedCaller onlyOwner {
         if (_pendingForageGovernor == address(0)) revert NoPendingForageGovernor();
         if (block.timestamp < _pendingForageGovernorProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingForageGovernorProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -386,14 +423,14 @@ contract CustodianRegistry is
         emit ForageGovernorUpdated(oldGovernor, _forageGovernor);
     }
 
-    function proposeGuardianModule(address newGuardianModule) external onlyOwner {
+    function proposeGuardianModule(address newGuardianModule) external onlyAllowedCaller onlyOwner {
         if (newGuardianModule == address(0)) revert ZeroAddress();
         _pendingGuardianModule = newGuardianModule;
         _pendingGuardianModuleProposedAt = block.timestamp;
         emit GuardianModuleProposed(_guardianModule, newGuardianModule);
     }
 
-    function finalizeGuardianModule() external onlyOwner {
+    function finalizeGuardianModule() external onlyAllowedCaller onlyOwner {
         if (_pendingGuardianModule == address(0)) revert NoPendingGuardianModule();
         if (block.timestamp < _pendingGuardianModuleProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingGuardianModuleProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -404,11 +441,11 @@ contract CustodianRegistry is
         emit GuardianModuleUpdated(oldGuardian, _guardianModule);
     }
 
-    function pause() external onlyPauseControl {
+    function pause() external onlyAllowedCaller onlyPauseControl {
         _pause();
     }
 
-    function unpause() external onlyPauseControl {
+    function unpause() external onlyAllowedCaller onlyPauseControl {
         _unpause();
     }
 
@@ -591,12 +628,19 @@ contract CustodianRegistry is
 
     function _proposeAllowedPeer(bytes32 id, bytes32 peer) internal {
         _pendingAllowedPeers[id][peer] = PendingAllowedPeer({proposedAt: block.timestamp, exists: true});
+        _pendingAllowedPeerConfigEpoch[id][peer] = _custodianConfigEpoch[id];
         emit CustodianPeerProposed(id, peer);
     }
 
     function _proposeCustodianRole(bytes32 id, bytes32 role, address account) internal {
         _pendingAllowedRoles[id][role][account] = PendingCustodianRole({proposedAt: block.timestamp, exists: true});
+        _pendingAllowedRoleConfigEpoch[id][role][account] = _custodianConfigEpoch[id];
         emit CustodianRoleProposed(id, role, account);
+    }
+
+    function _validateConfigEpoch(bytes32 id, uint64 proposedEpoch) internal view {
+        uint64 currentEpoch = _custodianConfigEpoch[id];
+        if (proposedEpoch != currentEpoch) revert StaleCustodianConfigEpoch(id, proposedEpoch, currentEpoch);
     }
 
     function _validatePendingDelay(uint256 proposedAt) internal view {
@@ -655,6 +699,18 @@ contract CustodianRegistry is
         uint256 delta = nav > previousNAV ? nav - previousNAV : previousNAV - nav;
         uint256 maxDelta = previousNAV * uint256(state.navDeltaCapBps) / 10000;
         if (delta > maxDelta) revert CustodianNAVDeltaCapExceeded(id, previousNAV, nav);
+    }
+
+    function transferOwnership(address newOwner) public override onlyAllowedCaller onlyOwner {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
+    }
+
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
     }
 
     function renounceOwnership() public pure override {

@@ -4,11 +4,13 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IBlocklist.sol";
+import "./interfaces/IAllowlist.sol";
 
 /// @title DelegatingVestingWallet
 /// @notice Non-upgradeable per-beneficiary FORAGE vesting with cliff and voting delegation
-contract DelegatingVestingWallet {
+contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
     using SafeERC20 for IERC20;
 
     error ZeroAddress();
@@ -31,6 +33,7 @@ contract DelegatingVestingWallet {
     error ForageTokenAlreadyPrecommitted();
     error UnexpectedForageToken(address expected, address provided);
     error InvalidBlocklist(address blocklist);
+    error InvalidAllowlist(address allowlist);
 
     event ForageTokenPrecommitted(address indexed forageToken);
     event ForageTokenSet(address indexed forageToken);
@@ -61,8 +64,17 @@ contract DelegatingVestingWallet {
         uint64 startTimestamp_,
         uint64 durationSeconds_,
         uint64 cliffSeconds_,
-        address tokenSetter_
-    ) {
+        address tokenSetter_,
+        address allowlist_
+    ) initializer {
+        if (allowlist_ == address(0) || allowlist_.code.length == 0) {
+            revert InvalidAllowlist(allowlist_);
+        }
+        (bool ok, bytes memory ret) = allowlist_.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
+        if (!ok || ret.length != 32) revert InvalidAllowlist(allowlist_);
+        __AllowlistGated_init(allowlist_);
+        if (!IAllowlist(allowlist_).isAllowed(beneficiary_)) revert IAllowlist.CallerNotAllowed(beneficiary_);
+
         if (beneficiary_ == address(0)) revert ZeroAddress();
         if (tokenSetter_ == address(0)) revert ZeroAddress();
         if (durationSeconds_ == 0) revert ZeroDuration();
@@ -79,7 +91,14 @@ contract DelegatingVestingWallet {
         _delegatee = beneficiary_;
     }
 
-    function setBlocklist(address blocklist_) external {
+    function setAllowlist(address allowlist_) external {
+        if (msg.sender != _tokenSetter && msg.sender != _blocklistSetter) {
+            revert UnauthorizedTokenSetter(msg.sender);
+        }
+        _setAllowlist(allowlist_);
+    }
+
+    function setBlocklist(address blocklist_) external onlyAllowedCaller {
         if (msg.sender != _tokenSetter && msg.sender != _blocklistSetter) {
             revert UnauthorizedTokenSetter(msg.sender);
         }
@@ -91,7 +110,7 @@ contract DelegatingVestingWallet {
         emit BlocklistSet(oldBlocklist, blocklist_);
     }
 
-    function replaceBrokenBlocklist(address blocklist_) external {
+    function replaceBrokenBlocklist(address blocklist_) external onlyAllowedCaller {
         if (msg.sender != _tokenSetter && msg.sender != _blocklistSetter) {
             revert UnauthorizedTokenSetter(msg.sender);
         }
@@ -104,7 +123,7 @@ contract DelegatingVestingWallet {
         emit BlocklistSet(oldBlocklist, blocklist_);
     }
 
-    function precommitForageToken(address forageToken_) external {
+    function precommitForageToken(address forageToken_) external onlyAllowedCaller {
         if (_forageToken != address(0)) revert ForageTokenAlreadySet();
         if (msg.sender != _tokenSetter) revert UnauthorizedTokenSetter(msg.sender);
         if (_precommittedForageToken != address(0)) revert ForageTokenAlreadyPrecommitted();
@@ -115,14 +134,14 @@ contract DelegatingVestingWallet {
         emit ForageTokenPrecommitted(forageToken_);
     }
 
-    function setInitialDelegatee(address delegatee_) external {
+    function setInitialDelegatee(address delegatee_) external onlyAllowedCaller {
         if (_forageToken != address(0)) revert ForageTokenAlreadySet();
         if (msg.sender != _tokenSetter) revert UnauthorizedTokenSetter(msg.sender);
         if (delegatee_ == address(0)) revert ZeroAddress();
         _delegatee = delegatee_;
     }
 
-    function setForageToken(address forageToken_) external {
+    function setForageToken(address forageToken_) external onlyAllowedCaller {
         if (_forageToken != address(0)) revert ForageTokenAlreadySet();
         if (msg.sender != _tokenSetter) revert UnauthorizedTokenSetter(msg.sender);
         if (forageToken_ == address(0)) revert ZeroAddress();
@@ -148,7 +167,7 @@ contract DelegatingVestingWallet {
         emit ForageTokenSet(forageToken_);
     }
 
-    function release() external {
+    function release() external onlyAllowedCaller {
         if (_forageToken == address(0)) revert ForageTokenNotSet();
         // OF-L04: Only beneficiary can release vested tokens
         if (msg.sender != _beneficiary) revert UnauthorizedBeneficiary(msg.sender);
@@ -164,7 +183,7 @@ contract DelegatingVestingWallet {
         emit TokensReleased(_beneficiary, amount);
     }
 
-    function delegateVotingPower(address newDelegatee) external {
+    function delegateVotingPower(address newDelegatee) external onlyAllowedCaller {
         if (msg.sender != _beneficiary) revert UnauthorizedBeneficiary(msg.sender);
         if (_forageToken == address(0)) revert ForageTokenNotSet();
         if (newDelegatee == address(0)) revert ZeroAddress();
@@ -252,7 +271,7 @@ contract DelegatingVestingWallet {
 
     /// @notice OF-16-016: Rescue non-FORAGE ERC-20 tokens accidentally sent to this contract.
     /// Only the beneficiary can call. Excludes _forageToken to preserve vesting invariants.
-    function rescueToken(address token, uint256 amount) external {
+    function rescueToken(address token, uint256 amount) external onlyAllowedCaller {
         if (msg.sender != _beneficiary) revert UnauthorizedBeneficiary(msg.sender);
         if (_forageToken == address(0)) revert ForageTokenNotSet();
         if (token == address(0)) revert ZeroAddress();

@@ -5,6 +5,7 @@ import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./FinalizeDelayProfile.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IVaultRegistry.sol";
 
 /// @dev OF-14-001: Minimal interface for RISKUSDVault lossPending query in startWindDown.
@@ -28,7 +29,13 @@ interface ITierVaultAccountingQuery {
 ///
 /// OF-006: VaultConfig struct and VaultStatus enum are defined in
 /// interfaces/IVaultRegistry.sol as the single source of truth.
-contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, FinalizeDelayProfile {
+contract VaultRegistry is
+    Initializable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    FinalizeDelayProfile,
+    AllowlistGatedUpgradeable
+{
     // ── Custom errors ──
     error ZeroAddress();
     error NotRISKUSDVault(); // OF-21-002: dedicated auth error for notifyLossResolved
@@ -140,6 +147,10 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         _nextVaultId = 1;
     }
 
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
     // ── Vault Registration ──
     function addVault(
         string calldata name_,
@@ -150,7 +161,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         uint256[4] calldata lockupDurations_,
         uint16[4] calldata yieldSplitsBps_,
         uint16[4] calldata fundingBps_
-    ) external onlyOwner returns (uint256) {
+    ) external onlyAllowedCaller onlyOwner returns (uint256) {
         if (bytes(name_).length == 0) revert EmptyName();
         if (bytes(abbreviation_).length == 0) revert EmptyAbbreviation();
 
@@ -223,7 +234,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     }
 
     // ── Vault Lifecycle ──
-    function pauseVault(uint256 vaultId) external onlyOwner {
+    function pauseVault(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
@@ -235,7 +246,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     }
 
     // OF-L01: Resume a paused vault
-    function resumeVault(uint256 vaultId) external onlyOwner {
+    function resumeVault(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Paused) revert VaultNotPaused();
@@ -258,7 +269,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     /// @dev OF-16-002: Added loss resolution cooldown. startWindDown reverts if a loss was
     /// resolved within LOSS_COOLDOWN_BLOCKS to prevent same-block TOCTOU race between
     /// lossPending check and status transition.
-    function startWindDown(uint256 vaultId) external onlyOwner {
+    function startWindDown(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status == VaultStatus.WindingDown) revert VaultAlreadyWindingDown();
@@ -284,7 +295,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
         emit VaultWindingDown(vaultId);
     }
 
-    function releaseAbbreviation(uint256 vaultId) external onlyOwner {
+    function releaseAbbreviation(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
@@ -301,7 +312,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     /// @notice Release only empty tier vault addresses for a winding-down vault.
     /// @dev Tier vaults with live share supply remain globally reserved to prevent
     /// legacy holder state from being reused under a new vault identity.
-    function releaseTierVaults(uint256 vaultId) external onlyOwner {
+    function releaseTierVaults(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
@@ -325,13 +336,14 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     // ── Vault Configuration Updates ──
     /// @notice OF-15-006: setCapacityCap now delegates to proposeCapacityCap (no instant effect).
-    function setCapacityCap(uint256 vaultId, uint256 capacityCap_) external onlyOwner {
+    function setCapacityCap(uint256 vaultId, uint256 capacityCap_) external onlyAllowedCaller onlyOwner {
         proposeCapacityCap(vaultId, capacityCap_);
     }
 
     /// @notice OF-15-006: setYieldSplits now delegates to proposeYieldSplits (no instant effect).
     function setYieldSplits(uint256 vaultId, uint16[4] calldata yieldSplitsBps_, uint16[4] calldata fundingBps_)
         external
+        onlyAllowedCaller
         onlyOwner
     {
         proposeYieldSplits(vaultId, yieldSplitsBps_, fundingBps_);
@@ -341,6 +353,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     /// @dev OF-16-009: Require Active vault for defense-in-depth (WindingDown config has no effect).
     function proposeYieldSplits(uint256 vaultId, uint16[4] calldata yieldSplitsBps_, uint16[4] calldata fundingBps_)
         public
+        onlyAllowedCaller
         onlyOwner
     {
         VaultConfig storage vault = _vaults[vaultId];
@@ -363,7 +376,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     /// @notice OF-13-010: Finalize proposed yield splits after FINALIZE_DELAY.
     /// @dev OF-21-048: Re-validate vault status at finalize time.
-    function finalizeYieldSplits(uint256 vaultId) external onlyOwner {
+    function finalizeYieldSplits(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         PendingYieldSplits storage pending = _pendingYieldSplits[vaultId];
         if (pending.proposedAt == 0) revert NoPendingYieldSplits();
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -382,7 +395,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     /// @notice OF-13-028: Propose a new capacity cap with FINALIZE_DELAY.
     /// @dev OF-16-009: Require Active vault for defense-in-depth.
-    function proposeCapacityCap(uint256 vaultId, uint256 capacityCap_) public onlyOwner {
+    function proposeCapacityCap(uint256 vaultId, uint256 capacityCap_) public onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
@@ -395,7 +408,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     /// @notice OF-13-028: Finalize proposed capacity cap after FINALIZE_DELAY.
     /// @dev OF-21-048: Re-validate vault status at finalize time.
-    function finalizeCapacityCap(uint256 vaultId) external onlyOwner {
+    function finalizeCapacityCap(uint256 vaultId) external onlyAllowedCaller onlyOwner {
         PendingCapacityCap storage pending = _pendingCapacityCap[vaultId];
         if (pending.proposedAt == 0) revert NoPendingCapacityCap();
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -498,7 +511,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     /// @notice OF-15-004: Wire _riskusdVault on deployed proxies. Called once after UUPS upgrade.
     /// @dev CODEX-R1: onlyOwner prevents front-running if upgrade and init are not atomic.
-    function initializeV2(address riskusdVault_) external onlyOwner reinitializer(2) {
+    function initializeV2(address riskusdVault_) external onlyAllowedCaller onlyOwner reinitializer(2) {
         if (riskusdVault_ == address(0)) revert ZeroAddress();
         _riskusdVault = riskusdVault_;
         emit RISKUSDVaultUpdated(address(0), riskusdVault_);
@@ -508,7 +521,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     /// @dev Existing upgraded proxies may hold a Unix timestamp in this slot from older code.
     /// Such values are greater than block.number and would keep wind-down cooldown active
     /// indefinitely. Fresh deployments and already-migrated block values are left unchanged.
-    function initializeV3() external onlyOwner reinitializer(3) {
+    function initializeV3() external onlyAllowedCaller onlyOwner reinitializer(3) {
         uint256 oldValue = _lastLossResolutionBlock;
         if (oldValue > block.number) {
             _lastLossResolutionBlock = 0;
@@ -518,7 +531,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     /// @notice Rebuilds the active-vault pagination index for upgraded registries.
     /// @dev Fresh deployments maintain the index from add/pause/resume/wind-down.
-    function initializeV4() external onlyOwner reinitializer(4) {
+    function initializeV4() external onlyAllowedCaller onlyOwner reinitializer(4) {
         _rebuildActiveVaultIndex();
     }
 
@@ -545,7 +558,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     }
 
     /// @notice OF-15-004: Propose a new RISKUSDVault address. Takes effect after FINALIZE_DELAY.
-    function proposeRISKUSDVault(address newVault_) external onlyOwner {
+    function proposeRISKUSDVault(address newVault_) external onlyAllowedCaller onlyOwner {
         if (newVault_ == address(0)) revert ZeroAddress();
         _pendingRISKUSDVault = newVault_;
         _pendingRISKUSDVaultTimestamp = uint48(block.timestamp);
@@ -554,7 +567,7 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
 
     /// @notice OF-15-004: Finalize the proposed RISKUSDVault after FINALIZE_DELAY.
     /// @dev OF-21-061: Verify reciprocal wiring — new vault must reference this registry.
-    function finalizeRISKUSDVault() external onlyOwner {
+    function finalizeRISKUSDVault() external onlyAllowedCaller onlyOwner {
         if (_pendingRISKUSDVault == address(0)) revert NoPendingRISKUSDVault();
         if (block.timestamp < uint256(_pendingRISKUSDVaultTimestamp) + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -575,14 +588,14 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     }
 
     /// @notice OF-15-004: Clear a pending RISKUSDVault proposal without finalizing.
-    function clearPendingRISKUSDVault() external onlyOwner {
+    function clearPendingRISKUSDVault() external onlyAllowedCaller onlyOwner {
         _pendingRISKUSDVault = address(0);
         _pendingRISKUSDVaultTimestamp = 0;
     }
 
     /// @notice OF-16-002: Called by RISKUSDVault after loss is resolved.
     /// Records timestamp to enforce cooldown before wind-down.
-    function notifyLossResolved() external {
+    function notifyLossResolved() external onlyAllowedCaller {
         if (msg.sender != _riskusdVault) revert NotRISKUSDVault(); // OF-21-002: dedicated auth error
         _lastLossResolutionBlock = block.number;
     }
@@ -590,6 +603,10 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     /// @notice View the current RISKUSDVault address.
     function riskusdVault() external view returns (address) {
         return _riskusdVault;
+    }
+
+    function pendingRISKUSDVault() external view returns (address) {
+        return _pendingRISKUSDVault;
     }
 
     /// @notice OF-16-018: Cross-contract reference consistency check.
@@ -654,11 +671,23 @@ contract VaultRegistry is Initializable, Ownable2StepUpgradeable, UUPSUpgradeabl
     }
 
     // ── Ownership ──
+    function transferOwnership(address newOwner) public override onlyAllowedCaller onlyOwner {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
+    }
+
     function renounceOwnership() public pure override {
         revert RenounceOwnershipDisabled();
     }
 
     // ── UUPS ──
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
     function _authorizeUpgrade(address) internal override onlyOwner {
         // OF-15-004: Clear pending RISKUSDVault proposal on upgrade to prevent stale proposals
         _pendingRISKUSDVault = address(0);

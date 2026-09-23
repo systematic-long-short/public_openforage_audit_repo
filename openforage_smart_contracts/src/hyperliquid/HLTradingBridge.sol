@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+import {AllowlistGatedUpgradeable} from "../AllowlistGatedUpgradeable.sol";
 import {FinalizeDelayProfile} from "../FinalizeDelayProfile.sol";
 import {IBlocklist} from "../interfaces/IBlocklist.sol";
 import {ISequencerUptimeFeed} from "../interfaces/ISequencerUptimeFeed.sol";
@@ -49,7 +50,8 @@ contract HLTradingBridge is
     PausableUpgradeable,
     ReentrancyGuard,
     UUPSUpgradeable,
-    FinalizeDelayProfile
+    FinalizeDelayProfile,
+    AllowlistGatedUpgradeable
 {
     using SafeERC20 for IERC20;
 
@@ -86,6 +88,7 @@ contract HLTradingBridge is
     error SequencerUptimeFeedUnavailable(address feed);
     error SequencerDown();
     error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
+    error IncompatibleLegacyLayout();
 
     uint256 public constant DAY_SECONDS = 1 days;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
@@ -124,7 +127,6 @@ contract HLTradingBridge is
     uint256 internal _pendingKeeperProposedAt;
     address internal _custodianExecutor;
     address internal _blocklist;
-    address internal _sequencerUptimeFeed;
     bool internal _directionalFreeze;
 
     struct WithdrawalIntent {
@@ -142,6 +144,7 @@ contract HLTradingBridge is
         address coldAccount;
         bytes32 hyperliquidSourceAccount;
         uint64 withdrawalChainSelector;
+        address sequencerUptimeFeed;
     }
 
     mapping(bytes32 => WithdrawalIntent) internal _withdrawalIntents;
@@ -152,6 +155,8 @@ contract HLTradingBridge is
     uint256 internal _withdrawalIntentUsedDayStart;
     uint256 internal _reconciledReturnLiquidity;
     bytes32 internal _openWithdrawalIntentId;
+    address internal _sequencerUptimeFeed;
+    uint256[49] private __gap;
 
     event DeployedToHyperLiquid(uint256 usdcE6, uint256 deployedPrincipal);
     event NAVPosted(uint256 indexed vaultId, uint256 bookValue, uint256 rawNav, uint256 appliedNav, uint256 observedAt);
@@ -192,6 +197,7 @@ contract HLTradingBridge is
                 || custodianRegistry_ == address(0) || initialOwner_ == address(0) || keeper_ == address(0)
                 || executor_ == address(0) || guardianModule_ == address(0) || route.coldAccount == address(0)
                 || route.hyperliquidSourceAccount == bytes32(0) || route.withdrawalChainSelector == 0
+                || route.sequencerUptimeFeed == address(0)
         ) revert ZeroAddress();
 
         __Ownable_init(initialOwner_);
@@ -206,6 +212,7 @@ contract HLTradingBridge is
         coldAccount = route.coldAccount;
         hyperliquidSourceAccount = route.hyperliquidSourceAccount;
         withdrawalChainSelector = route.withdrawalChainSelector;
+        _sequencerUptimeFeed = route.sequencerUptimeFeed;
         _keeper = keeper_;
         _custodianExecutor = executor_;
         _perBlockDeployCap = 1_000_000e6;
@@ -215,9 +222,34 @@ contract HLTradingBridge is
         _returnPerDayCapBps = 1_000;
         _returnUsedDayStart = block.timestamp;
         _withdrawalIntentUsedDayStart = block.timestamp;
+        emit SequencerUptimeFeedSet(address(0), route.sequencerUptimeFeed);
     }
 
-    function deployToHyperLiquid(uint256 usdcE6) external whenNotPaused nonReentrant {
+    /// @notice Initializes the appended sequencer feed for an exact compatible legacy proxy.
+    /// @dev The typed route guards reject proxies initialized under the shifted storage layout. The exact slot-word
+    ///      check rejects any origin that already used the newly appended slot.
+    function initializeSequencerUptimeFeed(address sequencerUptimeFeed_)
+        external
+        onlyAllowedCaller
+        onlyOwner
+        reinitializer(2)
+    {
+        if (sequencerUptimeFeed_ == address(0)) revert ZeroAddress();
+
+        uint256 sequencerFeedSlotWord;
+        assembly ("memory-safe") {
+            sequencerFeedSlotWord := sload(_sequencerUptimeFeed.slot)
+        }
+        if (sequencerFeedSlotWord != 0) revert IncompatibleLegacyLayout();
+        if (coldAccount == address(0) || hyperliquidSourceAccount == bytes32(0) || withdrawalChainSelector == 0) {
+            revert IncompatibleLegacyLayout();
+        }
+
+        _sequencerUptimeFeed = sequencerUptimeFeed_;
+        emit SequencerUptimeFeedSet(address(0), sequencerUptimeFeed_);
+    }
+
+    function deployToHyperLiquid(uint256 usdcE6) external onlyAllowedCaller whenNotPaused nonReentrant {
         _requireExecutor();
         if (_directionalFreeze) revert DirectionFrozen();
         if (usdcE6 == 0) revert ZeroAmount();
@@ -240,20 +272,26 @@ contract HLTradingBridge is
 
     function postNAV(uint256 vaultId, uint256 bookValue, uint256 rawNav, uint256 observedAt)
         external
+        onlyAllowedCaller
         whenNotPaused
         nonReentrant
     {
         _requireKeeper();
         _requireNotBlocked(msg.sender);
-        _requireSequencerUp();
 
         uint256 applied = _normalizeCustodianNAV(bookValue, rawNav, observedAt, _appliedNAV, true);
+        uint256 vaultNav = _normalizeAppliedNAVToCurrentBook(bookValue, applied);
+        // Risk-reducing (loss-recording) posts are allowed through sequencer down/grace/unavailable
+        // windows: recording a true loss only ever tightens consumer gates. Neutral and up posts
+        // remain fully gated, failing closed while the feed cannot vouch for liveness.
+        if (vaultNav >= _deployedPrincipal) {
+            _requireSequencerUp();
+        }
+
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
         _lastNAVObservedAt = observedAt;
         _appliedNAV = applied;
-
-        uint256 vaultNav = _normalizeAppliedNAVToCurrentBook(bookValue, applied);
         if (_pendingDeployPrincipal != 0 && vaultNav >= _deployedPrincipal) {
             _pendingDeployPrincipal = 0;
         }
@@ -266,17 +304,26 @@ contract HLTradingBridge is
         emit NAVPosted(vaultId, bookValue, rawNav, applied, observedAt);
     }
 
-    function returnPrincipalUSDC(uint256 amount) external nonReentrant {
+    function returnPrincipalUSDC(uint256 amount) external onlyAllowedCaller nonReentrant {
         _requireExecutor();
         _returnPrincipalUSDC(amount, false);
     }
 
-    function returnPrincipalUSDCWithNAVBasis(uint256 amount, bool navAlreadyReduced) external nonReentrant {
+    function returnPrincipalUSDCWithNAVBasis(uint256 amount, bool navAlreadyReduced)
+        external
+        onlyAllowedCaller
+        nonReentrant
+    {
         _requireExecutor();
         _returnPrincipalUSDC(amount, navAlreadyReduced);
     }
 
-    function returnZeroPrincipalUSDC(uint256 amount, bool navAlreadyReduced) external onlyOwner nonReentrant {
+    function returnZeroPrincipalUSDC(uint256 amount, bool navAlreadyReduced)
+        external
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
         if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
         _returnPrincipalUSDCWithoutCaps(amount, navAlreadyReduced);
     }
@@ -316,7 +363,7 @@ contract HLTradingBridge is
         emit PrincipalReturned(amount, _deployedPrincipal);
     }
 
-    function returnPnLUSDC(uint256 vaultId, uint256 amount) external nonReentrant {
+    function returnPnLUSDC(uint256 vaultId, uint256 amount) external onlyAllowedCaller nonReentrant {
         _requireExecutor();
         if (amount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
@@ -332,7 +379,12 @@ contract HLTradingBridge is
         emit PnLReturned(vaultId, amount);
     }
 
-    function returnZeroPrincipalPnLUSDC(uint256 vaultId, uint256 amount) external onlyOwner nonReentrant {
+    function returnZeroPrincipalPnLUSDC(uint256 vaultId, uint256 amount)
+        external
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
         if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
         if (amount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
@@ -349,6 +401,7 @@ contract HLTradingBridge is
 
     function requestWithdrawalIntent(uint256 amount, address recipient, bytes32 sourceAccount, uint64 chainSelector)
         external
+        onlyAllowedCaller
         nonReentrant
         returns (bytes32 intentId)
     {
@@ -361,7 +414,7 @@ contract HLTradingBridge is
         address recipient,
         bytes32 sourceAccount,
         uint64 chainSelector
-    ) external onlyOwner nonReentrant returns (bytes32 intentId) {
+    ) external onlyAllowedCaller onlyOwner nonReentrant returns (bytes32 intentId) {
         if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
         return _requestWithdrawalIntent(amount, recipient, sourceAccount, chainSelector, false);
     }
@@ -407,11 +460,16 @@ contract HLTradingBridge is
         emit WithdrawalIntentRequested(intentId, amount, recipient, sourceAccount, chainSelector);
     }
 
-    function reconcileWithdrawalArrival(bytes32 intentId, uint256 arrivedAmount) external nonReentrant {
+    function reconcileWithdrawalArrival(bytes32 intentId, uint256 arrivedAmount)
+        external
+        onlyAllowedCaller
+        nonReentrant
+    {
         _requireKeeper();
         _requireNotBlocked(msg.sender);
         WithdrawalIntent storage intent = _withdrawalIntents[intentId];
         if (!intent.exists || intent.consumed) revert RequestMismatch();
+        if (intentId != _openWithdrawalIntentId) revert RequestMismatch();
         if (arrivedAmount != intent.amount) revert ArrivalAmountMismatch();
 
         uint256 currentBalance = IERC20(usdc).balanceOf(address(this));
@@ -426,7 +484,7 @@ contract HLTradingBridge is
         emit WithdrawalArrivalReconciled(intentId, arrivedAmount);
     }
 
-    function cancelWithdrawalIntent(bytes32 intentId) external nonReentrant {
+    function cancelWithdrawalIntent(bytes32 intentId) external onlyAllowedCaller nonReentrant {
         if (msg.sender != owner() && msg.sender != _keeper) revert UnauthorizedKeeper();
         _requireNotBlocked(msg.sender);
         WithdrawalIntent storage intent = _withdrawalIntents[intentId];
@@ -436,38 +494,39 @@ contract HLTradingBridge is
         if (createdAt != 0 && block.timestamp < createdAt + withdrawalIntentTimeoutSeconds()) {
             revert WithdrawalIntentNotExpired();
         }
+        intent.consumed = true;
         _openWithdrawalIntentId = bytes32(0);
         emit WithdrawalIntentCancelled(intentId);
     }
 
-    function setDirectionalFreeze(bool frozen) external {
+    function setDirectionalFreeze(bool frozen) external onlyAllowedCaller {
         _requireGuardianModuleOrOwner();
         if (msg.sender == _liveGuardianModule() && !frozen) revert GuardianCannotLoosen();
         _setDirectionalFreeze(frozen);
     }
 
-    function freezeAttestations() external {
+    function freezeAttestations() external onlyAllowedCaller {
         _requireGuardianModuleOrOwner();
         _setDirectionalFreeze(true);
     }
 
-    function pause() external {
+    function pause() external onlyAllowedCaller {
         if (msg.sender != _liveGuardianModule() && msg.sender != owner()) revert UnauthorizedPause();
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyAllowedCaller onlyOwner {
         _unpause();
     }
 
-    function proposeKeeper(address newKeeper) external onlyOwner {
+    function proposeKeeper(address newKeeper) external onlyAllowedCaller onlyOwner {
         if (newKeeper == address(0)) revert ZeroAddress();
         _pendingKeeper = newKeeper;
         _pendingKeeperProposedAt = block.timestamp;
         emit KeeperProposed(_keeper, newKeeper);
     }
 
-    function finalizeKeeper() external onlyOwner {
+    function finalizeKeeper() external onlyAllowedCaller onlyOwner {
         address newKeeper = _pendingKeeper;
         if (newKeeper == address(0)) revert NoPendingKeeper();
         if (block.timestamp < _pendingKeeperProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -480,7 +539,7 @@ contract HLTradingBridge is
         emit KeeperSet(oldKeeper, newKeeper);
     }
 
-    function cancelPendingKeeper() external onlyOwner {
+    function cancelPendingKeeper() external onlyAllowedCaller onlyOwner {
         address pending = _pendingKeeper;
         if (pending == address(0)) revert NoPendingKeeper();
         _pendingKeeper = address(0);
@@ -488,50 +547,59 @@ contract HLTradingBridge is
         emit PendingKeeperCancelled(pending);
     }
 
-    function setBlocklist(address blocklist_) external onlyOwner {
+    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         address old = _blocklist;
         _blocklist = blocklist_;
         emit BlocklistSet(old, blocklist_);
     }
 
-    function setSequencerUptimeFeed(address feed_) external onlyOwner {
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
+    function setSequencerUptimeFeed(address feed_) external onlyAllowedCaller onlyOwner {
         if (feed_ == address(0)) revert ZeroAddress();
+        // Same typed-route guards as initializeSequencerUptimeFeed: a proxy initialized under the
+        // shifted legacy layout reads zero here and must not have a feed silently bound to it.
+        if (coldAccount == address(0) || hyperliquidSourceAccount == bytes32(0) || withdrawalChainSelector == 0) {
+            revert IncompatibleLegacyLayout();
+        }
         address old = _sequencerUptimeFeed;
         _sequencerUptimeFeed = feed_;
         emit SequencerUptimeFeedSet(old, feed_);
     }
 
-    function setPerBlockDeployCap(uint256 newCap) external onlyOwner {
+    function setPerBlockDeployCap(uint256 newCap) external onlyAllowedCaller onlyOwner {
         if (newCap == 0) revert ZeroAmount();
         _setPerBlockDeployCap(newCap);
     }
 
-    function setPerDayDeployCap(uint256 newCap) external onlyOwner {
+    function setPerDayDeployCap(uint256 newCap) external onlyAllowedCaller onlyOwner {
         if (newCap == 0) revert ZeroAmount();
         _setPerDayDeployCap(newCap);
     }
 
-    function setReturnCapitalCaps(uint16 perCallBps, uint16 perDayBps) external onlyOwner {
+    function setReturnCapitalCaps(uint16 perCallBps, uint16 perDayBps) external onlyAllowedCaller onlyOwner {
         _validateReturnCapitalCaps(perCallBps, perDayBps);
         _setReturnCapitalCaps(perCallBps, perDayBps);
     }
 
-    function shrinkPerBlockDeployCap(uint256 newCap) external {
+    function shrinkPerBlockDeployCap(uint256 newCap) external onlyAllowedCaller {
         _requireGuardianModuleOrOwner();
         if (newCap == 0) revert ZeroAmount();
         if (newCap > _perBlockDeployCap) revert GuardianCannotLoosen();
         _setPerBlockDeployCap(newCap);
     }
 
-    function shrinkPerDayDeployCap(uint256 newCap) external {
+    function shrinkPerDayDeployCap(uint256 newCap) external onlyAllowedCaller {
         _requireGuardianModuleOrOwner();
         if (newCap == 0) revert ZeroAmount();
         if (newCap > _perDayDeployCap) revert GuardianCannotLoosen();
         _setPerDayDeployCap(newCap);
     }
 
-    function tightenReturnCapitalCaps(uint16 perCallBps, uint16 perDayBps) external {
+    function tightenReturnCapitalCaps(uint16 perCallBps, uint16 perDayBps) external onlyAllowedCaller {
         _requireGuardianModuleOrOwner();
         _validateReturnCapitalCaps(perCallBps, perDayBps);
         if (perCallBps > _returnPerCallCapBps || perDayBps > _returnPerDayCapBps) revert GuardianCannotLoosen();
@@ -575,6 +643,18 @@ contract HLTradingBridge is
 
     function renounceOwnership() public view override onlyOwner {
         revert RenounceOwnershipDisabled();
+    }
+
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
     }
 
     function appliedNAV() external view returns (uint256) {
@@ -630,10 +710,12 @@ contract HLTradingBridge is
     }
 
     function pendingKeeper() external view returns (address) {
+        if (_pendingKeeperExpired()) return address(0);
         return _pendingKeeper;
     }
 
     function pendingKeeperProposedAt() external view returns (uint256) {
+        if (_pendingKeeperExpired()) return 0;
         return _pendingKeeperProposedAt;
     }
 
@@ -671,6 +753,11 @@ contract HLTradingBridge is
 
     function withdrawalIntentTimeoutSeconds() public pure returns (uint256) {
         return DEFAULT_WITHDRAWAL_INTENT_TIMEOUT_SECONDS;
+    }
+
+    function _pendingKeeperExpired() internal view returns (bool) {
+        uint256 proposedAt = _pendingKeeperProposedAt;
+        return _pendingKeeper != address(0) && proposedAt != 0 && block.timestamp > proposedAt + PROPOSAL_EXPIRY;
     }
 
     function withdrawalIntent(bytes32 intentId)
@@ -715,12 +802,18 @@ contract HLTradingBridge is
         uint256 observedAt = _lastNAVObservedAt;
         uint256 bookValue = _lastNAVBookValue;
 
-        uint256 normalizedNav = _normalizeCustodianNAV(bookValue, nav, observedAt, _appliedNAV, false);
+        uint256 observationBookNav = _normalizeCurrentBookNAVToObservationBook(bookValue, nav);
+        uint256 normalizedObs = _normalizeCustodianNAV(bookValue, observationBookNav, observedAt, _appliedNAV, false);
+        uint256 normalizedNav = _normalizeAppliedNAVToCurrentBook(bookValue, normalizedObs);
         if (normalizedNav < _deployedPrincipal) return (false, 0);
 
         return (true, normalizedNav);
     }
 
+    /// @notice Rebases a normalized observation-book NAV into current-book units: `applied` is
+    /// denominated in the keeper observation book (`bookValue`), and the return is denominated in
+    /// the current deployment book (`_deployedPrincipal`). Exact inverse of
+    /// `_normalizeCurrentBookNAVToObservationBook`: one normalization home, no forked unit math.
     function _normalizeAppliedNAVToCurrentBook(uint256 bookValue, uint256 applied) internal view returns (uint256) {
         uint256 principal = _deployedPrincipal;
         uint256 normalized;
@@ -730,7 +823,22 @@ contract HLTradingBridge is
             uint256 returnedAfterObservation = bookValue - principal;
             normalized = applied > returnedAfterObservation ? applied - returnedAfterObservation : 0;
         }
-        if (_directionalFreeze && normalized > applied) return applied;
+        return normalized;
+    }
+
+    /// @notice Inverts a current-book NAV into observation-book units: `nav` is denominated in the
+    /// current deployment book (`_deployedPrincipal`), and the return is denominated in the keeper
+    /// observation book (`bookValue`). Exact mirror of `_normalizeAppliedNAVToCurrentBook`, so
+    /// manual current-book reports are capped and freeze-checked in the same units as keeper posts.
+    function _normalizeCurrentBookNAVToObservationBook(uint256 bookValue, uint256 nav) internal view returns (uint256) {
+        uint256 principal = _deployedPrincipal;
+        uint256 normalized;
+        if (principal >= bookValue) {
+            uint256 deployedAfterObservation = principal - bookValue;
+            normalized = nav > deployedAfterObservation ? nav - deployedAfterObservation : 0;
+        } else {
+            normalized = nav + (bookValue - principal);
+        }
         return normalized;
     }
 
@@ -743,10 +851,20 @@ contract HLTradingBridge is
     ) internal view returns (uint256) {
         if (!allowZeroBaseline && (observedAt == 0 || bookValue == 0)) revert StaleNAV();
         if (block.timestamp > observedAt + DAY_SECONDS) revert StaleNAV();
-        if (_directionalFreeze && rawNav > currentAppliedNAV) revert DirectionFrozen();
 
         uint256 maxUp = bookValue + (bookValue * 1_000 / BPS_DENOMINATOR);
-        return rawNav > maxUp ? maxUp : rawNav;
+        uint256 cappedNav = rawNav > maxUp ? maxUp : rawNav;
+        if (_directionalFreeze) {
+            // Same-units ratchet: compare the capped post against the frozen applied NAV rebased
+            // into the post's own book units. When the book moved since the last post, the frozen
+            // applied value is forward-normalized into the current book first (OCT-08 precedent);
+            // when the books coincide, the comparison is direct.
+            uint256 frozenComparison = bookValue == _lastNAVBookValue
+                ? currentAppliedNAV
+                : _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, currentAppliedNAV);
+            if (cappedNav > frozenComparison) revert DirectionFrozen();
+        }
+        return cappedNav;
     }
 
     function _enforceDeployCaps(uint256 usdcE6) internal {
@@ -892,5 +1010,9 @@ contract HLTradingBridge is
         return liveGuardianModule;
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _authorizeUpgrade(address) internal override onlyOwner {
+        // Match the codebase's upgrade-wipes-pending-proposals norm (OF-L06).
+        _pendingKeeper = address(0);
+        _pendingKeeperProposedAt = 0;
+    }
 }

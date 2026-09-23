@@ -31,6 +31,21 @@ library MerkleTreeHelper {
         root = _buildTree(leaves);
     }
 
+    function computeRootWithLane(
+        address pool,
+        bytes32 lane,
+        uint256 roundId,
+        address[] memory accounts,
+        uint256[] memory amounts
+    ) internal pure returns (bytes32 root) {
+        require(accounts.length == amounts.length, "MerkleTreeHelper: length mismatch");
+        require(accounts.length > 0, "MerkleTreeHelper: empty tree");
+
+        bytes32[] memory leaves = _hashLeavesWithLane(pool, lane, roundId, accounts, amounts);
+        leaves = _sortLeaves(leaves);
+        root = _buildTree(leaves);
+    }
+
     /// @notice Build a Merkle proof for a specific (account, amount) pair.
     /// @param pool     The pool contract address (domain separation).
     /// @param roundId  The airdrop round ID (domain separation).
@@ -68,11 +83,48 @@ library MerkleTreeHelper {
         proof = _buildProof(leaves, targetIndex);
     }
 
+    function getProofWithLane(
+        address pool,
+        bytes32 lane,
+        uint256 roundId,
+        address[] memory accounts,
+        uint256[] memory amounts,
+        address account,
+        uint256 amount
+    ) internal pure returns (bytes32[] memory proof) {
+        require(accounts.length == amounts.length, "MerkleTreeHelper: length mismatch");
+        require(accounts.length > 0, "MerkleTreeHelper: empty tree");
+
+        bytes32[] memory leaves = _hashLeavesWithLane(pool, lane, roundId, accounts, amounts);
+        leaves = _sortLeaves(leaves);
+
+        bytes32 targetLeaf = _doubleHashWithLane(pool, lane, roundId, account, amount);
+
+        uint256 targetIndex = type(uint256).max;
+        for (uint256 i = 0; i < leaves.length; i++) {
+            if (leaves[i] == targetLeaf) {
+                targetIndex = i;
+                break;
+            }
+        }
+        require(targetIndex != type(uint256).max, "MerkleTreeHelper: leaf not found");
+
+        proof = _buildProof(leaves, targetIndex);
+    }
+
     /// @notice Compute the double-hashed leaf value for (pool, roundId, account, amount).
     /// @dev OF-047: Matches the expected on-chain encoding:
     ///      keccak256(bytes.concat(keccak256(abi.encode(pool, roundId, account, amount))))
     function hashLeaf(address pool, uint256 roundId, address account, uint256 amount) internal pure returns (bytes32) {
         return _doubleHash(pool, roundId, account, amount);
+    }
+
+    function hashLeafWithLane(address pool, bytes32 lane, uint256 roundId, address account, uint256 amount)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return _doubleHashWithLane(pool, lane, roundId, account, amount);
     }
 
     // ----------------------------------------------------------------
@@ -87,6 +139,14 @@ library MerkleTreeHelper {
         return keccak256(bytes.concat(keccak256(abi.encode(pool, roundId, account, amount))));
     }
 
+    function _doubleHashWithLane(address pool, bytes32 lane, uint256 roundId, address account, uint256 amount)
+        private
+        pure
+        returns (bytes32)
+    {
+        return keccak256(bytes.concat(keccak256(abi.encode(pool, lane, roundId, account, amount))));
+    }
+
     /// @dev Hash all (account, amount) pairs into double-hashed leaves with domain separation.
     function _hashLeaves(address pool, uint256 roundId, address[] memory accounts, uint256[] memory amounts)
         private
@@ -96,6 +156,19 @@ library MerkleTreeHelper {
         leaves = new bytes32[](accounts.length);
         for (uint256 i = 0; i < accounts.length; i++) {
             leaves[i] = _doubleHash(pool, roundId, accounts[i], amounts[i]);
+        }
+    }
+
+    function _hashLeavesWithLane(
+        address pool,
+        bytes32 lane,
+        uint256 roundId,
+        address[] memory accounts,
+        uint256[] memory amounts
+    ) private pure returns (bytes32[] memory leaves) {
+        leaves = new bytes32[](accounts.length);
+        for (uint256 i = 0; i < accounts.length; i++) {
+            leaves[i] = _doubleHashWithLane(pool, lane, roundId, accounts[i], amounts[i]);
         }
     }
 

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./helpers/ForageTokenTestBase.sol";
+import "../src/interfaces/IAllowlist.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
@@ -13,7 +14,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
     function _getImplementationAddress() internal view returns (address) {
         // Read implementation address from ERC1967 slot
-        bytes32 slot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        bytes32 slot = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
         return address(uint160(uint256(vm.load(address(token), slot))));
     }
 
@@ -29,8 +30,8 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
         address implAddr = _getImplementationAddress();
         ForageToken impl = ForageToken(implAddr);
 
-        // Implementation not initialized: burner mapping is empty
-        vm.expectRevert(abi.encodeWithSelector(ForageToken.UnauthorizedBurner.selector, address(this)));
+        // Implementation not initialized: the caller gate reads the unset namespaced allowlist first
+        vm.expectRevert(IAllowlist.AllowlistUnavailable.selector);
         impl.burn(alice, 100e18);
     }
 
@@ -38,8 +39,8 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
         address implAddr = _getImplementationAddress();
         ForageToken impl = ForageToken(implAddr);
 
-        // Implementation not initialized: locker mapping is empty
-        vm.expectRevert(abi.encodeWithSelector(ForageToken.UnauthorizedLocker.selector, address(this)));
+        // Implementation not initialized: the caller gate reads the unset namespaced allowlist first
+        vm.expectRevert(IAllowlist.AllowlistUnavailable.selector);
         impl.lock(alice, 100e18);
     }
 
@@ -47,8 +48,8 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
         address implAddr = _getImplementationAddress();
         ForageToken impl = ForageToken(implAddr);
 
-        // Implementation not initialized: owner is address(0)
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(this)));
+        // Implementation not initialized: the caller gate reads the unset namespaced allowlist first
+        vm.expectRevert(IAllowlist.AllowlistUnavailable.selector);
         impl.releaseTokens(alice, 100e18);
     }
 
@@ -56,8 +57,8 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
         address implAddr = _getImplementationAddress();
         ForageToken impl = ForageToken(implAddr);
 
-        // Implementation not initialized: owner is address(0)
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(this)));
+        // Implementation not initialized: the caller gate reads the unset namespaced allowlist first
+        vm.expectRevert(IAllowlist.AllowlistUnavailable.selector);
         impl.setAuthorizedBurner(alice, true);
     }
 
@@ -89,6 +90,10 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
         // delegatecall added to ForageToken would increase this count.
         // Uses opcode-aware walker: skips PUSH1-PUSH32 operand bytes so that
         // 0xf4 appearing as data (metadata hash, selectors) is not miscounted.
+        // The sweep stops at the first INVALID (0xfe): via-IR appends a constants
+        // blob after the code-section terminator, and raw bytes there decode to
+        // phantom opcodes (an unbounded sweep counts 3 phantom 0xf4 bytes there,
+        // coincidentally passing the old <= 4 bound while proving nothing).
         address implAddr = _getImplementationAddress();
         bytes memory code = implAddr.code;
 
@@ -96,6 +101,10 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
         uint256 i = 0;
         while (i < code.length) {
             uint8 op = uint8(code[i]);
+            if (op == 0xfe) {
+                // Code-section terminator: trailing via-IR constants are not code.
+                break;
+            }
             if (op == 0xf4) {
                 delegatecallCount++;
                 i++;
@@ -107,10 +116,9 @@ contract ForageToken_TC13_ImplDirectCall is ForageTokenTestBase {
             }
         }
 
-        // OZ v5.6.1 UUPS path generates 4 DELEGATECALL opcodes via ERC1967Utils
-        // and ERC20VotesUpgradeable inheritance chain. All are internal to OZ
-        // library code. Any custom delegatecall would exceed this count.
-        assertLe(delegatecallCount, 4, "Implementation contains more DELEGATECALL opcodes than expected from UUPS");
+        // OZ v5.6.1 UUPS generates exactly 1 DELEGATECALL (ERC1967Utils upgrade path).
+        // Any custom delegatecall would exceed this count.
+        assertLe(delegatecallCount, 1, "Implementation contains more DELEGATECALL opcodes than expected from UUPS");
     }
 }
 
@@ -127,10 +135,11 @@ contract ForageToken_TC14_FlashLoan is ForageTokenTestBase {
         // Alice self-delegates at timestamp T
         vm.prank(alice);
         token.delegate(alice);
-        uint256 snapshotTime = block.timestamp;
 
-        // Advance to voting period (timestamp-based clock)
+        // Advance to voting period (timestamp-based clock). The snapshot time derives
+        // backward from the post-warp clock: via-IR can sink a pre-warp read below the warp.
         vm.warp(block.timestamp + 20);
+        uint256 snapshotTime = block.timestamp - 20;
 
         // Attacker acquires tokens after snapshot (simulating flash loan)
         vm.prank(forageTreasury);
@@ -149,9 +158,9 @@ contract ForageToken_TC14_FlashLoan is ForageTokenTestBase {
     function test_TC14_snapshotImmutableAfterReturn() public {
         vm.prank(alice);
         token.delegate(alice);
-        uint256 snapshotTime = block.timestamp;
 
         vm.warp(block.timestamp + 10);
+        uint256 snapshotTime = block.timestamp - 10;
 
         // Attacker gets tokens
         vm.prank(forageTreasury);
@@ -170,9 +179,9 @@ contract ForageToken_TC14_FlashLoan is ForageTokenTestBase {
 
         vm.prank(alice);
         token.delegate(alice);
-        uint256 snapshotTime = block.timestamp;
 
         vm.warp(block.timestamp + 10);
+        uint256 snapshotTime = block.timestamp - 10;
 
         // Attacker gets tokens after snapshot and locks them
         vm.prank(forageTreasury);
@@ -189,11 +198,13 @@ contract ForageToken_TC14_FlashLoan is ForageTokenTestBase {
         vm.prank(forageTreasury);
         token.transfer(attacker, 29_000_000e18);
 
+        // Warp arguments stay textually distinct so via-IR cannot merge them; the snapshot
+        // time derives backward from the final clock.
         vm.warp(block.timestamp + 5);
-        uint256 snapshotTime = block.timestamp;
 
         // Attacker delegates AFTER snapshot
-        vm.warp(block.timestamp + 5);
+        vm.warp(block.timestamp + 6);
+        uint256 snapshotTime = block.timestamp - 6;
         vm.prank(attacker);
         token.delegate(attacker);
 

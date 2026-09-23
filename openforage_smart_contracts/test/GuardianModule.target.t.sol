@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/CustodianRegistry.sol";
 import "../src/GuardianModule.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
+import "./mocks/MockAllowlist.sol";
 import "./mocks/MockUSDC.sol";
 
 contract TargetPausableForGuardian {
@@ -32,6 +33,7 @@ contract GuardianModule_TargetRecovery is Test {
     MockUSDC internal usdc;
     TargetPausableForGuardian internal pausableTarget;
     TargetGovernorForGuardian internal governor;
+    MockAllowlist internal allowlist;
 
     address internal timelock = makeAddr("timelock");
     address internal coldCustody = makeAddr("cold-custody");
@@ -65,6 +67,11 @@ contract GuardianModule_TargetRecovery is Test {
         guardianModule = GuardianModule(address(proxy));
         governor.setGuardianModule(address(guardianModule));
 
+        allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(timelock);
+        guardianModule.setAllowlist(address(allowlist));
+
         CustodianRegistry registryImplementation = new CustodianRegistry();
         bytes memory registryInit =
             abi.encodeCall(CustodianRegistry.initialize, (timelock, address(governor), address(guardianModule)));
@@ -88,11 +95,17 @@ contract GuardianModule_TargetRecovery is Test {
                 HLTradingBridge.RouteConfig({
                     coldAccount: makeAddr("cold-account"),
                     hyperliquidSourceAccount: bytes32(uint256(uint160(makeAddr("hyperliquid-source")))),
-                    withdrawalChainSelector: uint64(421_614)
+                    withdrawalChainSelector: uint64(421_614),
+                    sequencerUptimeFeed: makeAddr("sequencer-uptime-feed")
                 })
             )
         );
         bridge = HLTradingBridge(address(new ERC1967Proxy(address(bridgeImplementation), bridgeInit)));
+
+        vm.prank(timelock);
+        bridge.setAllowlist(address(allowlist));
+        vm.prank(timelock);
+        custodianRegistry.setAllowlist(address(allowlist));
     }
 
     function test_TSCGB_A20_oneOfSevenPausesAndGuardianPowersAreTightenOnly() public {

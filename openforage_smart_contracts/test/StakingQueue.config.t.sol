@@ -20,6 +20,9 @@ contract StakingQueue_TC06_Config is StakingQueueTestBase {
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         StakingQueue freshQueue = StakingQueue(address(proxy));
 
+        vm.prank(owner);
+        freshQueue.setAllowlist(address(mockAllowlist));
+
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, attacker));
         freshQueue.setVaultId(registeredVaultId);
@@ -33,6 +36,9 @@ contract StakingQueue_TC06_Config is StakingQueueTestBase {
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         StakingQueue freshQueue = StakingQueue(address(proxy));
+
+        vm.prank(owner);
+        freshQueue.setAllowlist(address(mockAllowlist));
 
         vm.expectEmit(false, false, false, true);
         emit StakingQueue.VaultIdSet(registeredVaultId);

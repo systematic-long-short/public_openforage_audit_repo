@@ -302,6 +302,9 @@ contract ForageGovernor_TC14_FullGovernanceDefense is ForageGovernorTestBase {
         ERC1967Proxy prodProxy = new ERC1967Proxy(address(prodImpl), prodInitData);
         ForageGovernor prodGovernor = ForageGovernor(payable(address(prodProxy)));
 
+        vm.prank(address(prodTimelock));
+        prodGovernor.setAllowlist(address(allowlistMock));
+
         // Grant PROPOSER_ROLE
         {
             bytes32 role = keccak256("PROPOSER_ROLE");

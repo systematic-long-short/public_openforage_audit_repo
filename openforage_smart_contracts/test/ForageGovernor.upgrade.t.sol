@@ -12,7 +12,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 // Requirements: R-01, R-51, R-53, R-54
 // ============================================================
 contract ForageGovernor_TC09_UpgradeAndProxySecurity is ForageGovernorTestBase {
-    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
 
     // ---- 1: Implementation direct init reverts InvalidInitialization (R-01) ----
 

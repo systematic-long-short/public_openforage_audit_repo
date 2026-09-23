@@ -72,7 +72,7 @@ contract VaultRegistry_TC01_Initialization is VaultRegistryTestBase {
     /// @dev proxiableUUID has `notDelegated` modifier in OZ UUPS, so call on the
     ///      implementation directly. Must return the ERC1967 implementation slot.
     function test_TC01_proxiableUUID() public view {
-        bytes32 expectedSlot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        bytes32 expectedSlot = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
         assertEq(
             implementation.proxiableUUID(), expectedSlot, "proxiableUUID should return ERC1967 implementation slot"
         );

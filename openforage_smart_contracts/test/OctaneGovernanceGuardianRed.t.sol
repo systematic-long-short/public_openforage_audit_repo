@@ -165,7 +165,10 @@ contract OctaneGovernanceGuardianRed is ForageGovernorTestBase {
                 address(0)
             )
         );
-        return ForageGovernor(payable(address(new ERC1967Proxy(address(impl), initData))));
+        ForageGovernor deployedGovernor = ForageGovernor(payable(address(new ERC1967Proxy(address(impl), initData))));
+        vm.prank(timelockController);
+        deployedGovernor.setAllowlist(address(allowlistMock));
+        return deployedGovernor;
     }
 
     function _wrapInGovernorRelays(address target, bytes memory data, uint256 depth)

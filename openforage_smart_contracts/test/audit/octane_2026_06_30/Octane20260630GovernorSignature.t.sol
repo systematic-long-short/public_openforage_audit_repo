@@ -35,21 +35,21 @@ contract Octane20260630GovernorSignatureTest is ForageGovernorTestBase {
         uint256 nonce = governor.nonces(sigVoter);
         bytes memory signature = _signBallot(voterKey, proposalId, 1, sigVoter, nonce);
 
-        uint256 weight = governor.castVoteBySig(proposalId, 1, sigVoter, signature);
+        vm.expectRevert(ForageGovernor.SignatureVotingDisabled.selector);
+        governor.castVoteBySig(proposalId, 1, sigVoter, signature);
 
-        assertEq(weight, 5_000_000 * 1e18, "signature vote uses snapshot weight");
-        assertTrue(governor.hasVoted(proposalId, sigVoter), "signature voter recorded");
-        assertEq(governor.nonces(sigVoter), nonce + 1, "nonce consumed");
+        assertFalse(governor.hasVoted(proposalId, sigVoter), "disabled signature voting must not record a vote");
+        assertEq(governor.nonces(sigVoter), nonce, "disabled signature voting must not consume a nonce");
     }
 
-    function test_Octane_castVoteBySigRejectsMismatchedEoaBallot() public {
+    function test_G2_castVoteBySigRejectsMismatchedEoaBallot() public {
         uint256 voterKey = 0xB0B;
         address sigVoter = _prepareEoaSigVoter(voterKey);
         uint256 proposalId = _createActiveProposal();
         uint256 nonce = governor.nonces(sigVoter);
         bytes memory wrongSupportSignature = _signBallot(voterKey, proposalId, 0, sigVoter, nonce);
 
-        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorInvalidSignature.selector, sigVoter));
+        vm.expectRevert(ForageGovernor.SignatureVotingDisabled.selector);
         governor.castVoteBySig(proposalId, 1, sigVoter, wrongSupportSignature);
 
         assertFalse(governor.hasVoted(proposalId, sigVoter), "invalid signature must not vote");
@@ -68,11 +68,11 @@ contract Octane20260630GovernorSignatureTest is ForageGovernorTestBase {
         bytes32 digest = _ballotDigest(proposalId, 1, address(contractVoter), nonce);
         contractVoter.setValidHash(digest);
 
-        uint256 weight = governor.castVoteBySig(proposalId, 1, address(contractVoter), hex"01");
+        vm.expectRevert(ForageGovernor.SignatureVotingDisabled.selector);
+        governor.castVoteBySig(proposalId, 1, address(contractVoter), hex"01");
 
-        assertEq(weight, 5_000_000 * 1e18, "1271 vote uses contract snapshot weight");
-        assertTrue(governor.hasVoted(proposalId, address(contractVoter)), "1271 voter recorded");
-        assertEq(governor.nonces(address(contractVoter)), nonce + 1, "1271 nonce consumed");
+        assertFalse(governor.hasVoted(proposalId, address(contractVoter)), "1271 voter must not be recorded");
+        assertEq(governor.nonces(address(contractVoter)), nonce, "1271 nonce must not be consumed");
     }
 
     function _prepareEoaSigVoter(uint256 privateKey) internal returns (address sigVoter) {

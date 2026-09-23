@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../../../src/CustodianRegistry.sol";
+import "../../mocks/MockAllowlist.sol";
 
 /**
  * @title Fix proof: V12 #74879 zero NAV cannot brick later positive NAV attestations
@@ -25,6 +26,11 @@ contract V12_74879_ZeroNavBrickTest is Test {
         CustodianRegistry implementation = new CustodianRegistry();
         bytes memory initData = abi.encodeCall(CustodianRegistry.initialize, (owner, governor, guardian));
         registry = CustodianRegistry(address(new ERC1967Proxy(address(implementation), initData)));
+
+        MockAllowlist allowlist = new MockAllowlist();
+        allowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(allowlist));
     }
 
     function test_74879_fix_zeroNavUnderDeltaCapIsRejectedAndPositiveNavCanInitializeBaseline() public {

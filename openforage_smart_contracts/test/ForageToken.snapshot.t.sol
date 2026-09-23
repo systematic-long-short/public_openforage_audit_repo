@@ -31,9 +31,11 @@ contract ForageToken_TC09_Snapshots is ForageTokenTestBase {
     function test_TC09_historicalVotes() public {
         vm.prank(alice);
         token.delegate(alice);
-        uint256 delegationTime = block.timestamp;
 
+        // via-IR can sink a pre-warp block.timestamp snapshot below the warp: the delegation
+        // time derives backward from the post-warp clock instead of being snapshotted early.
         vm.warp(block.timestamp + 10);
+        uint256 delegationTime = block.timestamp - 10;
 
         assertEq(token.getPastVotes(alice, delegationTime), 1000e18);
         if (delegationTime > 0) {
@@ -44,15 +46,18 @@ contract ForageToken_TC09_Snapshots is ForageTokenTestBase {
     function test_TC09_delegationChangeSnapshot() public {
         vm.prank(alice);
         token.delegate(bob);
-        uint256 timeN = block.timestamp;
 
+        // Warp arguments stay textually distinct so via-IR cannot merge them; both snapshot
+        // times derive backward by local arithmetic after the final warp.
         vm.warp(block.timestamp + 5);
-        uint256 timeN5 = block.timestamp;
 
         vm.prank(alice);
         token.delegate(charlie);
 
-        vm.warp(block.timestamp + 5);
+        vm.warp(block.timestamp + 6);
+
+        uint256 timeN5 = block.timestamp - 6; // re-delegation time
+        uint256 timeN = timeN5 - 5; // first delegation time
 
         // Bob had votes between N and N+5
         assertEq(token.getPastVotes(bob, timeN + 2), 1000e18);
@@ -70,14 +75,15 @@ contract ForageToken_TC09_Snapshots is ForageTokenTestBase {
         token.delegate(bob);
 
         vm.warp(block.timestamp + 1);
-        uint256 preTransferTime = block.timestamp;
 
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 2);
         vm.prank(alice);
         token.transfer(bob, 300e18);
-        uint256 postTransferTime = block.timestamp;
 
         vm.warp(block.timestamp + 5);
+
+        uint256 postTransferTime = block.timestamp - 5;
+        uint256 preTransferTime = postTransferTime - 1;
 
         assertEq(token.getPastVotes(alice, preTransferTime), 1000e18);
         assertEq(token.getPastVotes(alice, postTransferTime), 700e18);
@@ -88,14 +94,15 @@ contract ForageToken_TC09_Snapshots is ForageTokenTestBase {
         _setupBurner();
 
         vm.warp(block.timestamp + 1);
-        uint256 preBurnTime = block.timestamp;
 
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 2);
         vm.prank(authorizedBurner);
         token.burn(alice, 100e18);
-        uint256 postBurnTime = block.timestamp;
 
         vm.warp(block.timestamp + 5);
+
+        uint256 postBurnTime = block.timestamp - 5;
+        uint256 preBurnTime = postBurnTime - 1;
 
         assertEq(token.getPastTotalSupply(preBurnTime), TOTAL_SUPPLY);
         assertEq(token.getPastTotalSupply(postBurnTime), TOTAL_SUPPLY - 100e18);
@@ -119,10 +126,11 @@ contract ForageToken_TC09_Snapshots is ForageTokenTestBase {
 
         vm.warp(block.timestamp + 1);
         _lockTokens(alice, 500e18);
-        uint256 lockTime = block.timestamp;
 
         vm.warp(block.timestamp + 5);
 
+        // Lock time derives backward from the final clock (via-IR can sink a pre-warp snapshot).
+        uint256 lockTime = block.timestamp - 5;
         assertEq(token.getPastVotes(alice, lockTime), 1000e18, "Locked tokens retain voting power");
     }
 
@@ -177,14 +185,15 @@ contract ForageToken_TC09_Snapshots is ForageTokenTestBase {
         assertEq(token.getVotes(alice), 1000e18);
 
         vm.warp(block.timestamp + 1);
-        uint256 preBurnTime = block.timestamp;
 
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 2);
         vm.prank(authorizedBurner);
         token.burn(alice, 200e18);
 
         vm.warp(block.timestamp + 5);
 
+        // Pre-burn time derives backward from the final clock (via-IR can sink a pre-warp snapshot).
+        uint256 preBurnTime = block.timestamp - 6;
         assertEq(token.getVotes(alice), 800e18);
         assertEq(token.getPastVotes(alice, preBurnTime), 1000e18);
     }
@@ -279,7 +288,7 @@ contract ForageToken_TC10_Ownership is ForageTokenTestBase {
 // TC-11: UUPS Upgrade Tests
 // ============================================================
 contract ForageToken_TC11_Upgrades is ForageTokenTestBase {
-    bytes32 constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 constant ERC1967_IMPL_SLOT = 0x360894a13ba1a321_0667c828492db98d_ca3e2076cc3735a9_20a3ca505d382bbc;
 
     function _getImplAddress() internal view returns (address) {
         return address(uint160(uint256(vm.load(address(token), ERC1967_IMPL_SLOT))));

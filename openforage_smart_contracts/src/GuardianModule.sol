@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
+import "./AllowlistGatedUpgradeable.sol";
+import "./interfaces/IAllowlist.sol";
 
 /// @title GuardianModule — Extracted guardian logic for ForageGovernor
 /// @notice Manages guardian permissions, pause actions, proposal cancellation,
@@ -13,7 +15,7 @@ import "./FinalizeDelayProfile.sol";
 /// irrecoverable deadlock — the governor would be unable to unpause itself since proposals
 /// require an active (unpaused) governor. Guardian pause targets are restricted to protocol
 /// contracts via the _pausableTargets whitelist (OF-M01).
-contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile {
+contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile, AllowlistGatedUpgradeable {
     // ── Custom errors ────────────────────────────────────────────────────
     error ZeroAddress();
     error InvalidParameter();
@@ -165,7 +167,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
 
     // ── Guardian functions ───────────────────────────────────────────────
 
-    function guardianPause(address target) external {
+    function guardianPause(address target) external onlyAllowedCaller {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
         if (permissions == 0) revert NotGuardian();
@@ -187,7 +189,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
 
     /// @notice OF-001 (8th audit): Blocks guardian from cancelling proposals that would
     /// remove or modify their own guardian permissions (governance entrenchment prevention).
-    function guardianCancel(uint256 proposalId) external {
+    function guardianCancel(uint256 proposalId) external onlyAllowedCaller {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
         if (permissions == 0) revert NotGuardian();
@@ -213,6 +215,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
 
     function guardianExecuteEmergency(address[] calldata targets, uint256[] calldata values, bytes[] calldata calldatas)
         external
+        onlyAllowedCaller
     {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
@@ -220,6 +223,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         if ((permissions & PERMISSION_CAN_EXECUTE_EMERGENCY) == 0) {
             revert InsufficientPermissions();
         }
+        _requireVerifiedAccount(msg.sender);
         if (targets.length == 0) revert EmptyProposal();
         if (targets.length != values.length || targets.length != calldatas.length) {
             revert ArrayLengthMismatch();
@@ -264,9 +268,10 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
 
     /// @dev OF-16-014: Validates bitmask against MAX_VALID_PERMISSIONS.
     /// @dev OF-16-005: Forbids PERMISSION_CAN_PAUSE | PERMISSION_CAN_CANCEL on same guardian.
-    function setGuardianPermissions(address guardian_, uint256 permissions) external {
+    function setGuardianPermissions(address guardian_, uint256 permissions) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
+        _requireVerifiedAccount(guardian_);
         // OF-19-001: Use shared helper for OF-16-014 + OF-16-005 validation
         // (permissions == 0 is a valid removal, skip validation)
         if (permissions != 0) {
@@ -297,7 +302,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         );
     }
 
-    function removeGuardian(address guardian_) external {
+    function removeGuardian(address guardian_) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         if (guardianPermissions[guardian_] == 0) revert NotGuardian();
@@ -324,7 +329,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     /// @notice Add or remove an address from the pausable target whitelist.
     /// @param target The contract address to whitelist or de-whitelist.
     /// @param allowed True to add, false to remove.
-    function setPausableTarget(address target, bool allowed) external {
+    function setPausableTarget(address target, bool allowed) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (target == address(0)) revert ZeroAddress();
         _pausableTargets[target] = allowed;
@@ -332,16 +337,21 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         emit GuardianFastPathRationale(GuardianModule.setPausableTarget.selector, RATIONALE_PAUSABLE_TARGET_FAST_PATH);
     }
 
-    function setPreCommittedSuccessor(bytes32 slot, address current, address successor) external {
+    function setPreCommittedSuccessor(bytes32 slot, address current, address successor) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (slot == bytes32(0) || current == address(0) || successor == address(0)) revert ZeroAddress();
+        _requireVerifiedAccount(successor);
         preCommittedSuccessor[slot][current] = successor;
         if (activeSlotHolder[slot] == address(0)) {
             activeSlotHolder[slot] = current;
         }
     }
 
-    function proposeAcceleratedRotation(bytes32 slot, address current, address successor) external returns (bytes32) {
+    function proposeAcceleratedRotation(bytes32 slot, address current, address successor)
+        external
+        onlyAllowedCaller
+        returns (bytes32)
+    {
         _requireGuardian(msg.sender);
         if (preCommittedSuccessor[slot][current] != successor) revert SuccessorNotPreCommitted();
         bytes32 tupleId = keccak256(abi.encode("accelerated", slot, current, successor));
@@ -358,7 +368,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         return operationId;
     }
 
-    function approveAcceleratedRotation(bytes32 operationId) external {
+    function approveAcceleratedRotation(bytes32 operationId) external onlyAllowedCaller {
         _requireGuardian(msg.sender);
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists) revert InvalidParameter();
@@ -379,7 +389,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         return _rotations[operationId].readyAt;
     }
 
-    function executeAcceleratedRotation(bytes32 operationId) external {
+    function executeAcceleratedRotation(bytes32 operationId) external onlyAllowedCaller {
         Rotation storage rotation = _rotations[operationId];
         if (rotation.readyAt == 0 || block.timestamp < rotation.readyAt || rotation.executed) {
             revert RotationNotReady();
@@ -397,7 +407,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         }
     }
 
-    function proposeRoutineRotation(bytes32 slot, address current, address successor) external returns (bytes32) {
+    function proposeRoutineRotation(bytes32 slot, address current, address successor)
+        external
+        onlyAllowedCaller
+        returns (bytes32)
+    {
         if (msg.sender != governor) revert Unauthorized();
         if (preCommittedSuccessor[slot][current] != successor) revert SuccessorNotPreCommitted();
         bytes32 operationId = keccak256(abi.encode("routine", slot, current, successor));
@@ -410,7 +424,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         return operationId;
     }
 
-    function finalizeRoutineRotation(bytes32 operationId) external {
+    function finalizeRoutineRotation(bytes32 operationId) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists || rotation.executed) revert RotationNotReady();
@@ -438,7 +452,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     // ── OF-016: Governor/Timelock update functions ──────────────────────
 
     /// @notice OF-016: Update the governor address. Only callable by the timelock.
-    function updateGovernor(address newGovernor) external {
+    function updateGovernor(address newGovernor) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (newGovernor == address(0)) revert ZeroAddress();
         address oldGovernor = governor;
@@ -449,7 +463,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     /// @notice OF-L04: Propose a new timelock address. Only callable by the current timelock.
     /// Two-step pattern prevents irrecoverable loss from setting a wrong timelock address.
     /// @dev OF-NEW-07 (12th audit): Records proposal timestamp for FINALIZE_DELAY enforcement.
-    function proposeTimelock(address newTimelock) external {
+    function proposeTimelock(address newTimelock) external onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (newTimelock == address(0)) revert ZeroAddress();
         pendingTimelock = newTimelock;
@@ -459,7 +473,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
 
     /// @notice OF-L04: Accept the pending timelock role. Only callable by the pending timelock.
     /// @dev OF-NEW-07 (12th audit): Enforces FINALIZE_DELAY and PROPOSAL_EXPIRY.
-    function acceptTimelock() external {
+    function acceptTimelock() external onlyAllowedCaller {
         if (msg.sender != pendingTimelock) revert NotPendingTimelock();
         if (block.timestamp < timelockProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > timelockProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -470,8 +484,18 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         emit TimelockUpdated(oldTimelock, timelock);
     }
 
+    /// @notice Wire the allowlist that gates every entry point. Timelock authority only.
+    function setAllowlist(address allowlist_) external {
+        _requireCurrentTimelockAuthority();
+        _setAllowlist(allowlist_);
+    }
+
     function _requireGuardian(address account) internal view {
         if (guardianPermissions[account] == 0) revert NotGuardian();
+    }
+
+    function _requireVerifiedAccount(address account) internal view {
+        if (!IAllowlist(allowlist()).isAllowed(account)) revert IAllowlist.CallerNotAllowed(account);
     }
 
     function _replaceGuardianSeat(address current, address successor) internal {
@@ -494,6 +518,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
     }
 
     // ── OF-011: UUPS upgrade authorization ────────────────────────────
+
+    /// @dev Caller gate on the inherited upgrade entry point; runs before the proxy check.
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
 
     /// @dev OF-011: Only the timelock can authorize upgrades.
     /// OF-031: Clear pendingTimelock on upgrade to prevent stale two-step state.
@@ -547,6 +576,8 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
                 || selector == IEmergencyAtRiskCaps.shrinkWeeklyWithdrawalCapBps.selector
                 || selector == IEmergencyHLBridgeCaps.shrinkPerBlockDeployCap.selector
                 || selector == IEmergencyHLBridgeCaps.shrinkPerDayDeployCap.selector
+                || selector == IEmergencyAllowlistCaps.revoke.selector
+                || selector == IEmergencyAllowlistCaps.shrinkApprovalsPerDayCap.selector
         ) {
             if (data.length != 36) revert InvalidEmergencyAction();
             return selector;
@@ -639,6 +670,26 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile 
         if (selector == IEmergencyAtRiskCaps.shrinkWeeklyWithdrawalCapBps.selector) {
             (uint256 bps) = abi.decode(data[4:], (uint256));
             try IEmergencyAtRiskCaps(target).shrinkWeeklyWithdrawalCapBps(bps) {
+                emit EmergencyCallSucceeded(target, selector);
+                return true;
+            } catch (bytes memory reason) {
+                emit EmergencyCallFailed(target, selector, reason);
+                return false;
+            }
+        }
+        if (selector == IEmergencyAllowlistCaps.revoke.selector) {
+            (address account) = abi.decode(data[4:], (address));
+            try IEmergencyAllowlistCaps(target).revoke(account) {
+                emit EmergencyCallSucceeded(target, selector);
+                return true;
+            } catch (bytes memory reason) {
+                emit EmergencyCallFailed(target, selector, reason);
+                return false;
+            }
+        }
+        if (selector == IEmergencyAllowlistCaps.shrinkApprovalsPerDayCap.selector) {
+            (uint32 newCap) = abi.decode(data[4:], (uint32));
+            try IEmergencyAllowlistCaps(target).shrinkApprovalsPerDayCap(newCap) {
                 emit EmergencyCallSucceeded(target, selector);
                 return true;
             } catch (bytes memory reason) {
@@ -1054,6 +1105,11 @@ interface IEmergencyHLBridgeCaps {
     function shrinkPerBlockDeployCap(uint256 cap) external;
     function shrinkPerDayDeployCap(uint256 cap) external;
     function tightenReturnCapitalCaps(uint16 perCallBps, uint16 perDayBps) external;
+}
+
+interface IEmergencyAllowlistCaps {
+    function revoke(address account) external;
+    function shrinkApprovalsPerDayCap(uint32 newCap) external;
 }
 
 /// @dev Minimal interface for GuardianModule to interact with ForageGovernor.

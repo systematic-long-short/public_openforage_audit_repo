@@ -9,6 +9,7 @@ import "../../../src/Blocklist.sol";
 import "../../../src/ForageToken.sol";
 import "../../../src/RISKUSD.sol";
 import "../../../src/atRISKUSD.sol";
+import "../../mocks/MockAllowlist.sol";
 import "../../mocks/MockYieldSourceForLossPending.sol";
 
 interface IV12_74891_BlocklistManaged {
@@ -18,6 +19,7 @@ interface IV12_74891_BlocklistManaged {
 
 contract V12_74891_BlockedAllowanceZeroingTest is Test {
     Blocklist internal registry;
+    MockAllowlist internal mockAllowlist;
     ForageToken internal forage;
     RISKUSD internal riskusd;
     atRISKUSD internal atRisk;
@@ -48,6 +50,12 @@ contract V12_74891_BlockedAllowanceZeroingTest is Test {
         spender = makeAddr("v12AllowanceSpender");
 
         registry = _deployBlocklist();
+
+        mockAllowlist = new MockAllowlist();
+        mockAllowlist.setAllAllowed(true);
+        vm.prank(owner);
+        registry.setAllowlist(address(mockAllowlist));
+
         forage = _deployForage();
         riskusd = _deployRiskusd();
         atRisk = _deployAtRisk();
@@ -173,13 +181,21 @@ contract V12_74891_BlockedAllowanceZeroingTest is Test {
     function _deployForage() internal returns (ForageToken) {
         ForageToken implementation = new ForageToken();
         bytes memory initData = abi.encodeCall(ForageToken.initialize, (teamVesting, forageTreasury, owner));
-        return ForageToken(address(new ERC1967Proxy(address(implementation), initData)));
+        ForageToken token = ForageToken(address(new ERC1967Proxy(address(implementation), initData)));
+
+        vm.prank(owner);
+        token.setAllowlist(address(mockAllowlist));
+
+        return token;
     }
 
     function _deployRiskusd() internal returns (RISKUSD) {
         RISKUSD implementation = new RISKUSD();
         RISKUSD token =
             RISKUSD(address(new ERC1967Proxy(address(implementation), abi.encodeCall(RISKUSD.initialize, (owner)))));
+
+        vm.prank(owner);
+        token.setAllowlist(address(mockAllowlist));
 
         vm.startPrank(owner);
         token.setMinter(riskMinter);
@@ -194,7 +210,12 @@ contract V12_74891_BlockedAllowanceZeroingTest is Test {
         atRISKUSD implementation = new atRISKUSD();
         bytes memory initData =
             abi.encodeCall(atRISKUSD.initialize, (address(riskusd), yieldSource, stakingQueue, 0, 0, 0, "0D", owner));
-        return atRISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+        atRISKUSD token = atRISKUSD(address(new ERC1967Proxy(address(implementation), initData)));
+
+        vm.prank(owner);
+        token.setAllowlist(address(mockAllowlist));
+
+        return token;
     }
 
     function _depositAtRisk(address receiver, uint256 assets) internal {

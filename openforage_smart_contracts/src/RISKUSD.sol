@@ -10,6 +10,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./IForageGovernorPause.sol";
 import "./FinalizeDelayProfile.sol";
+import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IBlocklist.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -25,7 +26,8 @@ contract RISKUSD is
     PausableUpgradeable,
     ReentrancyGuard,
     UUPSUpgradeable,
-    FinalizeDelayProfile
+    FinalizeDelayProfile,
+    AllowlistGatedUpgradeable
 {
     // Custom errors
     error ZeroAddress();
@@ -89,7 +91,13 @@ contract RISKUSD is
         // OF-I02: UUPSUpgradeable has no init in OZ 5.x (stateless)
     }
 
-    function mint(address to, uint256 amount) external whenNotPaused nonReentrant {
+    /// @notice KYC-01: wire the shared caller allowlist on the fresh contract (pkt-investor-gate-0105).
+    /// @dev Not gated itself: it is the call that makes the gate usable, and onlyOwner already guards it.
+    function setAllowlist(address allowlist_) external onlyOwner {
+        _setAllowlist(allowlist_);
+    }
+
+    function mint(address to, uint256 amount) external onlyAllowedCaller whenNotPaused nonReentrant {
         if (msg.sender != _minter) revert UnauthorizedMinter();
         _requireNotBlocked(msg.sender);
         if (to == address(0)) revert ZeroAddress();
@@ -104,7 +112,7 @@ contract RISKUSD is
     /// should be blocked during emergencies.
     /// @notice OF-L16: Minter burn authority is intentional design — the minter (RISKUSDVault)
     /// must be able to burn RISKUSD for loss accounting without holder consent.
-    function burn(address from, uint256 amount) external nonReentrant {
+    function burn(address from, uint256 amount) external onlyAllowedCaller nonReentrant {
         if (msg.sender != _minter) revert UnauthorizedMinter();
         _requireNotBlocked(msg.sender);
         if (from == address(0)) revert ZeroAddress();
@@ -126,12 +134,12 @@ contract RISKUSD is
     }
 
     /// @notice OF-15-047: setMinter now delegates to proposeMinter for single-path consistency.
-    function setMinter(address minter_) external onlyOwner {
+    function setMinter(address minter_) external onlyAllowedCaller onlyOwner {
         proposeMinter(minter_);
     }
 
     /// @notice OF-003: Propose a new minter (two-step handoff). Only owner can propose.
-    function proposeMinter(address newMinter_) public onlyOwner {
+    function proposeMinter(address newMinter_) public onlyAllowedCaller onlyOwner {
         if (newMinter_ == address(0)) revert ZeroAddress();
         _pendingMinter = newMinter_;
         _minterProposedAt = block.timestamp; // OF-NEW-04 (12th audit)
@@ -140,7 +148,7 @@ contract RISKUSD is
 
     /// @notice OF-003: Accept the pending minter role. Only the pending minter can call.
     /// @dev OF-NEW-04 (12th audit): Enforces FINALIZE_DELAY and PROPOSAL_EXPIRY.
-    function acceptMinter() external {
+    function acceptMinter() external onlyAllowedCaller {
         if (msg.sender != _pendingMinter) revert NotPendingMinter();
         if (block.timestamp < _minterProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _minterProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -152,7 +160,7 @@ contract RISKUSD is
     }
 
     /// @notice OF-NEW-04 (12th audit): Owner-side finalization for minter change (for contract recipients).
-    function finalizeMinter() external onlyOwner {
+    function finalizeMinter() external onlyAllowedCaller onlyOwner {
         if (_pendingMinter == address(0)) revert ZeroAddress();
         if (block.timestamp < _minterProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _minterProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -169,20 +177,20 @@ contract RISKUSD is
     }
 
     /// @notice OF-L06: Clear the pending minter to prevent stale proposals surviving UUPS upgrades.
-    function clearPendingMinter() external onlyOwner {
+    function clearPendingMinter() external onlyAllowedCaller onlyOwner {
         _pendingMinter = address(0);
         _minterProposedAt = 0; // OF-NEW-04 (12th audit)
     }
 
     // OF-19-002: owner, governor, or guardian module can pause/unpause
-    function pause() external {
+    function pause() external onlyAllowedCaller {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert UnauthorizedPauseControl(msg.sender);
         }
         _pause();
     }
 
-    function unpause() external {
+    function unpause() external onlyAllowedCaller {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert UnauthorizedPauseControl(msg.sender);
         }
@@ -201,7 +209,7 @@ contract RISKUSD is
 
     /// @notice OF-15-005: setForageGovernor now only proposes — no instant effect.
     /// Use finalizeForageGovernor() to complete the change after FINALIZE_DELAY.
-    function setForageGovernor(address forageGovernor_) external onlyOwner {
+    function setForageGovernor(address forageGovernor_) external onlyAllowedCaller onlyOwner {
         if (forageGovernor_ == address(0)) revert ZeroAddress();
         _pendingForageGovernor = forageGovernor_;
         _pendingForageGovernorProposedAt = block.timestamp;
@@ -209,7 +217,7 @@ contract RISKUSD is
     }
 
     /// @notice OF-15-005: Finalize the pending ForageGovernor after FINALIZE_DELAY.
-    function finalizeForageGovernor() external onlyOwner {
+    function finalizeForageGovernor() external onlyAllowedCaller onlyOwner {
         if (_pendingForageGovernor == address(0)) revert NoPendingForageGovernor();
         if (block.timestamp < _pendingForageGovernorProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingForageGovernorProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -221,7 +229,7 @@ contract RISKUSD is
     }
 
     /// @notice OF-15-005: Clear pending ForageGovernor to prevent stale proposals.
-    function clearPendingForageGovernor() external onlyOwner {
+    function clearPendingForageGovernor() external onlyAllowedCaller onlyOwner {
         _pendingForageGovernor = address(0);
         _pendingForageGovernorProposedAt = 0;
     }
@@ -229,7 +237,7 @@ contract RISKUSD is
     /// @dev PHASE4A-017: Set transfer exemption for protocol contracts.
     /// Exempt addresses can send/receive RISKUSD even when paused.
     /// Only owner can set; intended for StakingQueue and RISKUSDVault.
-    function setTransferExempt(address account, bool exempt) external onlyOwner {
+    function setTransferExempt(address account, bool exempt) external onlyAllowedCaller onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         _transferExempt[account] = exempt;
         // OF-16-015: Maintain EnumerableSet for on-chain enumeration
@@ -241,7 +249,7 @@ contract RISKUSD is
         emit TransferExemptSet(account, exempt);
     }
 
-    function setBlocklist(address blocklist_) external onlyOwner {
+    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         address oldBlocklist = _blocklist;
         _blocklist = blocklist_;
@@ -293,6 +301,21 @@ contract RISKUSD is
 
     function renounceOwnership() public pure override {
         revert RenounceOwnershipDisabled();
+    }
+
+    /// @dev KYC-01: inherited state-changing entries carry the caller gate as their first modifier.
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+        super.upgradeToAndCall(newImplementation, data);
+    }
+
+    /// @dev KYC-01: the inherited onlyOwner check runs inside super, after the gate.
+    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+        super.transferOwnership(newOwner);
+    }
+
+    /// @dev KYC-01: the inherited pending-owner check runs inside super, after the gate.
+    function acceptOwnership() public override onlyAllowedCaller {
+        super.acceptOwnership();
     }
 
     /// @dev OF-L06: Auto-clear pending minter on every upgrade to prevent stale proposals
