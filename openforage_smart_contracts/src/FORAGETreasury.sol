@@ -178,7 +178,7 @@ contract FORAGETreasury is
         nonReentrant
     {
         if (msg.sender != _distributor) revert Unauthorized();
-        _requireAgentBeneficiary(account);
+        if (_isBlocked(account)) revert BlockedRecipient();
         uint256 lastClaimAt = lastAgentClaimAt[account];
         if (lastClaimAt != 0 && block.timestamp < lastClaimAt + AGENT_CLAIM_COOLDOWN) {
             revert ClaimCooldownActive();
