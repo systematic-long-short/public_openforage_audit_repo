@@ -107,6 +107,8 @@ contract StakingQueue is
     error BlockedAddress(address account);
     error CapacityProbeFailed(address vault);
     error DepositOutputBelowMinimum(uint256 sharesMinted, uint256 minimumShares);
+    error MinimumSharesUnreachable(uint256 minimumShares, uint256 maxPreviewShares);
+    error PriorityLockUnavailable();
     error InvalidForagePriceScale(uint256 price);
     error UnauthorizedLockupProcessor(address caller);
     error SequencerUptimeFeedUnavailable(address feed);
@@ -197,6 +199,7 @@ contract StakingQueue is
 
     // -- Constants --
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-15-005
+    uint256 public constant QUEUE_ENTRY_TTL = 3 days;
     uint256 public constant MAX_FIXED_FORAGE_PRICE_USD = 1_000_000e6;
     uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
@@ -251,8 +254,9 @@ contract StakingQueue is
     address internal _blocklist;
     mapping(address => bool) private _expiredLockupProcessors;
     address internal _sequencerUptimeFeed;
+    mapping(uint256 => uint8) private _priorityEntryAdmissionMode;
 
-    uint256[31] private __gap; // reserved for future upgrades
+    uint256[30] private __gap; // reserved for future upgrades
 
     // -- Module delegation (ERC-7201 namespaced storage) --
     /// @custom:storage-location erc7201:openforage.storage.QueueModule
@@ -428,6 +432,10 @@ contract StakingQueue is
         if (entry.priority) revert InvalidQueueEntry();
         if (_isExpired(entry)) revert InvalidQueueEntry();
         _requireNotBlocked(msg.sender);
+        uint256 maxPreviewShares = _minimumDepositShares(_tierVaults[entry.tier], entry.riskusdAmount);
+        if (minimumShares > maxPreviewShares) {
+            revert MinimumSharesUnreachable(minimumShares, maxPreviewShares);
+        }
 
         entry.minimumShares = minimumShares;
         entry.deadline = deadline;
@@ -451,6 +459,10 @@ contract StakingQueue is
         if (entry.cancelled) revert QueueEntryAlreadyCancelled();
         if (entry.priority) revert InvalidQueueEntry();
         if (_hasDepositorBounds(entry)) revert InvalidQueueEntry();
+        uint256 maxPreviewShares = _minimumDepositShares(_tierVaults[entry.tier], entry.riskusdAmount);
+        if (minimumShares > maxPreviewShares) {
+            revert MinimumSharesUnreachable(minimumShares, maxPreviewShares);
+        }
 
         entry.minimumShares = minimumShares;
         entry.deadline = deadline;
@@ -746,11 +758,7 @@ contract StakingQueue is
         _proposeForagePriceOracle(oracle_, maxStaleness_);
     }
 
-    function proposeForagePriceOracle(address oracle_, uint256 maxStaleness_)
-        external
-        onlyAllowedCaller
-        onlyOwner
-    {
+    function proposeForagePriceOracle(address oracle_, uint256 maxStaleness_) external onlyAllowedCaller onlyOwner {
         _proposeForagePriceOracle(oracle_, maxStaleness_);
     }
 
@@ -1061,12 +1069,7 @@ contract StakingQueue is
         super.acceptOwnership();
     }
 
-    function upgradeToAndCall(address newImplementation, bytes memory data)
-        public
-        payable
-        override
-        onlyAllowedCaller
-    {
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
         super.upgradeToAndCall(newImplementation, data);
     }
 
@@ -1333,8 +1336,22 @@ contract StakingQueue is
         return entry.minimumShares != 0 && entry.deadline != 0;
     }
 
+    function _minimumDepositShares(address vaultAddr, uint256 riskusdAmount) internal view returns (uint256) {
+        (bool previewOk, bytes memory previewData) =
+            vaultAddr.staticcall(abi.encodeWithSelector(_SEL_PREVIEW_DEPOSIT, riskusdAmount));
+        if (previewOk && previewData.length >= 32) return abi.decode(previewData, (uint256));
+
+        uint256 assetsBefore = _readLegitimateAssets(vaultAddr);
+        (bool success, bytes memory data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_TOTAL_SUPPLY));
+        if (!success || data.length < 32) return riskusdAmount;
+        uint256 supplyBefore = abi.decode(data, (uint256));
+        if (assetsBefore == 0 || supplyBefore == 0) return riskusdAmount;
+        return Math.mulDiv(riskusdAmount, supplyBefore, assetsBefore);
+    }
+
     function _isExpired(QueueEntry storage entry) internal view returns (bool) {
-        return entry.deadline != 0 && block.timestamp > entry.deadline;
+        return (entry.deadline != 0 && block.timestamp > entry.deadline)
+            || block.timestamp >= entry.entryTimestamp + QUEUE_ENTRY_TTL;
     }
 
     function _combinedBackingPerShareRay() internal view returns (uint256) {

@@ -22,7 +22,7 @@ import "../src/atRISKUSD.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
 import "../src/modules/RISKUSDVaultModule.sol";
 import "../src/modules/StakingQueueModule.sol";
-import {IAllowlistSettable} from "./TestContracts.sol";
+import {IAllowlistSettable} from "./interfaces/IAllowlistSettable.sol";
 
 interface IForageGovernorWiredTarget {
     function FINALIZE_DELAY() external view returns (uint256);

@@ -118,6 +118,7 @@ contract CustodianRegistry is
     error CustodianReturnPerCallCapExceeded(bytes32 id, uint256 provided, uint256 available);
     error CustodianReturnPerDayCapExceeded(bytes32 id, uint256 provided, uint256 available);
     error ExcessiveCustodianReturn(bytes32 id, uint256 provided, uint256 deployed);
+    error ExcessiveCustodianLoss(bytes32 id, uint256 amount, uint256 custodianDeployed, uint256 totalDeployed);
     error NoPendingCustodianConfig(bytes32 id);
     error NoPendingAllowedPeer(bytes32 id, bytes32 peer);
     error NoPendingCustodianRole(bytes32 id, bytes32 role, address account);
@@ -146,6 +147,7 @@ contract CustodianRegistry is
     event CustodianRoleAllowed(bytes32 indexed id, bytes32 indexed role, address indexed account, bool allowed);
     event CustodianDeploymentRecorded(bytes32 indexed id, uint256 amount, uint256 deployed);
     event CustodianReturnRecorded(bytes32 indexed id, uint256 amount, uint256 deployed);
+    event CustodianLossRecorded(bytes32 indexed id, uint256 amount, uint256 deployed);
     event CustodianEmergencyReturnRecorded(
         bytes32 indexed id, address indexed caller, uint256 amount, uint256 deployed
     );
@@ -388,6 +390,26 @@ contract CustodianRegistry is
         uint256 deployed = _applyReturnAccounting(id, amount);
         emit CustodianEmergencyReturnRecorded(id, msg.sender, amount, deployed);
         emit CustodianReturnRecorded(id, amount, deployed);
+    }
+
+    function recordLoss(bytes32 id, uint256 amount)
+        external
+        onlyAllowedCaller
+        onlyCustodianRole(id, ROLE_ACCOUNTANT)
+        returns (uint256 recordedAmount)
+    {
+        CustodianState storage state = _requireCustodian(id);
+        if (amount == 0) revert ZeroAmount();
+        uint256 deployed = state.deployed;
+        uint256 totalDeployed_ = _totalDeployed;
+        if (amount > deployed || amount > totalDeployed_) {
+            revert ExcessiveCustodianLoss(id, amount, deployed, totalDeployed_);
+        }
+
+        state.deployed = deployed - amount;
+        _totalDeployed = totalDeployed_ - amount;
+        emit CustodianLossRecorded(id, amount, state.deployed);
+        return amount;
     }
 
     function recordNAV(bytes32 id, uint256 nav)

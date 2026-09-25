@@ -1,111 +1,41 @@
 # OpenForage Public Smart Contract Audit Snapshot
 
-This public repository is a selective source snapshot for external review of
-the OpenForage smart contracts. It is not the private monorepo and is not a
-deployment repository.
+This repository is a selective production-source snapshot for external review. It is not a deployment repository or a copy of the private monorepo. The reviewed branch is append-only from public `main`; public `main` is never rewritten.
 
-Agent export rules live in `AGENTS.md`. Refreshes are built on a public pull
-request branch from the allowlist in that file, with scan and review evidence
-attached to the PR before merge.
+## Source and preparation identities
 
-## Current Source Snapshot
+The accepted private production-source checkpoint for this reconciled snapshot is `c0f8db4d79825da948ce170150f77e099cc08fc5`. It identifies the source selection, not the whole private tree or private history. `openforage_smart_contracts/src/FORAGETreasury.sol` is copied byte-for-byte from that accepted source and has SHA-256 `cb97eeee0db40031b9f847793aaef9b7f0b279bc8e4ec28be5c3a35bf86cf596`.
 
-The pinned private source revision for this refresh is
-`e5c2c76d55e197044e30392c407b52af598a1681`. All 26 production Solidity files
-under `contracts/src/` and all 18 ABI files under `contracts/abi/` are
-byte-identical to that revision. The refresh adds the investor `Allowlist`, its
-caller-gate mixin, the RISKUSD vault and staking-queue delegate modules, and
-their focused tests and support.
+The final Treasury source keeps direct `claimAgent` self-called and eligibility-gated. Its authorized distributor route may pay a non-allowlisted recipient when that recipient is not blocklisted. This is the accepted source policy, not a separate security conclusion.
 
-This refresh is a source-snapshot preparation, not a new security audit. The
-historical audit packages below do not assess the current source revision.
+All 26 production Solidity sources and 18 ABI artifacts were accounted against the accepted private source. Relative to the retained public-only snapshot, only `FORAGETreasury.sol` changed among those sources; the other 25 source hashes and all 18 ABI hashes remain unchanged. The generated Treasury ABI is byte-identical to its committed artifact and the accepted-source ABI. Seventeen source-associated ABI artifacts match; `FoundationTreasury.json` remains the one source-less artifact. The Treasury storage-layout output is unchanged from both the retained snapshot and the accepted source proof.
 
-Validation for this refresh: `forge build --force` succeeded with compiler
-warnings; the bounded Allowlist and caller-gate runs passed 100 tests, including
-64 fuzz runs for the focused fuzz suite. The full suite and high-depth
-fuzz/invariant/formal campaigns were not run.
+The public-only baseline, extracted `IAllowlistSettable` interface and signature, deployment script and order, import graph, no-tests guard, public-safe scanner and analyzer variants, and dependency gitlinks are preserved from the retained snapshot. The source update adds no import, interface, ABI, or storage change.
 
-## Historical Audit Records
+## Verification status
 
-The following are records of earlier reviews and remediation. Their results
-apply to the code and scope reviewed at that time, not to source revision
-`e5c2c76d55e197044e30392c407b52af598a1681`.
+- The production-only Forge build compiled 98 files with Solc 0.8.24 and completed successfully with compiler warnings. No tests or scripts were executed.
+- The no-tests inventory guard passed on the candidate worktree and committed tree. That proves the forbidden test inputs are absent; it is not a test pass.
+- Forge ABI and storage inspections matched the committed Treasury ABI and the accepted private source outputs. The production import graph matched the retained graph byte-for-byte.
+- Static checks are not green. The retained 0072 public static run, against the earlier public Treasury source hash `59d6a498ab7e3ed93533df220c6f71c222472e97d75ae59aa12ebb9bf04e9a9b`, reported 206 Slither results, 194 unsuppressed and 56 stale suppression entries, and 9 blocking Semgrep findings; the simplify checker stopped at its missing `ProtocolTreasury` build artifact. These results are from that earlier public source, not a rerun on this replacement.
+- A separate private-source-bound Slither scan at the accepted source reported 206 raw results and process exit 255 despite `success: true` and `error: null` in its JSON. It has no finding dispositions and is not a public-snapshot static pass. No static scanner was rerun for this public candidate; no private suppressions or scanner proposals were applied.
 
-The June 9/10, 2026 mainnet-readiness audit package records:
+Removing tests or changing the payout source does not clear any audit finding. Historical private test counts describe an earlier candidate and do not prove this public snapshot. No new Octane analysis, test suite, fuzz/formal campaign, Anvil run, deployment, chain action, push, or pull request was performed.
 
-- no known open Critical, High, Medium, or Low findings after the R16-M02
-  remediation;
-- passing static, formal, fuzz, audit-foundry, bridge target, treasury target,
-  DeployMainnet target, full Foundry, build, formatting, and Python harness
-  gates;
-- passing final Codex adversarial review and post-M02 security, reuse, and
-  architecture re-reviews;
-- target architecture and target user-journey conformance with no unresolved
-  design divergences.
+See `documentation/audit_scope.md`, `documentation/review_commands.md`, and `documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md` for scope, review steps, and limitations.
 
-The remaining limitation is explicit in the audit report: on-chain
-reconciliation proves bridge-held USDC availability, while HyperLiquid
-withdrawal provenance remains an off-chain keeper/trust boundary. This snapshot
-does not perform or authorize a mainnet broadcast.
+## Included and excluded
 
-The June 12, 2026 external-audit triage package records Cantina and Octane
-findings review, accepted true-positive overlap, and focused Foundry
-reproductions for the live overlap roots carried in this snapshot.
+- `openforage_smart_contracts/` contains production Solidity source and ABI artifacts, approved deployment and static-checker sources, static-analysis configuration, and pinned Solidity dependency gitlinks.
+- `documentation/` contains public-safe audit scope, review guidance, and historical assessments.
+- First-party tests, test helpers, fuzz/formal harnesses, deployment manifests, generated output, private audit captures, local caches, credentials, and vendored dependency contents are not included.
 
-The June 17, 2026 external-audit closeout package records the follow-up
-Cantina/Octane disposition: all retained valid findings are fixed in current
-source or were already fixed by the current source, and the portal-facing
-acknowledgment worksheets are included. Raw portal exports that contain local
-reproduction paths or internal provenance discussion are intentionally omitted.
+## Dependency pins
 
-The full Foundry suite and high-depth audit campaigns have not been run against
-this refreshed snapshot. Historical full-suite evidence in the retained audit
-packages is not verification of the current source revision.
-
-## Included
-
-- `openforage_smart_contracts/`: production Solidity sources and ABI files,
-  selected current tests/helpers and generic tooling, build/static-analysis
-  configuration, and pinned Solidity dependencies.
-- `documentation/smart_contract_audits/2026-06-09-audit/`: latest audit report,
-  finding consolidation, conformance, retest, review, and validation evidence.
-- `documentation/smart_contract_audits/2026-06-12-external-audit/`: external
-  audit triage, overlap analysis, and reviewer-facing findings context.
-- `documentation/smart_contract_audits/2026-06-17-external-audit/`: public-safe
-  external-audit assessment, fix attribution, acknowledgment worksheets, and
-  overlap analysis for the latest smart-contract closeout.
-- `documentation/smart_contract/`: target smart-contract architecture and
-  user-journey projections used by the conformance review.
-- `documentation/cantina_v12_remediation.md`: historical remediation summary for
-  the May 30, 2026 Cantina V12 pass, retained as predecessor context.
-
-## Excluded
-
-- Non-smart-contract source trees.
-- Internal project/spec/tasklist/prompt artifacts.
-- Company, strategy, benchmark, memory, and unrelated runbook documents.
-- Private environment files, credentials, signing material, and deployment
-  secrets.
-- Deployment manifests, keeper config, generated broadcast output, and public
-  cloud resource names.
-- Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.
-- Generated build output and local caches such as Foundry `cache/`, `out/`, and
-  `broadcast/`.
-- Vendored copies of third-party Solidity dependencies. They are represented as
-  pinned Git submodules instead.
-
-## Dependency Pins
-
-After cloning, initialize Solidity dependencies with:
+Initialize the public dependencies with:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-Pinned submodules:
-
-- `openforage_smart_contracts/lib/chainlink-ccip`
-- `openforage_smart_contracts/lib/openzeppelin-contracts-upgradeable`
-
-See `documentation/audit_scope.md` and `documentation/review_commands.md` for
-scope boundaries and suggested local checks.
+The top-level pins are Chainlink CCIP `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441` and OpenZeppelin upgradeable contracts `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`. The `lib/` paths remain gitlinks, not vendored copies.

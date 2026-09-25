@@ -142,6 +142,19 @@
   },
   {
     "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "approve",
     "inputs": [
       {
@@ -227,6 +240,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "burnWorthlessShares",
+    "inputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -659,6 +685,24 @@
   },
   {
     "type": "function",
+    "name": "migratePendingWithdrawalLayout",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sourceLayout",
+        "type": "uint8",
+        "internalType": "enum atRISKUSD.PendingWithdrawalLayout"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "mint",
     "inputs": [
       {
@@ -1025,6 +1069,13 @@
   },
   {
     "type": "function",
+    "name": "recoverPendingWithdrawal",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "redeem",
     "inputs": [
       {
@@ -1134,6 +1185,19 @@
         "name": "atriskusdAmount",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -1508,6 +1572,25 @@
   },
   {
     "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Approval",
     "inputs": [
       {
@@ -1647,6 +1730,19 @@
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EmergencyOverrideWindowOpened",
+    "inputs": [
+      {
+        "name": "expiresAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -1831,6 +1927,44 @@
   },
   {
     "type": "event",
+    "name": "PendingWithdrawalLayoutMigrated",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cooldownPeriod",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PendingWithdrawalSharesRecovered",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "StakingQueueProposed",
     "inputs": [
       {
@@ -1901,6 +2035,25 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnreachableWithdrawalRecovered",
+    "inputs": [
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -2045,6 +2198,25 @@
   },
   {
     "type": "event",
+    "name": "WorthlessSharesBurned",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "YieldAccrued",
     "inputs": [
       {
@@ -2107,6 +2279,27 @@
   },
   {
     "type": "error",
+    "name": "AllowlistHorizonOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AmbiguousPendingWithdrawalLayout",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AutoRenewDisabled",
     "inputs": []
   },
@@ -2117,10 +2310,32 @@
   },
   {
     "type": "error",
+    "name": "BeneficiaryNotAllowed",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BlockedAddress",
     "inputs": [
       {
         "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
         "type": "address",
         "internalType": "address"
       }
@@ -2367,6 +2582,11 @@
   },
   {
     "type": "error",
+    "name": "EmergencyRecoveryWindowClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "EmptyAbbreviation",
     "inputs": []
   },
@@ -2410,6 +2630,22 @@
     "type": "error",
     "name": "FinalizeDelayNotElapsed",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientAllowlistDuration",
+    "inputs": [
+      {
+        "name": "requiredUntil",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "allowedUntil",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2464,6 +2700,11 @@
   },
   {
     "type": "error",
+    "name": "NotTotalLossState",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OwnableInvalidOwner",
     "inputs": [
       {
@@ -2488,6 +2729,60 @@
     "type": "error",
     "name": "PendingWithdrawalExists",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PendingWithdrawalMigrationAlreadyConfirmed",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PendingWithdrawalMigrationRequired",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PendingWithdrawalShareRecoveryNotNeeded",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PendingWithdrawalShareRecoveryUnavailable",
+    "inputs": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "escrowed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2559,6 +2854,17 @@
   },
   {
     "type": "error",
+    "name": "UnsupportedPendingWithdrawalLayout",
+    "inputs": [
+      {
+        "name": "sourceLayout",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "WeeklyWithdrawalCapExceeded",
     "inputs": [
       {
@@ -2572,6 +2878,11 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceReachable",
+    "inputs": []
   },
   {
     "type": "error",

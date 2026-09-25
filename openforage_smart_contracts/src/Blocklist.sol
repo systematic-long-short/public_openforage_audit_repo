@@ -30,6 +30,9 @@ contract Blocklist is
     error ProposalExpired();
     error RenounceOwnershipDisabled();
     error InvalidLegacyInterval();
+    error NotVoteEligibilityObserver();
+    error VoteEligibilityObserverAlreadyRegistered(address observer);
+    error InvalidVoteEligibilityObserver(address observer);
 
     event AddressBlocked(address indexed account, uint256 blockedUntil);
     event UnblockProposed(address indexed account, uint256 proposedAt);
@@ -42,6 +45,7 @@ contract Blocklist is
     event LegacyBlockedCheckpointImported(
         address indexed account, uint48 indexed key, uint208 previousValue, uint208 newValue
     );
+    event VoteEligibilityObserverSet(address indexed previous, address indexed next);
 
     uint256 public constant BLOCK_DURATION = 365 days;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
@@ -54,9 +58,9 @@ contract Blocklist is
     mapping(address => uint256) public pendingUnblock;
     mapping(address => Checkpoints.Trace208) private _blockedUntilCheckpoints;
     mapping(address => uint256) private _preCheckpointBlockedUntil;
+    address private _voteEligibilityObserver;
 
-    // Reserved storage for future versions (every other UUPS contract in the repo carries one).
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -94,6 +98,7 @@ contract Blocklist is
         }
 
         emit AddressBlocked(account, newExpiry);
+        _notifyVoteEligibilityObserver(account);
     }
 
     function proposeUnblock(address account) external onlyAllowedCaller onlyOwner {
@@ -118,6 +123,7 @@ contract Blocklist is
         pendingUnblock[account] = 0;
 
         emit AddressUnblocked(account);
+        _notifyVoteEligibilityObserver(account);
     }
 
     function cancelUnblock(address account) external onlyAllowedCaller onlyOwner {
@@ -168,6 +174,37 @@ contract Blocklist is
 
     function pendingGuardian() external view returns (address pendingGuardian_, uint256 proposedAt) {
         return (_pendingGuardian, _pendingGuardianProposedAt);
+    }
+
+    function supportsVoteEligibilityObserver() external pure returns (bool) {
+        return true;
+    }
+
+    function registerVoteEligibilityObserver() external onlyAllowedCaller {
+        address allowlist_ = allowlist();
+        bool systemAccount_;
+        try IAllowlist(allowlist_).isSystemAccount(msg.sender) returns (bool value) {
+            systemAccount_ = value;
+        } catch {
+            revert InvalidVoteEligibilityObserver(msg.sender);
+        }
+        if (msg.sender.code.length == 0 || !systemAccount_) revert InvalidVoteEligibilityObserver(msg.sender);
+
+        address previous = _voteEligibilityObserver;
+        if (previous != address(0) && previous != msg.sender) {
+            revert VoteEligibilityObserverAlreadyRegistered(previous);
+        }
+        _voteEligibilityObserver = msg.sender;
+        emit VoteEligibilityObserverSet(previous, msg.sender);
+    }
+
+    function unregisterVoteEligibilityObserver() external {
+        if (_voteEligibilityObserver == address(0)) return;
+        if (msg.sender != _voteEligibilityObserver) revert NotVoteEligibilityObserver();
+
+        address previous = _voteEligibilityObserver;
+        _voteEligibilityObserver = address(0);
+        emit VoteEligibilityObserverSet(previous, address(0));
     }
 
     function isBlocked(address account) public view returns (bool) {
@@ -232,6 +269,11 @@ contract Blocklist is
         if (legacyExpiry != 0 && _blockedUntilCheckpoints[account].length() == 0) {
             _preCheckpointBlockedUntil[account] = legacyExpiry;
         }
+    }
+
+    function _notifyVoteEligibilityObserver(address account) private {
+        address observer = _voteEligibilityObserver;
+        if (observer != address(0)) IVoteEligibilityObserver(observer).syncVoteEligibility(account);
     }
 
     function _requireProposalReady(uint256 proposedAt) private view {

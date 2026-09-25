@@ -70,6 +70,7 @@ contract RISKUSD is
     /// @dev OF-16-015: EnumerableSet for on-chain enumeration of exempt addresses.
     /// Uses 2 storage slots (length + mapping) from the gap.
     using EnumerableSet for EnumerableSet.AddressSet;
+
     EnumerableSet.AddressSet private _exemptAddressSet;
     address internal _blocklist;
 

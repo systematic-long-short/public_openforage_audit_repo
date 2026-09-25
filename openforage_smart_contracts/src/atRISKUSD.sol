@@ -12,6 +12,7 @@ import "./IForageGovernorPause.sol";
 import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IBlocklist.sol";
+import "./interfaces/IAllowlist.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -64,6 +65,18 @@ contract atRISKUSD is
     error EmergencyOverrideValidationFailed(address yieldSource);
     error ZeroRedemptionOutput();
     error ExpiredAutoRenewDisabledLockup();
+    error InsufficientAllowlistDuration(uint256 requiredUntil, uint256 allowedUntil);
+    error AllowlistHorizonOverflow();
+    error BeneficiaryNotAllowed(address account);
+    error UnsupportedPendingWithdrawalLayout(uint8 sourceLayout);
+    error AmbiguousPendingWithdrawalLayout(address requester);
+    error PendingWithdrawalMigrationRequired(address requester);
+    error PendingWithdrawalMigrationAlreadyConfirmed(address requester);
+    error PendingWithdrawalShareRecoveryUnavailable(address requester, uint256 shares, uint256 escrowed);
+    error PendingWithdrawalShareRecoveryNotNeeded(address requester);
+    error EmergencyRecoveryWindowClosed();
+    error YieldSourceReachable();
+    error NotTotalLossState();
 
     // ============================================================
     // Events
@@ -90,6 +103,11 @@ contract atRISKUSD is
     event ExchangeRateInvariantFailure(uint256 beforeAssets, uint256 afterAssets);
     event WeeklyWithdrawalCapBpsUpdated(uint256 oldBps, uint256 newBps);
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
+    event PendingWithdrawalLayoutMigrated(address indexed requester, uint256 cooldownPeriod);
+    event PendingWithdrawalSharesRecovered(address indexed requester, uint256 shares);
+    event EmergencyOverrideWindowOpened(uint64 expiresAt);
+    event UnreachableWithdrawalRecovered(address indexed beneficiary, uint256 shares);
+    event WorthlessSharesBurned(address indexed holder, uint256 shares);
 
     // ============================================================
     // Structs
@@ -102,6 +120,35 @@ contract atRISKUSD is
         uint256 cooldownPeriod; // OF-M03: snapshot at request time
         uint256 weeklyCapWindowStart;
         uint256 weeklyCapReservedAssets;
+    }
+
+    enum PendingWithdrawalLayout {
+        ActiveFirst,
+        CooldownFirst,
+        ShareOnlyRecovery
+    }
+
+    enum PendingWithdrawalMigrationState {
+        Unconfirmed,
+        Confirmed,
+        SharesRecovering
+    }
+
+    enum PendingWithdrawalLayoutKind {
+        Empty,
+        Current,
+        CooldownFirst,
+        Ambiguous
+    }
+
+    struct PendingWithdrawalWords {
+        uint256 shares;
+        uint256 assetSnapshot;
+        uint256 requestTimestamp;
+        uint256 word3;
+        uint256 word4;
+        uint256 word5;
+        uint256 word6;
     }
 
     // ============================================================
@@ -129,8 +176,9 @@ contract atRISKUSD is
     address internal _pendingForageGovernor;
     uint256 internal _pendingForageGovernorProposedAt;
     /// @dev OF-16-019: Emergency override when yield source is permanently unreachable.
-    /// When true, _requireNoLossPending() is bypassed, allowing deposits/withdrawals.
+    /// The flag only opens a bounded share-return recovery path; it never bypasses loss checks.
     bool private _emergencyLossPendingOverride;
+    uint64 private _emergencyLossPendingOverrideUntil;
     uint256 private _weeklyWithdrawalCapBps;
     uint256 private _weeklyWithdrawalUsed;
     uint256 private _weeklyWithdrawalWindowStart;
@@ -142,12 +190,14 @@ contract atRISKUSD is
     uint256[] private _autoRenewDisabledExpiryHeap;
     uint256 private _autoRenewDisabledTrackedCount;
     uint256 private _earliestAutoRenewDisabledExpiry;
-    uint256[31] private __gap;
+    mapping(address => PendingWithdrawalMigrationState) private _pendingWithdrawalMigrationState;
+    uint256[30] private __gap;
 
     // Constants
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-002 (11th audit)
     uint256 public constant WEEKLY_WITHDRAWAL_WINDOW = 7 days;
     uint256 public constant DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS = 500;
+    uint64 internal constant EMERGENCY_RECOVERY_WINDOW = 7 days;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
 
@@ -195,13 +245,21 @@ contract atRISKUSD is
     // ============================================================
     // Core ERC-4626 Entry (StakingQueue-only)
     // ============================================================
-    function deposit(uint256 assets, address receiver) public override onlyAllowedCaller whenNotPaused nonReentrant returns (uint256) {
+    function deposit(uint256 assets, address receiver)
+        public
+        override
+        onlyAllowedCaller
+        whenNotPaused
+        nonReentrant
+        returns (uint256)
+    {
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (assets == 0) revert ZeroAmount();
         _requireNoLossPending(); // OF-13-056: Block fresh inflows during loss
         _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
+        _requireAllowedBeneficiary(receiver);
         uint256 backingPerShareBefore = _backingPerShareRay();
         _extendLockup(receiver);
 
@@ -210,13 +268,21 @@ contract atRISKUSD is
         return shares;
     }
 
-    function mint(uint256 shares, address receiver) public override onlyAllowedCaller whenNotPaused nonReentrant returns (uint256) {
+    function mint(uint256 shares, address receiver)
+        public
+        override
+        onlyAllowedCaller
+        whenNotPaused
+        nonReentrant
+        returns (uint256)
+    {
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
         _requireNoLossPending(); // OF-14-002: Block mint during lossPending (same as deposit)
         _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
+        _requireAllowedBeneficiary(receiver);
         uint256 backingPerShareBefore = _backingPerShareRay();
         _extendLockup(receiver);
 
@@ -260,9 +326,12 @@ contract atRISKUSD is
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
         _requireNotBlocked(_owner);
+        _requireAllowedBeneficiary(receiver);
+        _requireAllowedBeneficiary(_owner);
         uint256 backingPerShareBefore = _backingPerShareRay();
-        _enforceWeeklyWithdrawalCap(assets);
+        _ensureWeeklyWithdrawalCapacity(assets);
         uint256 shares = super.withdraw(assets, receiver, _owner);
+        _weeklyWithdrawalUsed += assets;
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
         return shares;
     }
@@ -282,11 +351,14 @@ contract atRISKUSD is
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
         _requireNotBlocked(_owner);
+        _requireAllowedBeneficiary(receiver);
+        _requireAllowedBeneficiary(_owner);
         uint256 backingPerShareBefore = _backingPerShareRay();
         uint256 assets = previewRedeem(shares);
         if (assets == 0) revert ZeroRedemptionOutput();
-        _enforceWeeklyWithdrawalCap(assets);
+        _ensureWeeklyWithdrawalCapacity(assets);
         assets = super.redeem(shares, receiver, _owner);
+        _weeklyWithdrawalUsed += assets;
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
         return assets;
     }
@@ -295,29 +367,38 @@ contract atRISKUSD is
     // ERC-4626 max* overrides (cooldown gated)
     // ============================================================
     function maxDeposit(address receiver) public view override returns (uint256) {
-        if (paused()) return 0;
+        if (
+            paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
+                || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
+                || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_pendingWithdrawalLayoutReadyForView(receiver)
+        ) return 0;
         return super.maxDeposit(receiver);
     }
 
     function maxMint(address receiver) public view override returns (uint256) {
-        if (paused()) return 0;
+        if (
+            paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
+                || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
+                || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_pendingWithdrawalLayoutReadyForView(receiver)
+        ) return 0;
         return super.maxMint(receiver);
     }
 
-    /// @dev OF-L01: ERC-4626 spec requires maxWithdraw returns 0 when withdrawal is not possible.
-    /// Both cooldown-enabled and lockup-not-expired conditions block withdrawal.
     function maxWithdraw(address owner_) public view override returns (uint256) {
-        if (_cooldownPeriod > 0) return 0;
-        if (block.timestamp < _lockExpiry[owner_]) return 0;
-        return super.maxWithdraw(owner_);
+        if (!_canWithdrawInView(owner_)) return 0;
+        uint256 shares = _sharesWithdrawableInView(owner_);
+        uint256 assets = convertToAssets(shares);
+        uint256 capRemaining = weeklyWithdrawalRemaining();
+        return assets < capRemaining ? assets : capRemaining;
     }
 
-    /// @dev OF-L01: ERC-4626 spec requires maxRedeem returns 0 when redemption is not possible.
-    /// Both cooldown-enabled and lockup-not-expired conditions block redemption.
     function maxRedeem(address owner_) public view override returns (uint256) {
-        if (_cooldownPeriod > 0) return 0;
-        if (block.timestamp < _lockExpiry[owner_]) return 0;
-        return super.maxRedeem(owner_);
+        if (!_canWithdrawInView(owner_)) return 0;
+        uint256 shares = _sharesWithdrawableInView(owner_);
+        uint256 capRemaining = weeklyWithdrawalRemaining();
+        if (convertToAssets(shares) > capRemaining) shares = convertToShares(capRemaining);
+        if (shares == 0 || previewRedeem(shares) == 0) return 0;
+        return shares;
     }
 
     // ============================================================
@@ -367,7 +448,10 @@ contract atRISKUSD is
         _decreaseLegitimateAssets(riskusdAmount);
         // Mirror OF-I06 on the tier weekly withdrawal basis: a loss absorbed inside the current
         // weekly window must not leave the weekly cap computed from stale (pre-loss) assets.
-        if (block.timestamp < _weeklyWithdrawalWindowStart + WEEKLY_WITHDRAWAL_WINDOW && _weeklyWithdrawalWindowStartAssets > 0) {
+        if (
+            block.timestamp < _weeklyWithdrawalWindowStart + WEEKLY_WITHDRAWAL_WINDOW
+                && _weeklyWithdrawalWindowStartAssets > 0
+        ) {
             _weeklyWithdrawalWindowStartAssets = _weeklyWithdrawalWindowStartAssets >= riskusdAmount
                 ? _weeklyWithdrawalWindowStartAssets - riskusdAmount
                 : 0;
@@ -381,6 +465,7 @@ contract atRISKUSD is
     // Cooldown Withdrawals
     // ============================================================
     function requestWithdrawal(uint256 atriskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
+        _requirePendingWithdrawalLayoutReady(msg.sender);
         if (atriskusdAmount == 0) revert ZeroAmount();
 
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[msg.sender]) {
@@ -389,21 +474,25 @@ contract atRISKUSD is
 
         if (_pendingWithdrawals[msg.sender].active) revert PendingWithdrawalExists();
         _requireNotBlocked(msg.sender);
+        _requireWithdrawalApprovalDuration();
+        _requireNoLossPending();
 
         uint256 backingPerShareBefore = _backingPerShareRay();
         uint256 riskusdAmount = convertToAssets(atriskusdAmount);
         if (riskusdAmount == 0) revert ZeroRedemptionOutput();
+        _enforceWeeklyWithdrawalCap(riskusdAmount);
+        uint256 capWindowStart = _weeklyWithdrawalWindowStart;
 
-        // Store pending withdrawal — OF-M03: snapshot cooldown at request time
         _pendingWithdrawals[msg.sender] = PendingWithdrawal({
             atriskusdAmount: atriskusdAmount,
             riskusdAmount: riskusdAmount,
             requestTimestamp: block.timestamp,
             active: true,
             cooldownPeriod: _cooldownPeriod,
-            weeklyCapWindowStart: 0,
-            weeklyCapReservedAssets: 0
+            weeklyCapWindowStart: capWindowStart,
+            weeklyCapReservedAssets: riskusdAmount
         });
+        _pendingWithdrawalMigrationState[msg.sender] = PendingWithdrawalMigrationState.Confirmed;
 
         // Transfer shares from user to contract (locks them)
         _transfer(msg.sender, address(this), atriskusdAmount);
@@ -414,7 +503,7 @@ contract atRISKUSD is
 
     /// @param minAmountOut OF-M11: minimum RISKUSD payout, reverts if below. Pass 0 to accept any amount.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal(uint256 minAmountOut) external onlyAllowedCaller nonReentrant {
+    function executeWithdrawal(uint256 minAmountOut) external nonReentrant {
         _executeWithdrawal(minAmountOut);
     }
 
@@ -422,12 +511,14 @@ contract atRISKUSD is
     /// @custom:deprecated OF-L09: Use executeWithdrawal(uint256 minAmountOut) instead for slippage protection.
     /// This overload passes minAmountOut=0, accepting any payout amount — vulnerable to sandwich attacks.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal() external onlyAllowedCaller nonReentrant {
+    function executeWithdrawal() external nonReentrant {
+        _requirePendingWithdrawalLayoutReady(msg.sender);
         emit DeprecatedWithdrawalUsed(msg.sender, _pendingWithdrawals[msg.sender].riskusdAmount);
         _executeWithdrawal(0);
     }
 
     function _executeWithdrawal(uint256 minAmountOut) private {
+        _requirePendingWithdrawalLayoutReady(msg.sender);
         PendingWithdrawal storage pw = _pendingWithdrawals[msg.sender];
         if (!pw.active) revert NoPendingWithdrawal();
 
@@ -444,16 +535,16 @@ contract atRISKUSD is
         uint256 riskusdToTransfer = currentValue < pw.riskusdAmount ? currentValue : pw.riskusdAmount;
         uint256 capWindowStart = pw.weeklyCapWindowStart;
         uint256 capReservedAssets = pw.weeklyCapReservedAssets;
-        bool hasLegacyReservation = capWindowStart != 0 && capReservedAssets != 0;
+        bool hasReservation = capWindowStart != 0 && capReservedAssets != 0;
         bool staleReservedWindow = false;
         if (riskusdToTransfer == 0) revert ZeroRedemptionOutput();
-        if (hasLegacyReservation) {
+        if (hasReservation) {
             staleReservedWindow = _refreshPendingWithdrawalWindow(capWindowStart);
-            if (staleReservedWindow) {
-                _enforceWeeklyWithdrawalCap(riskusdToTransfer);
-            }
-        } else {
+        }
+        if (!hasReservation || staleReservedWindow) {
             _enforceWeeklyWithdrawalCap(riskusdToTransfer);
+        } else if (capReservedAssets < riskusdToTransfer) {
+            _enforceWeeklyWithdrawalCap(riskusdToTransfer - capReservedAssets);
         }
 
         // OF-M11: slippage protection
@@ -461,7 +552,8 @@ contract atRISKUSD is
 
         uint256 backingPerShareBefore = _backingPerShareRay();
         delete _pendingWithdrawals[msg.sender];
-        if (hasLegacyReservation && !staleReservedWindow && capReservedAssets > riskusdToTransfer) {
+        delete _pendingWithdrawalMigrationState[msg.sender];
+        if (hasReservation && !staleReservedWindow && capReservedAssets > riskusdToTransfer) {
             _refundWeeklyWithdrawalCap(capWindowStart, capReservedAssets - riskusdToTransfer);
         }
 
@@ -483,23 +575,48 @@ contract atRISKUSD is
 
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
     /// @dev OF-NEW-11 (12th audit): Gated by lossPending to prevent cancel→re-deposit optionality during loss window.
-    function cancelWithdrawal() external onlyAllowedCaller nonReentrant {
-        PendingWithdrawal storage pw = _pendingWithdrawals[msg.sender];
-        if (!pw.active) revert NoPendingWithdrawal();
-        // OF-NEW-11 (12th audit): Block cancellation while loss is pending
-        _requireNoLossPending();
-        _requireNotBlocked(msg.sender);
+    function cancelWithdrawal() external nonReentrant {
+        _cancelPendingWithdrawal(msg.sender, true);
+    }
 
-        uint256 sharesToReturn = pw.atriskusdAmount;
+    function recoverPendingWithdrawal() external nonReentrant {
+        _requirePendingWithdrawalLayoutReady(msg.sender);
+        if (!_emergencyRecoveryWindowOpen()) revert EmergencyRecoveryWindowClosed();
+        if (!_yieldSourceIsUnreachable()) revert YieldSourceReachable();
+        uint256 shares = _cancelPendingWithdrawal(msg.sender, false);
+        emit UnreachableWithdrawalRecovered(msg.sender, shares);
+    }
+
+    function _cancelPendingWithdrawal(address beneficiary, bool requireNoLoss) private returns (uint256 shares) {
+        _requirePendingWithdrawalLayoutReady(beneficiary);
+        PendingWithdrawal storage pw = _pendingWithdrawals[beneficiary];
+        if (!pw.active) revert NoPendingWithdrawal();
+        if (requireNoLoss) _requireNoLossPending();
+        _requireNotBlocked(beneficiary);
+
+        shares = pw.atriskusdAmount;
         uint256 capWindowStart = pw.weeklyCapWindowStart;
         uint256 capReservedAssets = pw.weeklyCapReservedAssets;
 
-        delete _pendingWithdrawals[msg.sender];
+        delete _pendingWithdrawals[beneficiary];
+        delete _pendingWithdrawalMigrationState[beneficiary];
         _refundWeeklyWithdrawalCap(capWindowStart, capReservedAssets);
 
-        _transfer(address(this), msg.sender, sharesToReturn);
+        _transfer(address(this), beneficiary, shares);
 
-        emit WithdrawalCancelled(msg.sender, sharesToReturn);
+        emit WithdrawalCancelled(beneficiary, shares);
+    }
+
+    function burnWorthlessShares(uint256 shares) external whenNotPaused nonReentrant {
+        if (shares == 0) revert ZeroAmount();
+        if (totalSupply() == 0 || totalAssets() != 0) revert NotTotalLossState();
+        _requirePendingWithdrawalLayoutReady(msg.sender);
+        if (_pendingWithdrawals[msg.sender].active) revert PendingWithdrawalExists();
+        _requireNoLossPending();
+        _requireNotBlocked(msg.sender);
+
+        _burn(msg.sender, shares);
+        emit WorthlessSharesBurned(msg.sender, shares);
     }
 
     // ============================================================
@@ -515,6 +632,7 @@ contract atRISKUSD is
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
         // OF-008: Block upgrade if depositor has a pending withdrawal
+        _requirePendingWithdrawalLayoutReady(depositor);
         if (_pendingWithdrawals[depositor].active) revert PendingWithdrawalExists();
         // OF-NEW-10 (12th audit): Block upgrade if lockup not expired
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[depositor]) {
@@ -523,6 +641,7 @@ contract atRISKUSD is
         _requireNoLossPending(); // OF-13-004: Block tier transitions during loss
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(depositor);
+        _requireAllowedBeneficiary(depositor);
 
         uint256 backingPerShareBefore = _backingPerShareRay();
         assets = previewRedeem(shares);
@@ -548,6 +667,7 @@ contract atRISKUSD is
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
         // OF-008: Block reversion if depositor has a pending withdrawal (sibling of redeemForUpgrade's guard)
+        _requirePendingWithdrawalLayoutReady(depositor);
         if (_pendingWithdrawals[depositor].active) revert PendingWithdrawalExists();
 
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[depositor]) {
@@ -558,6 +678,7 @@ contract atRISKUSD is
         _requireNoLossPending(); // OF-13-004: Block tier transitions during loss
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(depositor);
+        _requireAllowedBeneficiary(depositor);
 
         uint256 backingPerShareBefore = _backingPerShareRay();
         assets = previewRedeem(shares);
@@ -620,6 +741,7 @@ contract atRISKUSD is
         _pendingYieldSource = address(0);
         _yieldSourceProposedAt = 0;
         _emergencyLossPendingOverride = false; // OF-21-018: clear override on yield source change
+        _emergencyLossPendingOverrideUntil = 0;
         emit YieldSourceUpdated(old, _yieldSource);
     }
 
@@ -662,6 +784,7 @@ contract atRISKUSD is
         _pendingYieldSource = address(0);
         _yieldSourceProposedAt = 0;
         _emergencyLossPendingOverride = false; // OF-21-018: clear override on yield source change
+        _emergencyLossPendingOverrideUntil = 0;
         emit YieldSourceUpdated(old, _yieldSource);
     }
 
@@ -846,6 +969,7 @@ contract atRISKUSD is
     }
 
     function hasPendingWithdrawal(address depositor) external view returns (bool) {
+        _requirePendingWithdrawalLayoutReady(depositor);
         return _pendingWithdrawals[depositor].active;
     }
 
@@ -854,6 +978,7 @@ contract atRISKUSD is
     }
 
     function pendingWithdrawal(address requester) external view returns (PendingWithdrawal memory) {
+        _requirePendingWithdrawalLayoutReady(requester);
         return _pendingWithdrawals[requester];
     }
 
@@ -862,16 +987,19 @@ contract atRISKUSD is
         view
         returns (uint256 riskusdAmount, uint256 atriskusdAmount)
     {
+        _requirePendingWithdrawalLayoutReady(account);
         PendingWithdrawal storage pw = _pendingWithdrawals[account];
         return (pw.riskusdAmount, pw.atriskusdAmount);
     }
 
     function pendingWithdrawalCooldownEnd(address account) external view returns (uint256) {
+        _requirePendingWithdrawalLayoutReady(account);
         PendingWithdrawal storage pw = _pendingWithdrawals[account];
         return pw.requestTimestamp + pw.cooldownPeriod;
     }
 
     function pendingWithdrawalActive(address account) external view returns (bool) {
+        _requirePendingWithdrawalLayoutReady(account);
         return _pendingWithdrawals[account].active;
     }
 
@@ -880,8 +1008,58 @@ contract atRISKUSD is
         view
         returns (uint256 windowStart, uint256 reservedAssets)
     {
+        _requirePendingWithdrawalLayoutReady(account);
         PendingWithdrawal storage pw = _pendingWithdrawals[account];
         return (pw.weeklyCapWindowStart, pw.weeklyCapReservedAssets);
+    }
+
+    function migratePendingWithdrawalLayout(address requester, PendingWithdrawalLayout sourceLayout)
+        external
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
+        if (requester == address(0)) revert ZeroAddress();
+        PendingWithdrawalMigrationState migrationState = _pendingWithdrawalMigrationState[requester];
+        if (migrationState == PendingWithdrawalMigrationState.SharesRecovering) {
+            revert PendingWithdrawalMigrationAlreadyConfirmed(requester);
+        }
+        if (migrationState == PendingWithdrawalMigrationState.Confirmed) {
+            revert PendingWithdrawalMigrationAlreadyConfirmed(requester);
+        }
+
+        PendingWithdrawalWords memory words = _loadPendingWithdrawalWords(requester);
+        PendingWithdrawalLayoutKind kind = _pendingWithdrawalLayoutKind(words);
+        if (sourceLayout == PendingWithdrawalLayout.ShareOnlyRecovery) {
+            _recoverUnclassifiedPendingWithdrawalShares(requester, words, kind);
+            return;
+        }
+
+        if (words.shares == 0) revert AmbiguousPendingWithdrawalLayout(requester);
+        uint256 cooldown;
+        if (sourceLayout == PendingWithdrawalLayout.CooldownFirst) {
+            if (words.word3 == 1 || words.word4 != 1 || words.word5 != 0 || words.word6 != 0) {
+                revert AmbiguousPendingWithdrawalLayout(requester);
+            }
+            cooldown = words.word3;
+            bytes32 base = _pendingWithdrawalStorageBase(requester);
+            assembly {
+                sstore(add(base, 3), 1)
+                sstore(add(base, 4), cooldown)
+                sstore(add(base, 5), 0)
+                sstore(add(base, 6), 0)
+            }
+        } else if (sourceLayout == PendingWithdrawalLayout.ActiveFirst) {
+            if (words.word3 != 1 || (words.word5 == 0) != (words.word6 == 0)) {
+                revert AmbiguousPendingWithdrawalLayout(requester);
+            }
+            cooldown = words.word4;
+        } else {
+            revert UnsupportedPendingWithdrawalLayout(uint8(sourceLayout));
+        }
+
+        _pendingWithdrawalMigrationState[requester] = PendingWithdrawalMigrationState.Confirmed;
+        emit PendingWithdrawalLayoutMigrated(requester, cooldown);
     }
 
     function totalYieldAccrued() external view returns (uint256) {
@@ -890,6 +1068,113 @@ contract atRISKUSD is
 
     function totalLossAbsorbed() external view returns (uint256) {
         return _totalLossAbsorbed;
+    }
+
+    function _requirePendingWithdrawalLayoutReady(address requester) private view {
+        PendingWithdrawalMigrationState migrationState = _pendingWithdrawalMigrationState[requester];
+        if (migrationState == PendingWithdrawalMigrationState.SharesRecovering) {
+            revert PendingWithdrawalMigrationAlreadyConfirmed(requester);
+        }
+        if (migrationState == PendingWithdrawalMigrationState.Confirmed) return;
+
+        PendingWithdrawalLayoutKind kind = _pendingWithdrawalLayoutKind(_loadPendingWithdrawalWords(requester));
+        if (kind == PendingWithdrawalLayoutKind.CooldownFirst) {
+            revert PendingWithdrawalMigrationRequired(requester);
+        }
+        if (kind == PendingWithdrawalLayoutKind.Ambiguous) {
+            revert AmbiguousPendingWithdrawalLayout(requester);
+        }
+    }
+
+    function _pendingWithdrawalLayoutReadyForView(address requester) private view returns (bool) {
+        PendingWithdrawalMigrationState migrationState = _pendingWithdrawalMigrationState[requester];
+        if (migrationState == PendingWithdrawalMigrationState.Confirmed) return true;
+        if (migrationState == PendingWithdrawalMigrationState.SharesRecovering) return false;
+        PendingWithdrawalLayoutKind kind = _pendingWithdrawalLayoutKind(_loadPendingWithdrawalWords(requester));
+        return kind == PendingWithdrawalLayoutKind.Empty || kind == PendingWithdrawalLayoutKind.Current;
+    }
+
+    function _loadPendingWithdrawalWords(address requester)
+        private
+        view
+        returns (PendingWithdrawalWords memory words)
+    {
+        bytes32 base = _pendingWithdrawalStorageBase(requester);
+        assembly {
+            mstore(words, sload(base))
+            mstore(add(words, 32), sload(add(base, 1)))
+            mstore(add(words, 64), sload(add(base, 2)))
+            mstore(add(words, 96), sload(add(base, 3)))
+            mstore(add(words, 128), sload(add(base, 4)))
+            mstore(add(words, 160), sload(add(base, 5)))
+            mstore(add(words, 192), sload(add(base, 6)))
+        }
+    }
+
+    function _pendingWithdrawalLayoutKind(PendingWithdrawalWords memory words)
+        private
+        pure
+        returns (PendingWithdrawalLayoutKind)
+    {
+        if (
+            words.shares == 0 && words.assetSnapshot == 0 && words.requestTimestamp == 0 && words.word3 == 0
+                && words.word4 == 0 && words.word5 == 0 && words.word6 == 0
+        ) return PendingWithdrawalLayoutKind.Empty;
+
+        bool reservationsPaired = (words.word5 == 0) == (words.word6 == 0);
+        if (words.word3 == 1 && reservationsPaired) {
+            if (words.word4 == 1 && words.word5 == 0) return PendingWithdrawalLayoutKind.Ambiguous;
+            return PendingWithdrawalLayoutKind.Current;
+        }
+        if (words.word4 == 1 && words.word3 != 1 && words.shares != 0 && words.word5 == 0 && words.word6 == 0) {
+            return PendingWithdrawalLayoutKind.CooldownFirst;
+        }
+        return PendingWithdrawalLayoutKind.Ambiguous;
+    }
+
+    function _recoverUnclassifiedPendingWithdrawalShares(
+        address requester,
+        PendingWithdrawalWords memory words,
+        PendingWithdrawalLayoutKind kind
+    ) private {
+        if (kind == PendingWithdrawalLayoutKind.Empty) revert NoPendingWithdrawal();
+        if (kind == PendingWithdrawalLayoutKind.Current) {
+            revert PendingWithdrawalShareRecoveryNotNeeded(requester);
+        }
+        if (words.shares == 0) revert AmbiguousPendingWithdrawalLayout(requester);
+
+        if (_emergencyRecoveryWindowOpen()) {
+            if (!_yieldSourceIsUnreachable()) revert YieldSourceReachable();
+        } else {
+            _requireNoLossPending();
+        }
+        uint256 escrowed = balanceOf(address(this));
+        if (words.shares > escrowed) {
+            revert PendingWithdrawalShareRecoveryUnavailable(requester, words.shares, escrowed);
+        }
+
+        _pendingWithdrawalMigrationState[requester] = PendingWithdrawalMigrationState.SharesRecovering;
+        _transfer(address(this), requester, words.shares);
+        bytes32 base = _pendingWithdrawalStorageBase(requester);
+        assembly {
+            sstore(base, 0)
+            sstore(add(base, 1), 0)
+            sstore(add(base, 2), 0)
+            sstore(add(base, 3), 0)
+            sstore(add(base, 4), 0)
+            sstore(add(base, 5), 0)
+            sstore(add(base, 6), 0)
+        }
+        delete _pendingWithdrawalMigrationState[requester];
+        emit PendingWithdrawalSharesRecovered(requester, words.shares);
+    }
+
+    function _pendingWithdrawalStorageBase(address requester) private pure returns (bytes32 base) {
+        uint256 mappingSlot;
+        assembly {
+            mappingSlot := _pendingWithdrawals.slot
+        }
+        return keccak256(abi.encode(requester, mappingSlot));
     }
 
     // ============================================================
@@ -991,11 +1276,24 @@ contract atRISKUSD is
         return super.approve(spender, value);
     }
 
+    function transfer(address to, uint256 value)
+        public
+        override(ERC20Upgradeable, IERC20)
+        onlyAllowedCaller
+        returns (bool)
+    {
+        _requireAllowedBeneficiary(to);
+        return super.transfer(to, value);
+    }
+
     function transferFrom(address from, address to, uint256 value)
         public
         override(ERC20Upgradeable, IERC20)
+        onlyAllowedCaller
         returns (bool)
     {
+        _requireAllowedBeneficiary(from);
+        _requireAllowedBeneficiary(to);
         _requireNotBlocked(msg.sender);
         return super.transferFrom(from, to, value);
     }
@@ -1014,37 +1312,58 @@ contract atRISKUSD is
         return 6;
     }
 
-    /// @notice OF-16-019: Emergency override for permanently unreachable yield source.
-    /// Only callable by owner. When set, _requireNoLossPending() is bypassed.
-    /// OF-18-004: Cannot enable during active loss to prevent stale-price withdrawals.
-    /// @dev The activation-time validation does NOT re-engage: once set, the bypass persists
-    /// until yield-source finalization/acceptance or owner disable, and a loss that becomes
-    /// pending AFTER activation does not restore the gate (operations proceed at pre-loss
-    /// share prices during that window, throttled only by the weekly withdrawal cap). An
-    /// active override must therefore carry an off-chain operational alert and a reviewed
-    /// disable/rotation runbook.
+    /// @notice Opens a bounded, share-return-only recovery window for an unreachable yield source.
     function setEmergencyLossPendingOverride(bool override_) external onlyAllowedCaller onlyOwner {
         if (override_) {
-            // OF-18-004: Block override activation during active loss
-            (bool ok, bytes memory data) = _yieldSource.staticcall(abi.encodeWithSignature("riskusdVault()"));
-            if (!ok || data.length < 32) revert EmergencyOverrideValidationFailed(_yieldSource);
-            address vault = abi.decode(data, (address));
-            (bool ok2, bytes memory data2) = vault.staticcall(abi.encodeWithSignature("lossPending()"));
-            if (!ok2 || data2.length < 32) revert EmergencyOverrideValidationFailed(_yieldSource);
-            if (abi.decode(data2, (bool))) {
-                revert CannotOverrideDuringActiveLoss();
-            }
-            if (_custodianSettlementPending(vault)) revert CustodianSettlementPending();
+            if (!_emergencyRecoverySourceUnavailable()) revert EmergencyOverrideValidationFailed(_yieldSource);
+            uint256 expiresAt = block.timestamp + EMERGENCY_RECOVERY_WINDOW;
+            if (expiresAt > type(uint64).max) revert EmergencyOverrideValidationFailed(_yieldSource);
+            _emergencyLossPendingOverrideUntil = uint64(expiresAt);
+            emit EmergencyOverrideWindowOpened(uint64(expiresAt));
+        } else {
+            _emergencyLossPendingOverrideUntil = 0;
         }
         _emergencyLossPendingOverride = override_;
         emit EmergencyLossPendingOverrideSet(override_);
     }
 
+    function _emergencyRecoverySourceUnavailable() private view returns (bool) {
+        (bool ok, bytes memory data) = _yieldSource.staticcall(abi.encodeWithSignature("riskusdVault()"));
+        if (!ok || data.length < 32) return true;
+        address vault = abi.decode(data, (address));
+        (ok, data) = vault.staticcall(abi.encodeWithSignature("lossPending()"));
+        if (!ok || data.length < 32) return true;
+        uint256 lossPendingValue;
+        assembly {
+            lossPendingValue := mload(add(data, 32))
+        }
+        if (lossPendingValue > 1) return true;
+        if (lossPendingValue == 1) revert CannotOverrideDuringActiveLoss();
+        if (_custodianSettlementPending(vault)) revert CustodianSettlementPending();
+        return false;
+    }
+
+    function _emergencyRecoveryWindowOpen() private view returns (bool) {
+        uint64 expiresAt = _emergencyLossPendingOverrideUntil;
+        return _emergencyLossPendingOverride && expiresAt != 0 && block.timestamp < expiresAt;
+    }
+
+    function _yieldSourceIsUnreachable() private view returns (bool) {
+        (bool ok, bytes memory data) = _yieldSource.staticcall(abi.encodeWithSignature("riskusdVault()"));
+        if (!ok || data.length < 32) return true;
+        address vault = abi.decode(data, (address));
+        (ok, data) = vault.staticcall(abi.encodeWithSignature("lossPending()"));
+        if (!ok || data.length < 32) return true;
+        uint256 lossPendingValue;
+        assembly {
+            lossPendingValue := mload(add(data, 32))
+        }
+        return lossPendingValue > 1;
+    }
+
     /// @dev OF-NEW-05 (12th audit): Fail-closed lossPending check. Reverts if either
     /// staticcall fails (misconfigured yieldSource, no code) instead of silently proceeding.
-    /// OF-16-019: Bypassed when _emergencyLossPendingOverride is set by owner.
     function _requireNoLossPending() private view {
-        if (_emergencyLossPendingOverride) return;
         (bool ok1, bytes memory data1) = _yieldSource.staticcall(abi.encodeWithSignature("riskusdVault()"));
         require(ok1 && data1.length >= 32, "lossPending check: yieldSource unreachable");
         address vault = abi.decode(data1, (address));
@@ -1072,7 +1391,11 @@ contract atRISKUSD is
     }
 
     function _requireNoZeroAssetLegacySupply() private view {
-        if (totalSupply() != 0 && totalAssets() == 0) revert ZeroAssetLegacySupply();
+        if (_hasZeroAssetLegacySupply()) revert ZeroAssetLegacySupply();
+    }
+
+    function _hasZeroAssetLegacySupply() private view returns (bool) {
+        return totalSupply() != 0 && totalAssets() == 0;
     }
 
     function _extendLockup(address receiver) private {
@@ -1112,6 +1435,10 @@ contract atRISKUSD is
     }
 
     function _autoRenewDisabledEffectiveBalance(address account) private view returns (uint256) {
+        if (_pendingWithdrawalMigrationState[account] == PendingWithdrawalMigrationState.SharesRecovering) {
+            return balanceOf(account);
+        }
+        _requirePendingWithdrawalLayoutReady(account);
         PendingWithdrawal storage pending = _pendingWithdrawals[account];
         uint256 pendingShares = pending.active ? pending.atriskusdAmount : 0;
         return balanceOf(account) + pendingShares;
@@ -1234,6 +1561,11 @@ contract atRISKUSD is
     }
 
     function _enforceWeeklyWithdrawalCap(uint256 assets) private {
+        _ensureWeeklyWithdrawalCapacity(assets);
+        _weeklyWithdrawalUsed += assets;
+    }
+
+    function _ensureWeeklyWithdrawalCapacity(uint256 assets) private {
         _resetWeeklyWithdrawalWindowIfExpired();
         if (_weeklyWithdrawalWindowStartAssets == 0) {
             _weeklyWithdrawalWindowStartAssets = totalAssets();
@@ -1243,7 +1575,6 @@ contract atRISKUSD is
         uint256 cap = _weeklyWithdrawalWindowStartAssets * _effectiveWeeklyWithdrawalCapBps() / 10000;
         uint256 remaining = used >= cap ? 0 : cap - used;
         if (assets > remaining) revert WeeklyWithdrawalCapExceeded(assets, remaining);
-        _weeklyWithdrawalUsed = used + assets;
     }
 
     function _refundWeeklyWithdrawalCap(uint256 windowStart, uint256 assets) private {
@@ -1263,6 +1594,106 @@ contract atRISKUSD is
             _weeklyWithdrawalWindowStart = block.timestamp;
             _weeklyWithdrawalUsed = 0;
             _weeklyWithdrawalWindowStartAssets = 0;
+        }
+    }
+
+    function _requireWithdrawalApprovalDuration() private view {
+        IAllowlist registry = IAllowlist(allowlist());
+        if (registry.isSystemAccount(msg.sender)) return;
+        uint256 cooldown = _cooldownPeriod;
+        if (cooldown > type(uint256).max - WEEKLY_WITHDRAWAL_WINDOW) revert AllowlistHorizonOverflow();
+        uint256 horizon = cooldown + WEEKLY_WITHDRAWAL_WINDOW;
+        if (block.timestamp > type(uint256).max - horizon) revert AllowlistHorizonOverflow();
+        uint256 requiredUntil = block.timestamp + horizon;
+        uint256 allowedUntil = registry.allowedUntil(msg.sender);
+        if (allowedUntil < requiredUntil) revert InsufficientAllowlistDuration(requiredUntil, allowedUntil);
+    }
+
+    function _requireAllowedBeneficiary(address account) private view {
+        address registry = allowlist();
+        if (registry == address(0)) revert IAllowlist.AllowlistUnavailable();
+        try IAllowlist(registry).isAllowed(account) returns (bool allowed) {
+            if (!allowed) revert BeneficiaryNotAllowed(account);
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+    }
+
+    function _isAllowedAccount(address account) private view returns (bool) {
+        address registry = allowlist();
+        if (registry == address(0) || account == address(0)) return false;
+        (bool ok, bytes memory data) = registry.staticcall(abi.encodeCall(IAllowlist.isAllowed, (account)));
+        if (!ok || data.length < 32) return false;
+        uint256 allowed;
+        assembly {
+            allowed := mload(add(data, 32))
+        }
+        return allowed == 1;
+    }
+
+    function _isBlockedForView(address account) private view returns (bool) {
+        address blocklist_ = _blocklist;
+        if (blocklist_ == address(0)) return false;
+        (bool ok, bytes memory data) = blocklist_.staticcall(abi.encodeCall(IBlocklist.isBlocked, (account)));
+        if (!ok || data.length < 32) return true;
+        uint256 blocked;
+        assembly {
+            blocked := mload(add(data, 32))
+        }
+        return blocked != 0;
+    }
+
+    function _isLossClearForView() private view returns (bool) {
+        (bool ok, bytes memory data) = _yieldSource.staticcall(abi.encodeWithSignature("riskusdVault()"));
+        if (!ok || data.length < 32) return false;
+        uint256 rawVault;
+        assembly {
+            rawVault := mload(add(data, 32))
+        }
+        if (rawVault > type(uint160).max) return false;
+        address vault = address(uint160(rawVault));
+        if (vault.code.length == 0) return false;
+        (ok, data) = vault.staticcall(abi.encodeWithSignature("lossPending()"));
+        if (!ok || data.length < 32) return false;
+        uint256 pending;
+        assembly {
+            pending := mload(add(data, 32))
+        }
+        if (pending != 0) return false;
+        return _custodianSettlementClearForView(vault);
+    }
+
+    function _custodianSettlementClearForView(address vault) private view returns (bool) {
+        (bool ok, bytes memory data) = vault.staticcall(abi.encodeWithSignature("custodian()"));
+        if (!ok || data.length < 32) return true;
+        uint256 rawCustodian;
+        assembly {
+            rawCustodian := mload(add(data, 32))
+        }
+        if (rawCustodian > type(uint160).max) return false;
+        address custodian = address(uint160(rawCustodian));
+        if (custodian == address(0) || custodian.code.length == 0) return true;
+        (ok, data) = custodian.staticcall(abi.encodeWithSignature("tierShareActionsPaused()"));
+        if (!ok || data.length < 32) return false;
+        uint256 pausedState;
+        assembly {
+            pausedState := mload(add(data, 32))
+        }
+        return pausedState == 0;
+    }
+
+    function _canWithdrawInView(address owner_) private view returns (bool) {
+        return owner_ != address(0) && _pendingWithdrawalLayoutReadyForView(owner_) && !paused() && _cooldownPeriod == 0
+            && block.timestamp >= _lockExpiry[owner_] && _isAllowedAccount(msg.sender) && _isAllowedAccount(owner_)
+            && !_isBlockedForView(msg.sender) && !_isBlockedForView(owner_) && _isLossClearForView()
+            && !_hasZeroAssetLegacySupply();
+    }
+
+    function _sharesWithdrawableInView(address owner_) private view returns (uint256 shares) {
+        shares = balanceOf(owner_);
+        if (msg.sender != owner_) {
+            uint256 approved = allowance(owner_, msg.sender);
+            if (approved < shares) shares = approved;
         }
     }
 
