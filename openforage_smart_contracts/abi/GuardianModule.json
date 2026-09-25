@@ -291,6 +291,19 @@
   },
   {
     "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "approveAcceleratedRotation",
     "inputs": [
       {
@@ -745,6 +758,19 @@
   },
   {
     "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setGuardianPermissions",
     "inputs": [
       {
@@ -858,6 +884,25 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1157,8 +1202,24 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ArrayLengthMismatch",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1275,6 +1336,11 @@
   {
     "type": "error",
     "name": "SelfTargetingGuardianMutation",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StaleTimelockAuthority",
     "inputs": []
   },
   {

@@ -1,86 +1,34 @@
 # Audit Scope
 
-## Source Scope
+## Source scope
 
-This snapshot is limited to the public-safe portion of one component tree:
+The review target is the public-safe production Solidity snapshot under `openforage_smart_contracts/`. Its runtime-source identity is private commit `8d4a 2d4c 44ba 7d83 cdc5 1d93 4e11 8655 049c 78ca`.
 
-- `openforage_smart_contracts/`
+The source comparison accounted for all 26 production Solidity files and 18 ABI artifacts. In the measured 20-file production-source set, 19 source files differed from the observed public `main` and were copied from the runtime-source identity; `DelegatingVestingWallet.sol` was already identical. The other six production-source files were also already identical. Fifteen ABI files differed and were synchronized; the remaining three matched already. The new `script/interfaces/IAllowlistSettable.sol` contains the unchanged interface signature extracted from a test-only helper; the retained `Deploy.s.sol` import alone was redirected to this standalone interface.
 
-The production Solidity files in `contracts/src/` and ABI files in
-`contracts/abi/` are copied byte-for-byte from private OpenForage commit
-`e5c2c76d55e197044e30392c407b52af598a1681` (26 Solidity files and 18 ABI
-files). A deterministic per-file SHA-256 inventory comparison confirmed exact
-parity. Tests and helpers were selected individually for the current source
-changes and investor eligibility gate; the private `contracts/` tree was not
-copied wholesale. Generated artifacts, deployment manifests, local caches,
-private environment files, private audit provenance, and unrelated monorepo
-trees are omitted.
+The public snapshot preparation is a later selective change. It removes the 235-file first-party test tree, five test-only scripts, and two fuzz/formal campaign configuration files. The test tree's simplify baseline was relocated to `openforage_smart_contracts/simplify_baseline.json` byte-for-byte. No first-party Solidity tests, fuzz, invariant, formal, or deployment commands are part of this snapshot or its preparation proof. This source sync does not claim that the complete public tree equals the private runtime-source tree.
 
-The refresh includes the `Allowlist` registry and caller-gate mixin, plus the
-RISKUSD vault and staking-queue delegate modules. The mainnet dry-run script
-contains no hard-coded sequencer feed address; the feed is supplied by
-configuration, with a deterministic placeholder in the dry-run path.
+## Documentation scope
 
-## Documentation Scope
+Documentation is limited to review scope, reviewer commands, public-safe historical records, and the current public remediation status. Private project records, raw portal exports, private paths, private run captures, deployment manifests, and unrelated monorepo documentation are excluded.
 
-Documentation in this repository is intentionally narrow. It should help a
-reviewer identify what is present, how to install Solidity dependencies, and
-which local smart-contract checks to run.
+The code in this snapshot is the review target. Historical audit packages describe earlier code and must not be treated as current verification. The Octane Analysis 7 status document records current preparation evidence and the known static limitations; it does not claim that the findings are cleared.
 
-Included documentation is scoped to:
+## Submodules and imports
 
-- the June 9/10, 2026 mainnet-readiness audit package under
-  `documentation/smart_contract_audits/2026-06-09-audit/`;
-- the June 12, 2026 external-audit triage package under
-  `documentation/smart_contract_audits/2026-06-12-external-audit/`;
-- the June 17, 2026 external-audit closeout package under
-  `documentation/smart_contract_audits/2026-06-17-external-audit/`, limited to
-  public-safe assessments, fix records, acknowledgment worksheets, and overlap
-  analysis;
-- the target architecture and target user-journey projections used by that
-  audit's design-conformance pass;
-- the historical Cantina V12 remediation summary.
+The Solidity dependencies are git submodules at the observed public pins:
 
-It does not include unrelated implementation plans, operational runbooks,
-company records, benchmark notes, memory records, or private deployment
-procedures.
+- Chainlink CCIP: `bccd d15b 734e a6c0 e6d1 b3d3 6c48 2e64 ced2 d441`
+- OpenZeppelin upgradeable contracts: `7bf4 727a acdb faa0 f36c bd66 4654 d0c9 e1dc 52bf`
 
-When code and documentation disagree, treat the code in this snapshot as the
-review target and ask the repository owner for clarification.
+The repository contains only those public gitlinks under `openforage_smart_contracts/lib/`; dependency contents are not vendored into this repository. Initialize the pins before the production build.
 
-## Submodules
+## Out of scope
 
-The Solidity dependency directories are Git submodules pinned to the source
-repository's current dependency commits:
+- First-party contract tests, helpers, audit PoCs, fuzz and invariant harnesses, and formal harnesses
+- Echidna or Halmos campaigns, Forge test commands, Anvil, deployment, RPC, and chain actions
+- Private monorepo modules, project records, prompts, run logs, and raw external portal material
+- Environment files, credentials, deployed-address manifests, generated broadcast output, and local caches
+- Public publication, pull-request mutation, main-branch changes, and any Octane analysis trigger
 
-- Chainlink CCIP: `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441`
-- OpenZeppelin upgradeable contracts:
-  `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`
-
-Run `git submodule update --init --recursive` before building or testing the
-smart contracts.
-
-The source repository's vendored dependency trees were not exported. Their Git
-tree hashes did not match the root trees of the existing pinned commits, so the
-public submodule pins were left unchanged.
-
-## Out Of Scope
-
-- Private monorepo modules outside the exported smart-contract tree.
-- Non-public environment files and signing or API credentials.
-- Internal planning material and strategic documentation unrelated to this
-  smart-contract audit campaign.
-- Internal project/spec/tasklist/prompt artifacts.
-- Raw external portal exports containing local reproduction paths or internal
-  provenance discussion.
-- Private-only suppression/waiver refreshes and their generated audit
-  baselines. The pre-existing public suppression/waiver files are retained as
-  historical snapshot data and were not revalidated against the current source.
-- Deployment manifests, keeper configuration, public cloud resource names, and
-  generated broadcast output.
-- Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.
-- Private remediation scratchpads and unrelated historical audit trees.
-- Generated build output, dependency installs, local caches, local state, and
-  machine-specific files.
-- Actual mainnet deployment or transaction broadcast. The included
-  `DeployMainnet` path is a no-broadcast dry-run and source-readiness surface.
+The public build and static outputs are review evidence only. They do not authorize deployment, clear an audit finding, or replace an independent security review.

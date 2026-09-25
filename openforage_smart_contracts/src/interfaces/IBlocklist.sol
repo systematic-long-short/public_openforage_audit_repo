@@ -8,3 +8,13 @@ interface IBlocklist {
 
     function wasEffectivelyBlockedAt(address account, uint256 timepoint) external view returns (bool);
 }
+
+interface IBlocklistVoteEligibility {
+    function blockedUntil(address account) external view returns (uint256);
+
+    function supportsVoteEligibilityObserver() external pure returns (bool);
+
+    function registerVoteEligibilityObserver() external;
+
+    function unregisterVoteEligibilityObserver() external;
+}

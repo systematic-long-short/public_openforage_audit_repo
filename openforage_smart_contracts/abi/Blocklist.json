@@ -65,6 +65,19 @@
   },
   {
     "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "blockAddress",
     "inputs": [
       {
@@ -147,6 +160,29 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "importLegacyBlockedInterval",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "start",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "end",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -289,9 +325,42 @@
   },
   {
     "type": "function",
+    "name": "registerVoteEligibilityObserver",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "supportsVoteEligibilityObserver",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
     "stateMutability": "pure"
   },
   {
@@ -304,6 +373,13 @@
         "internalType": "address"
       }
     ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unregisterVoteEligibilityObserver",
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -324,6 +400,54 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "wasBlockedAt",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "timepoint",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "wasEffectivelyBlockedAt",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "timepoint",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -350,6 +474,25 @@
     "inputs": [
       {
         "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -423,6 +566,62 @@
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LegacyBlockedCheckpointImported",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "key",
+        "type": "uint48",
+        "indexed": true,
+        "internalType": "uint48"
+      },
+      {
+        "name": "previousValue",
+        "type": "uint208",
+        "indexed": false,
+        "internalType": "uint208"
+      },
+      {
+        "name": "newValue",
+        "type": "uint208",
+        "indexed": false,
+        "internalType": "uint208"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LegacyBlockedIntervalImported",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "start",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "end",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -511,6 +710,25 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "VoteEligibilityObserverSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
@@ -520,6 +738,27 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CheckpointUnorderedInsertion",
+    "inputs": []
   },
   {
     "type": "error",
@@ -559,6 +798,22 @@
   },
   {
     "type": "error",
+    "name": "InvalidLegacyInterval",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidVoteEligibilityObserver",
+    "inputs": [
+      {
+        "name": "observer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NoPendingGuardian",
     "inputs": []
   },
@@ -575,6 +830,11 @@
   {
     "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotVoteEligibilityObserver",
     "inputs": []
   },
   {
@@ -629,6 +889,17 @@
     "type": "error",
     "name": "UnauthorizedGuardian",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VoteEligibilityObserverAlreadyRegistered",
+    "inputs": [
+      {
+        "name": "observer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

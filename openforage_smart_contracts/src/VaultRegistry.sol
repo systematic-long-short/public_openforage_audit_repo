@@ -103,6 +103,7 @@ contract VaultRegistry is
         uint16[4] fundingBps;
         uint256 proposedAt;
     }
+
     mapping(uint256 => PendingYieldSplits) private _pendingYieldSplits;
 
     /// @dev OF-13-028: Pending capacity cap for propose/finalize flow
@@ -110,6 +111,7 @@ contract VaultRegistry is
         uint256 capacityCap;
         uint256 proposedAt;
     }
+
     mapping(uint256 => PendingCapacityCap) private _pendingCapacityCap;
 
     /// @dev OF-15-004: Pending RISKUSDVault address for two-step setter.

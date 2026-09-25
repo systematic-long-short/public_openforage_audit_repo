@@ -273,12 +273,60 @@
   },
   {
     "type": "function",
+    "name": "isAllowedAt",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "timepoint",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isSystemAccount",
     "inputs": [
       {
         "name": "account",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isSystemAccountAt",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "timepoint",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -308,6 +356,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxVestingSourcesPerBeneficiary",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -394,6 +455,13 @@
   },
   {
     "type": "function",
+    "name": "registerVoteEligibilityObserver",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "registrar",
     "inputs": [],
     "outputs": [
@@ -458,6 +526,19 @@
   },
   {
     "type": "function",
+    "name": "supportsVoteEligibilityObserver",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -466,6 +547,13 @@
         "internalType": "address"
       }
     ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unregisterVoteEligibilityObserver",
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -486,6 +574,44 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "vestingSourceBeneficiary",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "vestingSourceCount",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -812,6 +938,25 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "VoteEligibilityObserverSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
@@ -825,6 +970,11 @@
   {
     "type": "error",
     "name": "CapNotShrunk",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CheckpointUnorderedInsertion",
     "inputs": []
   },
   {
@@ -900,6 +1050,11 @@
   },
   {
     "type": "error",
+    "name": "NotVoteEligibilityObserver",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OwnableInvalidOwner",
     "inputs": [
       {
@@ -932,6 +1087,38 @@
   },
   {
     "type": "error",
+    "name": "TimestampOutOfRange",
+    "inputs": [
+      {
+        "name": "timestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyVestingSources",
+    "inputs": [
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -943,6 +1130,28 @@
         "name": "slot",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "VestingSourceRegistrationUnderflow",
+    "inputs": [
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "VotingTokenAlreadyRegistered",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },

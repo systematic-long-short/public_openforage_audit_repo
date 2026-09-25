@@ -40,8 +40,7 @@ abstract contract AllowlistGatedUpgradeable is Initializable {
 
     function _setAllowlist(address allowlist_) internal {
         if (allowlist_ == address(0) || allowlist_.code.length == 0) revert IAllowlist.AllowlistUnavailable();
-        (bool ok, bytes memory ret) =
-            allowlist_.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
+        (bool ok, bytes memory ret) = allowlist_.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
         if (!ok || ret.length != 32) revert IAllowlist.AllowlistUnavailable();
 
         AllowlistGatedStorage storage $ = _getAllowlistGatedStorage();

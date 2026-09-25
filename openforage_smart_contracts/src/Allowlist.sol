@@ -4,13 +4,17 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import "./FinalizeDelayProfile.sol";
+import "./interfaces/IAllowlist.sol";
 
 /// @title Allowlist
 /// @notice UUPS investor and operator registry: a registrar approves investors under a per-UTC-day
 ///         cap, the owner approves operators without expiry, and registrar, guardian and system
 ///         registrars rotate behind the profile finalize delay.
 contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, FinalizeDelayProfile {
+    using Checkpoints for Checkpoints.Trace208;
+
     error NotRegistrar();
     error NotGuardianOrRegistrar();
     error NotOwnerOrGuardian();
@@ -23,6 +27,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     error FinalizeDelayNotElapsed();
     error ProposalExpired();
     error NoPendingProposal();
+    error NotVoteEligibilityObserver();
+    error VotingTokenAlreadyRegistered(address token);
+    error TooManyVestingSources(address beneficiary, uint256 count, uint256 maximum);
+    error VestingSourceRegistrationUnderflow(address beneficiary);
+    error TimestampOutOfRange(uint256 timestamp);
 
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
 
@@ -40,9 +49,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     event SystemRegistrarProposed(address indexed account, bool isSystem, uint256 proposedAt);
     event SystemRegistrarUpdated(address indexed account, bool isSystem);
     event SystemRegistrarProposalCancelled(address indexed account);
+    event VoteEligibilityObserverSet(address indexed previous, address indexed next);
 
     uint256 private constant APPROVAL_TERM_LIMIT = 400 days;
     uint32 private constant DEFAULT_APPROVALS_PER_DAY_CAP = 50;
+    uint32 private constant MAX_VESTING_SOURCES_PER_BENEFICIARY = 32;
 
     address private _registrar;
     address private _pendingRegistrar;
@@ -61,8 +72,17 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     mapping(address => bytes32) private _caseRef;
     mapping(address => bool) private _systemAccounts;
     mapping(address => bool) private _systemRegistrars;
+    address private _voteEligibilityObserver;
+    uint48 private _eligibilityHistoryStart;
+    bool private _eligibilityHistoryInitialized;
+    mapping(address => Checkpoints.Trace208) private _eligibilityCheckpoints;
+    mapping(address => uint64) private _preCheckpointAllowedUntil;
+    mapping(address => bool) private _preCheckpointSystemAccount;
+    mapping(address => bool) private _eligibilityBaselineSet;
+    mapping(address => address) private _vestingSourceBeneficiary;
+    mapping(address => uint32) public vestingSourceCount;
 
-    uint256[36] private __gap;
+    uint256[29] private __gap;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -79,6 +99,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
         _guardian = guardian_;
         _approvalsPerDayCap = DEFAULT_APPROVALS_PER_DAY_CAP;
+        _ensureEligibilityHistory();
     }
 
     function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external {
@@ -86,30 +107,36 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         if (account == address(0)) revert ZeroAddress();
         if (until > uint64(block.timestamp + APPROVAL_TERM_LIMIT)) revert ExpiryTooFar();
         _countApproval();
+        _captureEligibilityBaseline(account);
 
         _allowedUntil[account] = until;
         _basis[account] = basis_;
         _caseRef[account] = caseRef_;
 
         emit Approved(account, until, basis_, caseRef_);
+        _recordEligibilityChange(account);
     }
 
     function approveOperator(address account) external onlyOwner {
+        _captureEligibilityBaseline(account);
         _allowedUntil[account] = type(uint64).max;
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
 
         emit OperatorApproved(account);
+        _recordEligibilityChange(account);
     }
 
     function revoke(address account) external {
         if (msg.sender != _registrar && msg.sender != _guardian) revert NotGuardianOrRegistrar();
 
+        _captureEligibilityBaseline(account);
         _allowedUntil[account] = 0;
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
 
         emit Revoked(account, msg.sender);
+        _recordEligibilityChange(account);
     }
 
     function shrinkApprovalsPerDayCap(uint32 newCap) external {
@@ -126,9 +153,12 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         if (msg.sender != owner() && !_systemRegistrars[msg.sender]) revert NotSystemRegistrar();
         if (account == address(0)) revert ZeroAddress();
 
+        _captureEligibilityBaseline(account);
+        _updateVestingSourceRegistration(account, isSystem);
         _systemAccounts[account] = isSystem;
 
         emit SystemAccountSet(account, isSystem);
+        _recordEligibilityChange(account);
     }
 
     function proposeRegistrar(address account) external onlyOwner {
@@ -250,11 +280,54 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     }
 
     function isAllowed(address account) external view returns (bool) {
-        return _systemAccounts[account] || _allowedUntil[account] >= uint64(block.timestamp);
+        return _isAllowed(account);
+    }
+
+    function isAllowedAt(address account, uint256 timepoint) external view returns (bool) {
+        if (timepoint > type(uint48).max) return false;
+        if (!_eligibilityHistoryInitialized || timepoint < _eligibilityHistoryStart) return true;
+
+        (uint64 allowedUntil_, bool systemAccount_) = _eligibilityStateAt(account, uint48(timepoint));
+        return _isAllowedStateAt(allowedUntil_, systemAccount_, timepoint);
+    }
+
+    function isSystemAccountAt(address account, uint256 timepoint) external view returns (bool) {
+        if (timepoint > type(uint48).max) return false;
+        if (!_eligibilityHistoryInitialized || timepoint < _eligibilityHistoryStart) return _systemAccounts[account];
+
+        (, bool systemAccount_) = _eligibilityStateAt(account, uint48(timepoint));
+        return systemAccount_;
+    }
+
+    function supportsVoteEligibilityObserver() external pure returns (bool) {
+        return true;
+    }
+
+    function registerVoteEligibilityObserver() external {
+        if (msg.sender.code.length == 0 || !_systemAccounts[msg.sender]) revert NotSystemRegistrar();
+        address previous = _voteEligibilityObserver;
+        if (previous != address(0) && previous != msg.sender) revert VotingTokenAlreadyRegistered(previous);
+
+        _voteEligibilityObserver = msg.sender;
+        _ensureEligibilityHistory();
+        emit VoteEligibilityObserverSet(previous, msg.sender);
+    }
+
+    function unregisterVoteEligibilityObserver() external {
+        if (_voteEligibilityObserver == address(0)) return;
+        if (msg.sender != _voteEligibilityObserver) revert NotVoteEligibilityObserver();
+
+        address previous = _voteEligibilityObserver;
+        _voteEligibilityObserver = address(0);
+        emit VoteEligibilityObserverSet(previous, address(0));
     }
 
     function allowedUntil(address account) external view returns (uint64) {
         return _allowedUntil[account];
+    }
+
+    function maxVestingSourcesPerBeneficiary() external pure returns (uint256) {
+        return MAX_VESTING_SOURCES_PER_BENEFICIARY;
     }
 
     function basisOf(address account) external view returns (uint8) {
@@ -263,6 +336,10 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     function isSystemAccount(address account) external view returns (bool) {
         return _systemAccounts[account];
+    }
+
+    function vestingSourceBeneficiary(address source) external view returns (address) {
+        return _vestingSourceBeneficiary[source];
     }
 
     function _countApproval() private {
@@ -279,6 +356,89 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     function _requireProposalReady(uint256 proposedAt) private view {
         if (block.timestamp < proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > proposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
+    }
+
+    function _ensureEligibilityHistory() private {
+        if (_eligibilityHistoryInitialized) return;
+        if (block.timestamp > type(uint48).max) revert TimestampOutOfRange(block.timestamp);
+        _eligibilityHistoryStart = uint48(block.timestamp);
+        _eligibilityHistoryInitialized = true;
+    }
+
+    function _captureEligibilityBaseline(address account) private {
+        _ensureEligibilityHistory();
+        if (_eligibilityBaselineSet[account]) return;
+
+        _preCheckpointAllowedUntil[account] = _allowedUntil[account];
+        _preCheckpointSystemAccount[account] = _systemAccounts[account];
+        _eligibilityBaselineSet[account] = true;
+    }
+
+    function _eligibilityStateAt(address account, uint48 timepoint)
+        private
+        view
+        returns (uint64 allowedUntil_, bool systemAccount_)
+    {
+        Checkpoints.Trace208 storage checkpoints = _eligibilityCheckpoints[account];
+        uint256 checkpointCount = checkpoints.length();
+        if (checkpointCount != 0) {
+            Checkpoints.Checkpoint208 memory firstCheckpoint = checkpoints.at(0);
+            if (timepoint >= firstCheckpoint._key) {
+                uint208 state = checkpoints.upperLookupRecent(timepoint);
+                return (uint64(state >> 1), (state & 1) != 0);
+            }
+        }
+
+        if (_eligibilityBaselineSet[account]) {
+            return (_preCheckpointAllowedUntil[account], _preCheckpointSystemAccount[account]);
+        }
+        return (_allowedUntil[account], _systemAccounts[account]);
+    }
+
+    function _recordEligibilityChange(address account) private {
+        if (block.timestamp > type(uint48).max) revert TimestampOutOfRange(block.timestamp);
+        uint208 state = (uint208(_allowedUntil[account]) << 1) | (_systemAccounts[account] ? 1 : 0);
+        _eligibilityCheckpoints[account].push(uint48(block.timestamp), state);
+
+        address observer = _voteEligibilityObserver;
+        if (observer != address(0)) IVoteEligibilityObserver(observer).syncVoteEligibility(account);
+    }
+
+    function _updateVestingSourceRegistration(address source, bool isSystem) private {
+        address beneficiary_ = _vestingSourceBeneficiary[source];
+        if (!isSystem) {
+            if (beneficiary_ == address(0)) return;
+            uint32 previousCount = vestingSourceCount[beneficiary_];
+            if (previousCount == 0) revert VestingSourceRegistrationUnderflow(beneficiary_);
+            vestingSourceCount[beneficiary_] = previousCount - 1;
+            delete _vestingSourceBeneficiary[source];
+            return;
+        }
+        if (beneficiary_ != address(0) || source.code.length == 0) return;
+
+        (bool ok, bytes memory data) =
+            source.staticcall(abi.encodeWithSelector(IVestingBeneficiarySource.beneficiary.selector));
+        if (!ok || data.length != 32) return;
+        beneficiary_ = abi.decode(data, (address));
+        if (beneficiary_ == address(0)) return;
+
+        uint32 sourceCount = vestingSourceCount[beneficiary_];
+        uint256 maximum = MAX_VESTING_SOURCES_PER_BENEFICIARY;
+        if (sourceCount >= maximum) revert TooManyVestingSources(beneficiary_, sourceCount, maximum);
+        _vestingSourceBeneficiary[source] = beneficiary_;
+        vestingSourceCount[beneficiary_] = sourceCount + 1;
+    }
+
+    function _isAllowed(address account) private view returns (bool) {
+        return _systemAccounts[account] || _allowedUntil[account] >= uint64(block.timestamp);
+    }
+
+    function _isAllowedStateAt(uint64 allowedUntil_, bool systemAccount_, uint256 timepoint)
+        private
+        pure
+        returns (bool)
+    {
+        return systemAccount_ || allowedUntil_ >= timepoint;
     }
 
     function renounceOwnership() public pure override {

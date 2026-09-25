@@ -106,6 +106,8 @@ contract StakingQueueModule is
     error BlockedAddress(address account);
     error CapacityProbeFailed(address vault);
     error DepositOutputBelowMinimum(uint256 sharesMinted, uint256 minimumShares);
+    error MinimumSharesUnreachable(uint256 minimumShares, uint256 maxPreviewShares);
+    error PriorityLockUnavailable();
     error InvalidForagePriceScale(uint256 price);
     error UnauthorizedLockupProcessor(address caller);
     error SequencerUptimeFeedUnavailable(address feed);
@@ -198,6 +200,7 @@ contract StakingQueueModule is
     uint256 public constant MAX_FIXED_FORAGE_PRICE_USD = 1_000_000e6;
     uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
+    uint256 internal constant QUEUE_ENTRY_TTL = 3 days;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
     uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
@@ -249,8 +252,9 @@ contract StakingQueueModule is
     address internal _blocklist;
     mapping(address => bool) private _expiredLockupProcessors;
     address internal _sequencerUptimeFeed;
+    mapping(uint256 => uint8) private _priorityEntryAdmissionMode;
 
-    uint256[31] private __gap; // reserved for future upgrades
+    uint256[30] private __gap; // reserved for future upgrades
 
     // -- Delegatecall guard --
     address private immutable _SELF;
@@ -331,7 +335,9 @@ contract StakingQueueModule is
         avail = _availableCapacityForCap(config.capacityCap);
         tierAvail = _availableTierDepositCapacityForCap(tier, config.capacityCap);
 
-        if (processed < maxEntries && avail > 0 && tierAvail > 0) {
+        if (
+            processed < maxEntries && avail > 0 && tierAvail > 0 && !_priorityHeadBlocksStandard(tier, avail, tierAvail)
+        ) {
             uint256 standardBudget = maxEntries - processed;
             _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], standardBudget);
             _processLane(
@@ -339,6 +345,19 @@ contract StakingQueueModule is
             );
             _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], maxEntries);
         }
+    }
+
+    function _priorityHeadBlocksStandard(uint8 tier, uint256 availCapacity, uint256 availTierCapacity)
+        internal
+        view
+        returns (bool)
+    {
+        uint256[] storage lane = _tierPriorityQueue[tier];
+        uint256 head = _tierPriorityHead[tier];
+        if (head >= lane.length) return false;
+        QueueEntry storage entry = _queueEntries[lane[head]];
+        if (entry.processed || entry.cancelled || _isExpired(entry)) return false;
+        return entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity;
     }
 
     /// @notice OF-G03: Batch size is implicitly controlled by the depositors array length.
@@ -464,14 +483,18 @@ contract StakingQueueModule is
         if (tier >= 4) revert InvalidTier();
         if (_vaultId == 0) revert VaultIdNotSet();
         _requireNotBlocked(msg.sender);
+        uint8 admissionMode = _priceMode;
         {
             VaultConfig memory config = VaultRegistry(_vaultRegistry).getVault(_vaultId);
             if (config.status != VaultStatus.Active) revert VaultNotActive();
         }
+        uint256 maxPreviewShares = _minimumDepositShares(_tierVaults[tier], riskusdAmount);
         if (minimumShares == 0) {
-            minimumShares = _minimumDepositShares(_tierVaults[tier], riskusdAmount);
-            if (minimumShares == 0) minimumShares = 1;
+            if (maxPreviewShares == 0) revert MinimumSharesUnreachable(1, 0);
+            minimumShares = 1;
             deadline = type(uint256).max;
+        } else if (minimumShares > maxPreviewShares) {
+            revert MinimumSharesUnreachable(minimumShares, maxPreviewShares);
         }
 
         _riskusd.safeTransferFrom(msg.sender, address(this), riskusdAmount);
@@ -497,6 +520,7 @@ contract StakingQueueModule is
                         if (lockSuccess) {
                             isPriority = true;
                             _forageLockedPerEntry[queueId] = forageToLock;
+                            _priorityEntryAdmissionMode[queueId] = admissionMode + 1;
                         }
                     }
                 }
@@ -551,12 +575,8 @@ contract StakingQueueModule is
                 continue;
             }
 
-            if (entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity) {
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
+            if (!isPriorityLane && (entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity)) {
+                break;
             }
             if (!isPriorityLane && !_hasDepositorBounds(entry)) {
                 break;
@@ -578,12 +598,24 @@ contract StakingQueueModule is
                 continue;
             }
             if (!_depositorMinimumSharesReachable(tier, entry)) {
+                _cancelUnprocessableEntry(lane[i], entry);
                 unchecked {
                     ++i;
                     ++scanned;
                 }
                 continue;
             }
+            if (
+                isPriorityLane && _priorityEntryAdmissionMode[lane[i]] != uint8(PriceMode.FIXED_PRICE) + 1
+                    && !_revalidatePriorityLock(lane[i], entry)
+            ) {
+                unchecked {
+                    ++i;
+                    ++scanned;
+                }
+                continue;
+            }
+            if (entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity) break;
 
             _depositQueuedRiskusd(tier, entry.riskusdAmount, entry.depositor, entry.minimumShares);
 
@@ -593,7 +625,6 @@ contract StakingQueueModule is
                 uint256 qId = lane[i];
                 uint256 forageToUnlock = _forageLockedPerEntry[qId];
                 if (forageToUnlock > 0) {
-                    // OF-007 (11th audit): Only zero entry on success to allow retry
                     (bool unlockSuccess,) =
                         _forage.call(abi.encodeWithSelector(_SEL_UNLOCK, entry.depositor, forageToUnlock));
                     if (unlockSuccess) {
@@ -649,6 +680,57 @@ contract StakingQueueModule is
         uint256 lookahead = PRIORITY_LOOKAHEAD_SCAN_LIMIT;
         if (budget > type(uint256).max - lookahead) return type(uint256).max;
         return budget + lookahead;
+    }
+
+    function _revalidatePriorityLock(uint256 queueId, QueueEntry storage entry) internal returns (bool) {
+        (bool priceReady, uint256 price, bytes4 reason) = _tryPriorityForagePriceUsd();
+        uint256 multiplier = _priorityMultiplier;
+        if (!priceReady || price == 0 || multiplier == 0 || _forage.code.length == 0) {
+            bytes4 failure = reason == bytes4(0) ? PriorityLockUnavailable.selector : reason;
+            emit PriorityPriceUnavailable(queueId, entry.depositor, failure);
+            _cancelUnprocessableEntry(queueId, entry);
+            return false;
+        }
+
+        uint256 recordedLock = _forageLockedPerEntry[queueId];
+        if (recordedLock == 0) {
+            emit PriorityPriceUnavailable(queueId, entry.depositor, PriorityLockUnavailable.selector);
+            _cancelUnprocessableEntry(queueId, entry);
+            return false;
+        }
+        uint256 requiredLock = Math.ceilDiv(entry.riskusdAmount * 1e18, price * multiplier);
+        if (requiredLock < 1e15) requiredLock = 1e15;
+        if (recordedLock >= requiredLock) return true;
+
+        (bool topUpSuccess,) =
+            _forage.call(abi.encodeWithSelector(_SEL_LOCK, entry.depositor, requiredLock - recordedLock));
+        if (!topUpSuccess) {
+            emit PriorityPriceUnavailable(queueId, entry.depositor, PriorityLockUnavailable.selector);
+            _cancelUnprocessableEntry(queueId, entry);
+            return false;
+        }
+        _forageLockedPerEntry[queueId] = requiredLock;
+        return true;
+    }
+
+    function _cancelUnprocessableEntry(uint256 queueId, QueueEntry storage entry) internal {
+        entry.cancelled = true;
+        uint256 amount = entry.riskusdAmount;
+        if (entry.priority) _priorityRiskusdQueued[entry.depositor] -= amount;
+        _totalQueuedRiskusd -= amount;
+
+        uint256 forageToUnlock = _forageLockedPerEntry[queueId];
+        if (forageToUnlock > 0) {
+            (bool unlockSuccess,) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK, entry.depositor, forageToUnlock));
+            if (unlockSuccess) {
+                _forageLockedPerEntry[queueId] = 0;
+            } else {
+                emit ForageUnlockFailed(entry.depositor, forageToUnlock);
+            }
+        }
+
+        _riskusd.safeTransfer(entry.depositor, amount);
+        emit QueueCancelled(queueId, entry.depositor, amount);
     }
 
     function _depositQueuedRiskusd(uint8 tier, uint256 riskusdAmount, address depositor, uint256 depositorMinimumShares)
@@ -709,7 +791,8 @@ contract StakingQueueModule is
     }
 
     function _isExpired(QueueEntry storage entry) internal view returns (bool) {
-        return entry.deadline != 0 && block.timestamp > entry.deadline;
+        return (entry.deadline != 0 && block.timestamp > entry.deadline)
+            || block.timestamp >= entry.entryTimestamp + QUEUE_ENTRY_TTL;
     }
 
     function _queueLockerBalance(address depositor) internal view returns (bool success, uint256 balance) {
@@ -792,6 +875,12 @@ contract StakingQueueModule is
                 ++i;
             }
         }
+    }
+
+    function _tryPriorityForagePriceUsd() internal view returns (bool success, uint256 price, bytes4 reason) {
+        (bool sequencerOk, bytes4 sequencerReason) = _trySequencerUp();
+        if (!sequencerOk) return (false, 0, sequencerReason);
+        return _tryActiveForagePriceUsd();
     }
 
     function _tryActiveForagePriceUsd() internal view returns (bool success, uint256 price, bytes4 reason) {

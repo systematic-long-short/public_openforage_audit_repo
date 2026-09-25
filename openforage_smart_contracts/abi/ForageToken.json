@@ -58,6 +58,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_DELEGATE_SOURCES",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_LOCKERS_PER_ACCOUNT",
     "inputs": [],
     "outputs": [
@@ -167,6 +180,19 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -720,6 +746,19 @@
   },
   {
     "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setAuthorizedBurner",
     "inputs": [
       {
@@ -797,6 +836,32 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "syncDelegateSources",
+    "inputs": [
+      {
+        "name": "sources",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "syncVoteEligibility",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -930,6 +995,25 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1302,6 +1386,11 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ArrayLengthMismatch",
     "inputs": []
   },
@@ -1318,8 +1407,35 @@
   },
   {
     "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CheckpointUnorderedInsertion",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DelegateSourceTrackingFailed",
+    "inputs": [
+      {
+        "name": "delegatee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1467,6 +1583,43 @@
   },
   {
     "type": "error",
+    "name": "EligibilityAccountingOverflow",
+    "inputs": [
+      {
+        "name": "delegatee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "EligibilityAccountingUnderflow",
+    "inputs": [
+      {
+        "name": "delegatee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "FailedCall",
     "inputs": []
   },
@@ -1530,8 +1683,40 @@
   },
   {
     "type": "error",
+    "name": "InvalidBlocklist",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LegacyDelegateSourceIndexCorrupted",
+    "inputs": [
+      {
+        "name": "delegatee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1619,6 +1804,17 @@
   },
   {
     "type": "error",
+    "name": "TargetHasNoCode",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TooManyAccountLockers",
     "inputs": [
       {
@@ -1628,6 +1824,48 @@
       },
       {
         "name": "maxLockers",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyDelegateSources",
+    "inputs": [
+      {
+        "name": "delegatee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyVestingSources",
+    "inputs": [
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1652,6 +1890,17 @@
   {
     "type": "error",
     "name": "UnauthorizedBurner",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnauthorizedEligibilityObserver",
     "inputs": [
       {
         "name": "caller",

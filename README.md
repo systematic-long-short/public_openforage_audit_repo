@@ -1,111 +1,39 @@
 # OpenForage Public Smart Contract Audit Snapshot
 
-This public repository is a selective source snapshot for external review of
-the OpenForage smart contracts. It is not the private monorepo and is not a
-deployment repository.
+This repository is a selective production-source snapshot for external review. It is not a deployment repository or a copy of the private monorepo. Refreshes use a reviewed branch from public `main`; the public `main` branch is never rewritten.
 
-Agent export rules live in `AGENTS.md`. Refreshes are built on a public pull
-request branch from the allowlist in that file, with scan and review evidence
-attached to the PR before merge.
+## Source and preparation identities
 
-## Current Source Snapshot
+The runtime-source identity for this snapshot is private commit `8d4a 2d4c 44ba 7d83 cdc5 1d93 4e11 8655 049c 78ca`. It identifies the Solidity source used for the remediation, not the later no-tests packaging changes. The public tree is a selective snapshot and is not claimed to be byte-identical to the whole private tree at that commit.
 
-The pinned private source revision for this refresh is
-`e5c2c76d55e197044e30392c407b52af598a1681`. All 26 production Solidity files
-under `contracts/src/` and all 18 ABI files under `contracts/abi/` are
-byte-identical to that revision. The refresh adds the investor `Allowlist`, its
-caller-gate mixin, the RISKUSD vault and staking-queue delegate modules, and
-their focused tests and support.
+All 26 production Solidity source files and all 18 ABI artifacts were measured against that source identity. In the measured 20-file production-source set, 19 files differed from the observed public `main` and were synchronized; `DelegatingVestingWallet.sol` already matched. The other six source files in the full 26-file inventory also already matched. Fifteen ABI files differed and were synchronized; three were already identical. A standalone `IAllowlistSettable` interface was extracted intact from a test-only helper, and the retained deployment script's import alone was redirected to that interface.
 
-This refresh is a source-snapshot preparation, not a new security audit. The
-historical audit packages below do not assess the current source revision.
+This later public preparation removes first-party tests and test-only campaign inputs. It does not alter the runtime-source identity above, and it does not make a whole-tree-equality claim. The removed 235-file test tree and seven test-only files were preserved outside this repository before deletion. No Solidity test, fuzz, invariant, formal, Anvil, or deployment command was run for this preparation.
 
-Validation for this refresh: `forge build --force` succeeded with compiler
-warnings; the bounded Allowlist and caller-gate runs passed 100 tests, including
-64 fuzz runs for the focused fuzz suite. The full suite and high-depth
-fuzz/invariant/formal campaigns were not run.
+## Verification status
 
-## Historical Audit Records
+- `forge build --root openforage_smart_contracts --skip test` compiled 121 files with Solc 0.8.24 and completed successfully with compiler warnings.
+- The no-tests inventory guard passed. The I-15 checker passed for 15 trust-boundary setters. The approved legacy-transport scanner passed from both the contract directory and repository root.
+- Seventeen source-associated ABI definitions matched the Forge output after JSON normalization. `FoundationTreasury.json` remains the one source-less ABI artifact; it was retained unchanged. All 18 ABI files were byte-compared with the selected source identity.
+- Forge produced storage layouts for 17 concrete contract types. `forge tree` produced the production import graph, and the production build resolved its imports.
+- Static results remain red: Slither reported 206 results and the public suppression checker reported 194 unsuppressed plus 56 stale entries. Semgrep reported 9 blocking findings across 65 tracked files. The Semgrep rule-coverage checker passed. The simplify regression checker stops at the missing `ProtocolTreasury` build artifact named by its preserved baseline. Removing tests does not clear any of these findings.
 
-The following are records of earlier reviews and remediation. Their results
-apply to the code and scope reviewed at that time, not to source revision
-`e5c2c76d55e197044e30392c407b52af598a1681`.
+The private historical Octane remediation record reported 2,540 full-suite passes and 105 failures; its historical static results were 90 unsuppressed Slither findings, 55 stale suppressions, and 114 Semgrep findings. Those figures describe an earlier private candidate, not this public no-tests snapshot. They are not a clearance claim. No new Octane analysis was run.
 
-The June 9/10, 2026 mainnet-readiness audit package records:
+See `documentation/audit_scope.md`, `documentation/review_commands.md`, and `documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md` for scope, review steps, and current limitations.
 
-- no known open Critical, High, Medium, or Low findings after the R16-M02
-  remediation;
-- passing static, formal, fuzz, audit-foundry, bridge target, treasury target,
-  DeployMainnet target, full Foundry, build, formatting, and Python harness
-  gates;
-- passing final Codex adversarial review and post-M02 security, reuse, and
-  architecture re-reviews;
-- target architecture and target user-journey conformance with no unresolved
-  design divergences.
+## Included and excluded
 
-The remaining limitation is explicit in the audit report: on-chain
-reconciliation proves bridge-held USDC availability, while HyperLiquid
-withdrawal provenance remains an off-chain keeper/trust boundary. This snapshot
-does not perform or authorize a mainnet broadcast.
+- `openforage_smart_contracts/` contains production Solidity source and ABI artifacts, the approved deployment and static-checker scripts, static-analysis configuration, and pinned Solidity dependency gitlinks.
+- `documentation/` contains public-safe audit scope, review guidance, and historical assessments.
+- First-party contract tests, test helpers, fuzz/formal harnesses, deployment manifests, generated output, private audit captures, local caches, credentials, and vendored dependency contents are not included.
 
-The June 12, 2026 external-audit triage package records Cantina and Octane
-findings review, accepted true-positive overlap, and focused Foundry
-reproductions for the live overlap roots carried in this snapshot.
+## Dependency pins
 
-The June 17, 2026 external-audit closeout package records the follow-up
-Cantina/Octane disposition: all retained valid findings are fixed in current
-source or were already fixed by the current source, and the portal-facing
-acknowledgment worksheets are included. Raw portal exports that contain local
-reproduction paths or internal provenance discussion are intentionally omitted.
-
-The full Foundry suite and high-depth audit campaigns have not been run against
-this refreshed snapshot. Historical full-suite evidence in the retained audit
-packages is not verification of the current source revision.
-
-## Included
-
-- `openforage_smart_contracts/`: production Solidity sources and ABI files,
-  selected current tests/helpers and generic tooling, build/static-analysis
-  configuration, and pinned Solidity dependencies.
-- `documentation/smart_contract_audits/2026-06-09-audit/`: latest audit report,
-  finding consolidation, conformance, retest, review, and validation evidence.
-- `documentation/smart_contract_audits/2026-06-12-external-audit/`: external
-  audit triage, overlap analysis, and reviewer-facing findings context.
-- `documentation/smart_contract_audits/2026-06-17-external-audit/`: public-safe
-  external-audit assessment, fix attribution, acknowledgment worksheets, and
-  overlap analysis for the latest smart-contract closeout.
-- `documentation/smart_contract/`: target smart-contract architecture and
-  user-journey projections used by the conformance review.
-- `documentation/cantina_v12_remediation.md`: historical remediation summary for
-  the May 30, 2026 Cantina V12 pass, retained as predecessor context.
-
-## Excluded
-
-- Non-smart-contract source trees.
-- Internal project/spec/tasklist/prompt artifacts.
-- Company, strategy, benchmark, memory, and unrelated runbook documents.
-- Private environment files, credentials, signing material, and deployment
-  secrets.
-- Deployment manifests, keeper config, generated broadcast output, and public
-  cloud resource names.
-- Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.
-- Generated build output and local caches such as Foundry `cache/`, `out/`, and
-  `broadcast/`.
-- Vendored copies of third-party Solidity dependencies. They are represented as
-  pinned Git submodules instead.
-
-## Dependency Pins
-
-After cloning, initialize Solidity dependencies with:
+Initialize the public dependencies with:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-Pinned submodules:
-
-- `openforage_smart_contracts/lib/chainlink-ccip`
-- `openforage_smart_contracts/lib/openzeppelin-contracts-upgradeable`
-
-See `documentation/audit_scope.md` and `documentation/review_commands.md` for
-scope boundaries and suggested local checks.
+The top-level pins are Chainlink CCIP `bccd d15b 734e a6c0 e6d1 b3d3 6c48 2e64 ced2 d441` and OpenZeppelin upgradeable contracts `7bf4 727a acdb faa0 f36c bd66 4654 d0c9 e1dc 52bf`. The `lib/` paths remain gitlinks, not vendored copies.

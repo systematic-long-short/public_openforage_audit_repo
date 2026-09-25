@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import "./AllowlistGatedUpgradeable.sol";
 import "./DelegatingVestingWallet.sol";
+import "./interfaces/IAllowlist.sol";
 import "./interfaces/IAllowlistSystemRegistrar.sol";
 
 interface IFORAGETreasuryBlocklist {
@@ -142,7 +143,7 @@ contract FORAGETreasury is
         nonReentrant
     {
         if (msg.sender != account) revert Unauthorized();
-        if (_isBlocked(account)) revert BlockedRecipient();
+        _requireAgentBeneficiary(account);
         uint256 lastClaimAt = lastAgentClaimAt[account];
         if (lastClaimAt != 0 && block.timestamp < lastClaimAt + AGENT_CLAIM_COOLDOWN) {
             revert ClaimCooldownActive();
@@ -177,7 +178,7 @@ contract FORAGETreasury is
         nonReentrant
     {
         if (msg.sender != _distributor) revert Unauthorized();
-        if (_isBlocked(account)) revert BlockedRecipient();
+        _requireAgentBeneficiary(account);
         uint256 lastClaimAt = lastAgentClaimAt[account];
         if (lastClaimAt != 0 && block.timestamp < lastClaimAt + AGENT_CLAIM_COOLDOWN) {
             revert ClaimCooldownActive();
@@ -327,6 +328,19 @@ contract FORAGETreasury is
         } catch {
             revert BlocklistUnavailable(blocklist_);
         }
+    }
+
+    function _requireAgentBeneficiary(address account) private view {
+        address allowlist_ = allowlist();
+        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
+        bool allowed;
+        try IAllowlist(allowlist_).isAllowed(account) returns (bool result) {
+            allowed = result;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+        if (!allowed) revert IAllowlist.CallerNotAllowed(account);
+        if (_isBlocked(account)) revert BlockedRecipient();
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

@@ -38,6 +38,26 @@ interface IManualCustodianNAVNormalizer {
         returns (bool shouldRecord, uint256 normalizedNav);
 }
 
+library RISKUSDVaultRedemptionBufferStorage {
+    struct Layout {
+        uint256 weeklyWindowStart;
+        uint256 weeklyMintAmount;
+        uint256 dailyWindowStart;
+        uint256 dailyMintAmount;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.RISKUSDVaultRedemptionBuffer")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
+}
+
 /// @title RISKUSDVault - Central USDC pool for RISKUSD deposits and redemptions
 /// @notice Manages 1:1 USDC/RISKUSD deposits, redemptions with weekly cap,
 ///         custodian capital deployment, and loss operations.
@@ -112,6 +132,7 @@ contract RISKUSDVault is
     error DeploymentBufferEnumerationFailed(address target);
     error FirstDepositBelowMinimum(uint256 amount, uint256 minimum);
     error ModuleUnavailable();
+    error CustodianLossWriteDownFailed(address custodian, uint256 amount);
 
     // Events
     event Deposited(address indexed depositor, uint256 usdcAmount);
@@ -171,8 +192,7 @@ contract RISKUSDVault is
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
     uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
-    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR =
-        bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
+    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR = bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
     // State — immutable post-initialization
     IERC20 internal _usdc;
@@ -292,7 +312,6 @@ contract RISKUSDVault is
         }
     }
 
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -351,6 +370,7 @@ contract RISKUSDVault is
 
     function deposit(uint256 usdcAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
+        _requirePublicAccountingRegistry();
         // OF-13-056: Block fresh user deposits during loss-pending window.
         // Exempt _lossReporter for protocol-controlled loss/yield accounting that must remain live.
         if (_lossPendingActive() && msg.sender != _lossReporter) revert LossPending();
@@ -370,6 +390,7 @@ contract RISKUSDVault is
             _enforcePerBlockMintCap(usdcAmount);
             _enforceDailyMintCap(usdcAmount);
             _enforceWeeklyMintCap(usdcAmount);
+            _recordPublicRedemptionMint(usdcAmount);
         }
         _totalDeposited += usdcAmount;
 
@@ -387,15 +408,17 @@ contract RISKUSDVault is
 
     function redeem(uint256 riskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
         if (riskusdAmount == 0) revert ZeroAmount();
+        _requirePublicAccountingRegistry();
         // OF-NEW-01 (12th audit): Block redemptions while loss is pending
         if (_lossPendingActive()) revert LossPending();
         _requireNotBlocked(msg.sender);
         uint256 backingAssetsBefore = solvencyBackingAssets();
         uint256 riskusdSupplyBefore = _riskusd.totalSupply();
 
-        // Weekly cap enforcement — read totalSupply BEFORE burn
-        _enforceWeeklyCap(riskusdAmount);
-        _enforceDailyRedemptionCap(riskusdAmount);
+        uint256 weeklyCapCharge = _consumeWeeklyRedemptionMint(riskusdAmount);
+        uint256 dailyCapCharge = _consumeDailyRedemptionMint(riskusdAmount);
+        _enforceWeeklyCap(weeklyCapCharge);
+        _enforceDailyRedemptionCap(dailyCapCharge);
 
         // Vault liquidity check
         uint256 balance = vaultUsdcBalance();
@@ -406,13 +429,19 @@ contract RISKUSDVault is
 
         // Update state before external calls (CEI)
         _totalRedeemed += riskusdAmount;
-        _weeklyRedemptionUsed += riskusdAmount;
-        _dailyRedemptionUsed += riskusdAmount;
+        _weeklyRedemptionUsed += weeklyCapCharge;
+        _dailyRedemptionUsed += dailyCapCharge;
 
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
         _riskusd.burn(address(this), riskusdAmount);
         _reduceMintActiveSupply(riskusdAmount);
+        if (_publicRedemptionNettingEnabled()) {
+            uint256 supplyAfterRedeem = _riskusd.totalSupply();
+            if (_lastActiveSupply == 0 || supplyAfterRedeem < _lastActiveSupply) {
+                _lastActiveSupply = supplyAfterRedeem;
+            }
+        }
 
         // Send USDC 1:1
         _usdc.safeTransfer(msg.sender, riskusdAmount);
@@ -490,7 +519,6 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-
     // --- Loss Operations ---
 
     /// @notice OF-L12: burnForLoss intentionally operates during pause.
@@ -508,7 +536,6 @@ contract RISKUSDVault is
     {
         _delegateToModule();
     }
-
 
     function replenish(uint256 usdcAmount) external onlyAllowedCaller nonReentrant {
         _delegateToModule();
@@ -550,7 +577,6 @@ contract RISKUSDVault is
     function clearPendingVaultRegistry() external onlyAllowedCaller onlyOwner {
         _delegateToModule();
     }
-
 
     /// @notice OF-H02: setCustodian now only proposes — no instant effect.
     /// Use finalizeCustodian() or acceptCustodian() to complete the change.
@@ -767,7 +793,6 @@ contract RISKUSDVault is
     function unpause() external onlyAllowedCaller {
         _delegateToModule();
     }
-
 
     // --- View Functions ---
 
@@ -1105,7 +1130,6 @@ contract RISKUSDVault is
 
     // --- Internal ---
 
-
     function _lossPendingActive() internal view returns (bool) {
         return _suspectedLossFreeze || _lossPending || _hasUnresolvedAttestedLoss() || _custodianNAVUnavailableOrStale()
             || _hasCurrentNAVShortfall();
@@ -1131,7 +1155,6 @@ contract RISKUSDVault is
         return _latestLossNonce != 0 && _latestLossNonce > _settledLossNonce && _latestLossVaultId != 0;
     }
 
-
     /// @dev OF-002: Safe depositor USDC computation with underflow protection.
     /// Returns 0 when outflows exceed inflows (high-loss scenario) instead of panicking.
     /// OF-18-007: Include _totalReplenished in inflows so replenished capital is redeployable.
@@ -1139,6 +1162,123 @@ contract RISKUSDVault is
         uint256 inflows = _totalDeposited + _totalReplenished;
         uint256 outflows = _totalRedeemed + _totalBurnedForLoss + _totalAcknowledgedLoss;
         return inflows > outflows ? inflows - outflows : 0;
+    }
+
+    function _publicRedemptionNettingEnabled() internal view returns (bool) {
+        return address(_vaultRegistry) != address(0);
+    }
+
+    function _requirePublicAccountingRegistry() internal view {
+        address registry = address(_vaultRegistry);
+        if (registry == address(0)) revert VaultRegistryRequired();
+        if (registry.code.length == 0) revert InvalidVaultRegistryInterface(registry);
+
+        (bool ok, bytes memory data) =
+            registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.riskusdVault.selector));
+        if (!ok || data.length < 32) revert RISKUSDVaultMismatch();
+        if (!_registryAddressMatches(data, address(this))) {
+            (ok, data) =
+                registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.pendingRISKUSDVault.selector));
+            if (!ok || !_registryAddressMatches(data, address(this))) revert RISKUSDVaultMismatch();
+        }
+
+        (ok, data) = registry.staticcall(abi.encodeWithSelector(IVaultRegistry.getVaultsPage.selector, 0, 1));
+        if (!ok || data.length < 96) revert InvalidVaultRegistryInterface(registry);
+    }
+
+    function _registryAddressMatches(bytes memory data, address expected) private pure returns (bool) {
+        if (data.length < 32) return false;
+        uint256 returnedAddress;
+        assembly ("memory-safe") {
+            returnedAddress := mload(add(data, 0x20))
+        }
+        return returnedAddress <= type(uint160).max && address(uint160(returnedAddress)) == expected;
+    }
+
+    function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {
+        if (block.timestamp < storedStart + window) return storedStart;
+        uint256 elapsed = (block.timestamp - storedStart) / window;
+        return storedStart + elapsed * window;
+    }
+
+    function _recordPublicRedemptionMint(uint256 amount) internal {
+        if (!_publicRedemptionNettingEnabled()) return;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        if (block.timestamp < _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
+            uint256 weeklyOffset = _min(amount, _weeklyRedemptionUsed);
+            _weeklyRedemptionUsed -= weeklyOffset;
+            buffers.weeklyMintAmount += amount - weeklyOffset;
+        } else {
+            buffers.weeklyMintAmount += amount;
+        }
+
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        if (block.timestamp < _dailyRedemptionWindowStart + DAILY_WINDOW) {
+            uint256 dailyOffset = _min(amount, _dailyRedemptionUsed);
+            _dailyRedemptionUsed -= dailyOffset;
+            buffers.dailyMintAmount += amount - dailyOffset;
+        } else {
+            buffers.dailyMintAmount += amount;
+        }
+    }
+
+    function _consumeWeeklyRedemptionMint(uint256 amount) internal returns (uint256) {
+        if (!_publicRedemptionNettingEnabled()) return amount;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        uint256 offset = _min(amount, buffers.weeklyMintAmount);
+        buffers.weeklyMintAmount -= offset;
+        return amount - offset;
+    }
+
+    function _consumeDailyRedemptionMint(uint256 amount) internal returns (uint256) {
+        if (!_publicRedemptionNettingEnabled()) return amount;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        uint256 offset = _min(amount, buffers.dailyMintAmount);
+        buffers.dailyMintAmount -= offset;
+        return amount - offset;
+    }
+
+    function _consumeLossRedemptionMint(uint256 amount) internal {
+        if (!_publicRedemptionNettingEnabled()) return;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        uint256 weeklyOffset = _min(amount, buffers.weeklyMintAmount);
+        buffers.weeklyMintAmount -= weeklyOffset;
+
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        uint256 dailyOffset = _min(amount, buffers.dailyMintAmount);
+        buffers.dailyMintAmount -= dailyOffset;
     }
 
     function _enforceWeeklyCap(uint256 riskusdAmount) internal {
@@ -1277,7 +1417,6 @@ contract RISKUSDVault is
         }
     }
 
-
     function _assertBackingMarginNotDecreased(uint256 backingAssetsBefore, uint256 riskusdSupplyBefore) internal view {
         uint256 backingAssetsAfter = solvencyBackingAssets();
         uint256 riskusdSupplyAfter = _riskusd.totalSupply();
@@ -1338,10 +1477,13 @@ contract RISKUSDVault is
     /// @notice Stage a stranded-token rescue for delayed execution.
     /// @dev The protected USDC/RISKUSD assets remain non-rescuable. The recipient is blocklist-checked
     /// at proposal and again at execution so a newly blocked recipient cannot receive delayed funds.
-    function proposeTokenRescue(address token, uint256 amount, address recipient) external onlyAllowedCaller onlyOwner {
+    function proposeTokenRescue(address token, uint256 amount, address recipient)
+        external
+        onlyAllowedCaller
+        onlyOwner
+    {
         _delegateToModule();
     }
-
 
     /// @notice Execute a staged stranded-token rescue after the one-day announcement delay.
     /// @dev Intentionally remains owner-only and blocklist-checked at execution time.
@@ -1390,7 +1532,6 @@ contract RISKUSDVault is
         _manualAttestationReporterProposedAt = 0;
     }
 
-
     function _requireNotBlocked(address account) internal view {
         address blocklist_ = _blocklist;
         if (blocklist_ != address(0) && IBlocklist(blocklist_).isBlocked(account)) {
@@ -1438,11 +1579,9 @@ contract RISKUSDVault is
         }
     }
 
-
     // --- Deposit / Redeem ---
 
     /// @notice OF-16-027: USDC is assumed to have no fee-on-transfer. Deposit mints RISKUSD
     /// 1:1 based on the requested amount, not measured receipt. If USDC ever adds transfer fees,
     /// the 1:1 invariant would break. Monitor USDC for fee-on-transfer changes.
 }
-
