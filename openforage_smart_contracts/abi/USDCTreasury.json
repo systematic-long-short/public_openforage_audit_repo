@@ -1075,6 +1075,44 @@
   },
   {
     "type": "function",
+    "name": "unfundedYieldClaim",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unreturnedRecognizedProfit",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "upgradeToAndCall",
     "inputs": [
       {
@@ -1126,6 +1164,19 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "yieldClaimsReady",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1666,6 +1717,32 @@
   },
   {
     "type": "error",
+    "name": "PnLReturnAccountingUninitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PnLReturnExceedsUnpaidProfit",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unpaid",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PrincipalReturnsUseVault",
     "inputs": []
   },
@@ -1729,6 +1806,32 @@
         "name": "tierVault",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierYieldClaimMismatch",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -1808,6 +1911,27 @@
   },
   {
     "type": "error",
+    "name": "YieldClaimInvariant",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "aggregateClaim",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tierClaim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   },
@@ -1815,5 +1939,21 @@
     "type": "error",
     "name": "ZeroAmount",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroSupplyTier",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   }
 ]

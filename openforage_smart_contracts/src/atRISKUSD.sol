@@ -13,8 +13,11 @@ import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IBlocklist.sol";
 import "./interfaces/IAllowlist.sol";
+import "./interfaces/IVaultRegistry.sol";
+import "./interfaces/IUSDCTreasuryYieldClaims.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {AtRiskUSDStateModule, AtRiskUSDStateModuleStorage} from "./modules/AtRiskUSDStateModule.sol";
 
 /// @title atRISKUSD — Tier-specific ERC-4626 vault backed by RISKUSD
 contract atRISKUSD is
@@ -28,6 +31,8 @@ contract atRISKUSD is
     AllowlistGatedUpgradeable
 {
     using SafeERC20 for IERC20;
+
+    AtRiskUSDStateModule private immutable _stateModule;
 
     // ============================================================
     // Errors
@@ -77,6 +82,25 @@ contract atRISKUSD is
     error EmergencyRecoveryWindowClosed();
     error YieldSourceReachable();
     error NotTotalLossState();
+    error YieldClaimsUnavailable(address source);
+    error YieldClaimsNotReady(address source);
+    error YieldSourceClaimOutstanding(address source, uint256 claim);
+    error YieldSourceWiringMismatch(address source);
+    error YieldSourceAttestorUnavailable(address source, address attestor);
+    error YieldSourceCallerNotEligible(address source, address caller);
+    error YieldSourceBridgeUnavailable(address source, address bridge);
+    error YieldSourceBridgeRouteMismatch(
+        address source, address bridge, address expectedTreasury, address actualTreasury
+    );
+    error YieldAssetValueOverflow(uint256 funded, uint256 claim);
+    error UnfundedZeroSupplyClaim(uint256 claim);
+    error ZeroSupplyYield();
+    error InsufficientFundedAssets(uint256 requested, uint256 available);
+    error FinalClaimBurn(uint256 claim);
+    error NoPositiveWithdrawalSlice(uint256 remainingCap);
+    error ExpiryHeapInvariant(uint256 expiry);
+    error ModuleReturnDataInvalid();
+    error SafeERC20FailedOperation(address token);
 
     // ============================================================
     // Events
@@ -134,23 +158,6 @@ contract atRISKUSD is
         SharesRecovering
     }
 
-    enum PendingWithdrawalLayoutKind {
-        Empty,
-        Current,
-        CooldownFirst,
-        Ambiguous
-    }
-
-    struct PendingWithdrawalWords {
-        uint256 shares;
-        uint256 assetSnapshot;
-        uint256 requestTimestamp;
-        uint256 word3;
-        uint256 word4;
-        uint256 word5;
-        uint256 word6;
-    }
-
     // ============================================================
     // State
     // ============================================================
@@ -191,7 +198,8 @@ contract atRISKUSD is
     uint256 private _autoRenewDisabledTrackedCount;
     uint256 private _earliestAutoRenewDisabledExpiry;
     mapping(address => PendingWithdrawalMigrationState) private _pendingWithdrawalMigrationState;
-    uint256[30] private __gap;
+    mapping(uint256 => uint256) private _autoRenewDisabledExpiryHeapIndexPlusOne;
+    uint256[29] private __gap;
 
     // Constants
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-002 (11th audit)
@@ -207,6 +215,7 @@ contract atRISKUSD is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+        _stateModule = new AtRiskUSDStateModule();
     }
 
     // ============================================================
@@ -256,16 +265,14 @@ contract atRISKUSD is
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (assets == 0) revert ZeroAmount();
         _requireNoLossPending(); // OF-13-056: Block fresh inflows during loss
+        _requireNoUnfundedZeroSupplyClaim();
         _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
         _requireAllowedBeneficiary(receiver);
-        uint256 backingPerShareBefore = _backingPerShareRay();
+        _requirePendingWithdrawalLayoutReady(receiver);
         _extendLockup(receiver);
-
-        uint256 shares = super.deposit(assets, receiver);
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
-        return shares;
+        return _delegateStateModuleUint(abi.encodeCall(AtRiskUSDStateModule.deposit, (assets, receiver)));
     }
 
     function mint(uint256 shares, address receiver)
@@ -279,16 +286,14 @@ contract atRISKUSD is
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
         _requireNoLossPending(); // OF-14-002: Block mint during lossPending (same as deposit)
+        _requireNoUnfundedZeroSupplyClaim();
         _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
         _requireAllowedBeneficiary(receiver);
-        uint256 backingPerShareBefore = _backingPerShareRay();
+        _requirePendingWithdrawalLayoutReady(receiver);
         _extendLockup(receiver);
-
-        uint256 assets = super.mint(shares, receiver);
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
-        return assets;
+        return _delegateStateModuleUint(abi.encodeCall(AtRiskUSDStateModule.mint, (shares, receiver)));
     }
 
     // ============================================================
@@ -297,6 +302,7 @@ contract atRISKUSD is
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
         super._deposit(caller, receiver, assets, shares);
         _legitimateAssets += assets;
+        _notifyVaultRegistryAssetsChanged();
     }
 
     function _withdraw(address caller, address receiver, address owner_, uint256 assets, uint256 shares)
@@ -328,12 +334,8 @@ contract atRISKUSD is
         _requireNotBlocked(_owner);
         _requireAllowedBeneficiary(receiver);
         _requireAllowedBeneficiary(_owner);
-        uint256 backingPerShareBefore = _backingPerShareRay();
-        _ensureWeeklyWithdrawalCapacity(assets);
-        uint256 shares = super.withdraw(assets, receiver, _owner);
-        _weeklyWithdrawalUsed += assets;
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
-        return shares;
+        _requirePendingWithdrawalLayoutReady(_owner);
+        return _delegateStateModuleUint(abi.encodeCall(AtRiskUSDStateModule.withdraw, (assets, receiver, _owner)));
     }
 
     /// @dev OF-15-029: Added nonReentrant for defense-in-depth on withdrawal paths.
@@ -353,14 +355,8 @@ contract atRISKUSD is
         _requireNotBlocked(_owner);
         _requireAllowedBeneficiary(receiver);
         _requireAllowedBeneficiary(_owner);
-        uint256 backingPerShareBefore = _backingPerShareRay();
-        uint256 assets = previewRedeem(shares);
-        if (assets == 0) revert ZeroRedemptionOutput();
-        _ensureWeeklyWithdrawalCapacity(assets);
-        assets = super.redeem(shares, receiver, _owner);
-        _weeklyWithdrawalUsed += assets;
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
-        return assets;
+        _requirePendingWithdrawalLayoutReady(_owner);
+        return _delegateStateModuleUint(abi.encodeCall(AtRiskUSDStateModule.redeem, (shares, receiver, _owner)));
     }
 
     // ============================================================
@@ -371,6 +367,7 @@ contract atRISKUSD is
             paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
                 || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
                 || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_pendingWithdrawalLayoutReadyForView(receiver)
+                || (totalSupply() == 0 && _unfundedYieldClaim() != 0)
         ) return 0;
         return super.maxDeposit(receiver);
     }
@@ -380,23 +377,24 @@ contract atRISKUSD is
             paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
                 || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
                 || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_pendingWithdrawalLayoutReadyForView(receiver)
+                || (totalSupply() == 0 && _unfundedYieldClaim() != 0)
         ) return 0;
         return super.maxMint(receiver);
     }
 
     function maxWithdraw(address owner_) public view override returns (uint256) {
         if (!_canWithdrawInView(owner_)) return 0;
-        uint256 shares = _sharesWithdrawableInView(owner_);
-        uint256 assets = convertToAssets(shares);
+        uint256 shares = _sharesRedeemableWithFunds(owner_);
+        uint256 assets = previewRedeem(shares);
         uint256 capRemaining = weeklyWithdrawalRemaining();
         return assets < capRemaining ? assets : capRemaining;
     }
 
     function maxRedeem(address owner_) public view override returns (uint256) {
         if (!_canWithdrawInView(owner_)) return 0;
-        uint256 shares = _sharesWithdrawableInView(owner_);
+        uint256 shares = _sharesRedeemableWithFunds(owner_);
         uint256 capRemaining = weeklyWithdrawalRemaining();
-        if (convertToAssets(shares) > capRemaining) shares = convertToShares(capRemaining);
+        if (previewRedeem(shares) > capRemaining) shares = _sharesWithinAssetCap(capRemaining, shares);
         if (shares == 0 || previewRedeem(shares) == 0) return 0;
         return shares;
     }
@@ -407,25 +405,10 @@ contract atRISKUSD is
     function accrueYield(uint256 riskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
         if (msg.sender != _yieldSource) revert UnauthorizedYieldSource();
         if (riskusdAmount == 0) revert ZeroAmount();
+        if (totalSupply() == 0) revert ZeroSupplyYield();
         _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
-
-        uint256 supply = totalSupply();
-        uint256 assetsBefore = supply == 0 ? 0 : convertToAssets(supply);
-
-        // Transfer RISKUSD from yieldSource to vault
-        IERC20(asset()).safeTransferFrom(msg.sender, address(this), riskusdAmount);
-
-        _legitimateAssets += riskusdAmount;
-        _totalYieldAccrued += riskusdAmount;
-
-        uint256 assetsAfter = supply == 0 ? 0 : convertToAssets(supply);
-        if (assetsAfter < assetsBefore) {
-            emit ExchangeRateInvariantFailure(assetsBefore, assetsAfter);
-            revert ExchangeRateDecreased(assetsBefore, assetsAfter);
-        }
-
-        emit YieldAccrued(riskusdAmount);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.accrueYield, (riskusdAmount)));
     }
 
     /// @dev OF-L22: Loss reporting must work even when paused. Auth-gated by _yieldSource.
@@ -441,24 +424,7 @@ contract atRISKUSD is
         if (riskusdAmount > cap) {
             riskusdAmount = cap;
         }
-
-        // Transfer RISKUSD from vault to yieldSource
-        IERC20(asset()).safeTransfer(msg.sender, riskusdAmount);
-
-        _decreaseLegitimateAssets(riskusdAmount);
-        // Mirror OF-I06 on the tier weekly withdrawal basis: a loss absorbed inside the current
-        // weekly window must not leave the weekly cap computed from stale (pre-loss) assets.
-        if (
-            block.timestamp < _weeklyWithdrawalWindowStart + WEEKLY_WITHDRAWAL_WINDOW
-                && _weeklyWithdrawalWindowStartAssets > 0
-        ) {
-            _weeklyWithdrawalWindowStartAssets = _weeklyWithdrawalWindowStartAssets >= riskusdAmount
-                ? _weeklyWithdrawalWindowStartAssets - riskusdAmount
-                : 0;
-        }
-        _totalLossAbsorbed += riskusdAmount;
-
-        emit LossAbsorbed(riskusdAmount);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.absorbLoss, (riskusdAmount)));
     }
 
     // ============================================================
@@ -480,111 +446,53 @@ contract atRISKUSD is
         uint256 backingPerShareBefore = _backingPerShareRay();
         uint256 riskusdAmount = convertToAssets(atriskusdAmount);
         if (riskusdAmount == 0) revert ZeroRedemptionOutput();
-        _enforceWeeklyWithdrawalCap(riskusdAmount);
-        uint256 capWindowStart = _weeklyWithdrawalWindowStart;
-
-        _pendingWithdrawals[msg.sender] = PendingWithdrawal({
-            atriskusdAmount: atriskusdAmount,
-            riskusdAmount: riskusdAmount,
-            requestTimestamp: block.timestamp,
-            active: true,
-            cooldownPeriod: _cooldownPeriod,
-            weeklyCapWindowStart: capWindowStart,
-            weeklyCapReservedAssets: riskusdAmount
-        });
-        _pendingWithdrawalMigrationState[msg.sender] = PendingWithdrawalMigrationState.Confirmed;
-
-        // Transfer shares from user to contract (locks them)
-        _transfer(msg.sender, address(this), atriskusdAmount);
-
-        emit WithdrawalRequested(msg.sender, atriskusdAmount, riskusdAmount, block.timestamp + _cooldownPeriod);
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
+        _delegateStateModule(
+            abi.encodeCall(
+                AtRiskUSDStateModule.requestWithdrawal, (atriskusdAmount, riskusdAmount, backingPerShareBefore)
+            )
+        );
     }
 
     /// @param minAmountOut OF-M11: minimum RISKUSD payout, reverts if below. Pass 0 to accept any amount.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal(uint256 minAmountOut) external nonReentrant {
-        _executeWithdrawal(minAmountOut);
+    function executeWithdrawal(uint256 minAmountOut) external onlyAllowedCaller nonReentrant {
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.executeWithdrawal, (minAmountOut)));
     }
 
     /// @notice Backward-compatible overload with no slippage protection.
     /// @custom:deprecated OF-L09: Use executeWithdrawal(uint256 minAmountOut) instead for slippage protection.
     /// This overload passes minAmountOut=0, accepting any payout amount — vulnerable to sandwich attacks.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal() external nonReentrant {
+    function executeWithdrawal() external onlyAllowedCaller nonReentrant {
         _requirePendingWithdrawalLayoutReady(msg.sender);
         emit DeprecatedWithdrawalUsed(msg.sender, _pendingWithdrawals[msg.sender].riskusdAmount);
-        _executeWithdrawal(0);
-    }
-
-    function _executeWithdrawal(uint256 minAmountOut) private {
-        _requirePendingWithdrawalLayoutReady(msg.sender);
-        PendingWithdrawal storage pw = _pendingWithdrawals[msg.sender];
-        if (!pw.active) revert NoPendingWithdrawal();
-
-        // OF-001 (11th audit) + OF-NEW-05 (12th audit): Block withdrawal when loss is pending
-        _requireNoLossPending();
-
-        // Check cooldown elapsed — OF-M03: use stored cooldown, not current
-        uint256 cooldownEnd = pw.requestTimestamp + pw.cooldownPeriod;
-        if (block.timestamp < cooldownEnd) revert CooldownNotElapsed(cooldownEnd);
-        _requireNotBlocked(msg.sender);
-
-        uint256 sharesToBurn = pw.atriskusdAmount;
-        uint256 currentValue = convertToAssets(pw.atriskusdAmount);
-        uint256 riskusdToTransfer = currentValue < pw.riskusdAmount ? currentValue : pw.riskusdAmount;
-        uint256 capWindowStart = pw.weeklyCapWindowStart;
-        uint256 capReservedAssets = pw.weeklyCapReservedAssets;
-        bool hasReservation = capWindowStart != 0 && capReservedAssets != 0;
-        bool staleReservedWindow = false;
-        if (riskusdToTransfer == 0) revert ZeroRedemptionOutput();
-        if (hasReservation) {
-            staleReservedWindow = _refreshPendingWithdrawalWindow(capWindowStart);
-        }
-        if (!hasReservation || staleReservedWindow) {
-            _enforceWeeklyWithdrawalCap(riskusdToTransfer);
-        } else if (capReservedAssets < riskusdToTransfer) {
-            _enforceWeeklyWithdrawalCap(riskusdToTransfer - capReservedAssets);
-        }
-
-        // OF-M11: slippage protection
-        if (riskusdToTransfer < minAmountOut) revert SlippageExceeded(riskusdToTransfer, minAmountOut);
-
-        uint256 backingPerShareBefore = _backingPerShareRay();
-        delete _pendingWithdrawals[msg.sender];
-        delete _pendingWithdrawalMigrationState[msg.sender];
-        if (hasReservation && !staleReservedWindow && capReservedAssets > riskusdToTransfer) {
-            _refundWeeklyWithdrawalCap(capWindowStart, capReservedAssets - riskusdToTransfer);
-        }
-
-        // Burn the locked shares from contract
-        _burn(address(this), sharesToBurn);
-        _syncAutoRenewDisabledTracking(msg.sender);
-
-        // OF-16-025: State update before external call for strict CEI ordering
-        // OF-009 (11th audit): Decrement by transfer amount, not full share value.
-        // The excess (currentValue - riskusdToTransfer) from yield during cooldown stays
-        // in the vault as legitimate assets backing other depositors' shares.
-        _decreaseLegitimateAssets(riskusdToTransfer);
-
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
-        IERC20(asset()).safeTransfer(msg.sender, riskusdToTransfer);
-
-        emit WithdrawalExecuted(msg.sender, riskusdToTransfer);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.executeWithdrawal, (0)));
     }
 
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
     /// @dev OF-NEW-11 (12th audit): Gated by lossPending to prevent cancel→re-deposit optionality during loss window.
-    function cancelWithdrawal() external nonReentrant {
+    function cancelWithdrawal() external onlyAllowedCaller nonReentrant {
         _cancelPendingWithdrawal(msg.sender, true);
     }
 
-    function recoverPendingWithdrawal() external nonReentrant {
+    function recoverPendingWithdrawal() external onlyAllowedCaller nonReentrant {
         _requirePendingWithdrawalLayoutReady(msg.sender);
         if (!_emergencyRecoveryWindowOpen()) revert EmergencyRecoveryWindowClosed();
         if (!_yieldSourceIsUnreachable()) revert YieldSourceReachable();
         uint256 shares = _cancelPendingWithdrawal(msg.sender, false);
         emit UnreachableWithdrawalRecovered(msg.sender, shares);
+    }
+
+    function burnWorthlessShares(uint256 shares) external onlyAllowedCaller whenNotPaused nonReentrant {
+        if (shares == 0) revert ZeroAmount();
+        if (totalSupply() == 0 || totalAssets() != 0) revert NotTotalLossState();
+        _requirePendingWithdrawalLayoutReady(msg.sender);
+        if (_pendingWithdrawals[msg.sender].active) revert PendingWithdrawalExists();
+        _requireNoLossPending();
+        _requireNotBlocked(msg.sender);
+
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.burnWorthlessShares, (shares)));
+        emit WorthlessSharesBurned(msg.sender, shares);
     }
 
     function _cancelPendingWithdrawal(address beneficiary, bool requireNoLoss) private returns (uint256 shares) {
@@ -595,28 +503,13 @@ contract atRISKUSD is
         _requireNotBlocked(beneficiary);
 
         shares = pw.atriskusdAmount;
-        uint256 capWindowStart = pw.weeklyCapWindowStart;
-        uint256 capReservedAssets = pw.weeklyCapReservedAssets;
-
-        delete _pendingWithdrawals[beneficiary];
-        delete _pendingWithdrawalMigrationState[beneficiary];
-        _refundWeeklyWithdrawalCap(capWindowStart, capReservedAssets);
-
-        _transfer(address(this), beneficiary, shares);
-
-        emit WithdrawalCancelled(beneficiary, shares);
-    }
-
-    function burnWorthlessShares(uint256 shares) external whenNotPaused nonReentrant {
-        if (shares == 0) revert ZeroAmount();
-        if (totalSupply() == 0 || totalAssets() != 0) revert NotTotalLossState();
-        _requirePendingWithdrawalLayoutReady(msg.sender);
-        if (_pendingWithdrawals[msg.sender].active) revert PendingWithdrawalExists();
-        _requireNoLossPending();
-        _requireNotBlocked(msg.sender);
-
-        _burn(msg.sender, shares);
-        emit WorthlessSharesBurned(msg.sender, shares);
+        AtRiskUSDStateModule.WithdrawalCancellation memory cancellation = AtRiskUSDStateModule.WithdrawalCancellation({
+            beneficiary: beneficiary,
+            shares: shares,
+            capWindowStart: pw.weeklyCapWindowStart,
+            capReservedAssets: pw.weeklyCapReservedAssets
+        });
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.finishPendingWithdrawalCancellation, (cancellation)));
     }
 
     // ============================================================
@@ -643,18 +536,7 @@ contract atRISKUSD is
         _requireNotBlocked(depositor);
         _requireAllowedBeneficiary(depositor);
 
-        uint256 backingPerShareBefore = _backingPerShareRay();
-        assets = previewRedeem(shares);
-        if (assets == 0) revert ZeroRedemptionOutput();
-        _enforceWeeklyWithdrawalCap(assets);
-
-        _burn(depositor, shares);
-
-        IERC20(asset()).safeTransfer(msg.sender, assets);
-        emit Withdraw(msg.sender, msg.sender, depositor, assets, shares);
-
-        _decreaseLegitimateAssets(assets);
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
+        assets = _delegateStateModuleUint(abi.encodeCall(AtRiskUSDStateModule.redeemForUpgrade, (depositor, shares)));
     }
 
     function redeemForReversion(address depositor, uint256 shares)
@@ -680,18 +562,7 @@ contract atRISKUSD is
         _requireNotBlocked(depositor);
         _requireAllowedBeneficiary(depositor);
 
-        uint256 backingPerShareBefore = _backingPerShareRay();
-        assets = previewRedeem(shares);
-        if (assets == 0) revert ZeroRedemptionOutput();
-        _enforceWeeklyWithdrawalCap(assets);
-
-        _burn(depositor, shares);
-
-        IERC20(asset()).safeTransfer(msg.sender, assets);
-        emit Withdraw(msg.sender, msg.sender, depositor, assets, shares);
-
-        _decreaseLegitimateAssets(assets);
-        _assertBackingPerShareNotDecreased(backingPerShareBefore);
+        assets = _delegateStateModuleUint(abi.encodeCall(AtRiskUSDStateModule.redeemForReversion, (depositor, shares)));
     }
 
     function renewLockup(address depositor) external onlyAllowedCaller whenNotPaused nonReentrant returns (uint256) {
@@ -703,19 +574,18 @@ contract atRISKUSD is
 
         if (_autoRenewDisabled[depositor]) revert AutoRenewDisabled();
 
-        _lockExpiry[depositor] = block.timestamp + _lockupPeriod;
-        _syncAutoRenewDisabledTracking(depositor);
+        uint256 newExpiry = block.timestamp + _lockupPeriod;
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.setLockExpiry, (depositor, newExpiry)));
 
-        emit LockupRenewed(depositor, _lockExpiry[depositor]);
-        return _lockExpiry[depositor];
+        emit LockupRenewed(depositor, newExpiry);
+        return newExpiry;
     }
 
     // ============================================================
     // Auto-Renewal
     // ============================================================
     function setAutoRenew(bool enabled) external onlyAllowedCaller {
-        _autoRenewDisabled[msg.sender] = !enabled;
-        _syncAutoRenewDisabledTracking(msg.sender);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.setAutoRenewDisabled, (msg.sender, !enabled)));
         emit AutoRenewChanged(msg.sender, enabled);
     }
 
@@ -736,13 +606,7 @@ contract atRISKUSD is
         if (_pendingYieldSource == address(0)) revert ZeroAddress();
         if (block.timestamp < _yieldSourceProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _yieldSourceProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        address old = _yieldSource;
-        _yieldSource = _pendingYieldSource;
-        _pendingYieldSource = address(0);
-        _yieldSourceProposedAt = 0;
-        _emergencyLossPendingOverride = false; // OF-21-018: clear override on yield source change
-        _emergencyLossPendingOverrideUntil = 0;
-        emit YieldSourceUpdated(old, _yieldSource);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.applyPendingYieldSource, ()));
     }
 
     /// @notice OF-H02: setStakingQueue now only proposes — no instant effect.
@@ -759,11 +623,7 @@ contract atRISKUSD is
         if (_pendingStakingQueue == address(0)) revert ZeroAddress();
         if (block.timestamp < _stakingQueueProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _stakingQueueProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        address old = _stakingQueue;
-        _stakingQueue = _pendingStakingQueue;
-        _pendingStakingQueue = address(0);
-        _stakingQueueProposedAt = 0;
-        emit StakingQueueUpdated(old, _stakingQueue);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.applyPendingStakingQueue, ()));
     }
 
     /// @notice OF-H02: Propose a new yield source (two-step handoff). Only owner can propose.
@@ -779,13 +639,7 @@ contract atRISKUSD is
         if (msg.sender != _pendingYieldSource) revert NotPendingYieldSource();
         if (block.timestamp < _yieldSourceProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _yieldSourceProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        address old = _yieldSource;
-        _yieldSource = _pendingYieldSource;
-        _pendingYieldSource = address(0);
-        _yieldSourceProposedAt = 0;
-        _emergencyLossPendingOverride = false; // OF-21-018: clear override on yield source change
-        _emergencyLossPendingOverrideUntil = 0;
-        emit YieldSourceUpdated(old, _yieldSource);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.applyPendingYieldSource, ()));
     }
 
     /// @notice OF-H02: View the pending yield source address.
@@ -812,11 +666,7 @@ contract atRISKUSD is
         if (msg.sender != _pendingStakingQueue) revert NotPendingStakingQueue();
         if (block.timestamp < _stakingQueueProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _stakingQueueProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        address old = _stakingQueue;
-        _stakingQueue = _pendingStakingQueue;
-        _pendingStakingQueue = address(0);
-        _stakingQueueProposedAt = 0;
-        emit StakingQueueUpdated(old, _stakingQueue);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.applyPendingStakingQueue, ()));
     }
 
     /// @notice OF-H02: View the pending staking queue address.
@@ -843,11 +693,7 @@ contract atRISKUSD is
         if (_pendingForageGovernor == address(0)) revert NoPendingForageGovernor();
         if (block.timestamp < _pendingForageGovernorProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingForageGovernorProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        address old = _forageGovernor;
-        _forageGovernor = _pendingForageGovernor;
-        _pendingForageGovernor = address(0);
-        _pendingForageGovernorProposedAt = 0;
-        emit ForageGovernorSet(old, _forageGovernor);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.applyPendingForageGovernor, ()));
     }
 
     function clearPendingForageGovernor() external onlyAllowedCaller onlyOwner {
@@ -1019,47 +865,9 @@ contract atRISKUSD is
         onlyOwner
         nonReentrant
     {
-        if (requester == address(0)) revert ZeroAddress();
-        PendingWithdrawalMigrationState migrationState = _pendingWithdrawalMigrationState[requester];
-        if (migrationState == PendingWithdrawalMigrationState.SharesRecovering) {
-            revert PendingWithdrawalMigrationAlreadyConfirmed(requester);
-        }
-        if (migrationState == PendingWithdrawalMigrationState.Confirmed) {
-            revert PendingWithdrawalMigrationAlreadyConfirmed(requester);
-        }
-
-        PendingWithdrawalWords memory words = _loadPendingWithdrawalWords(requester);
-        PendingWithdrawalLayoutKind kind = _pendingWithdrawalLayoutKind(words);
-        if (sourceLayout == PendingWithdrawalLayout.ShareOnlyRecovery) {
-            _recoverUnclassifiedPendingWithdrawalShares(requester, words, kind);
-            return;
-        }
-
-        if (words.shares == 0) revert AmbiguousPendingWithdrawalLayout(requester);
-        uint256 cooldown;
-        if (sourceLayout == PendingWithdrawalLayout.CooldownFirst) {
-            if (words.word3 == 1 || words.word4 != 1 || words.word5 != 0 || words.word6 != 0) {
-                revert AmbiguousPendingWithdrawalLayout(requester);
-            }
-            cooldown = words.word3;
-            bytes32 base = _pendingWithdrawalStorageBase(requester);
-            assembly {
-                sstore(add(base, 3), 1)
-                sstore(add(base, 4), cooldown)
-                sstore(add(base, 5), 0)
-                sstore(add(base, 6), 0)
-            }
-        } else if (sourceLayout == PendingWithdrawalLayout.ActiveFirst) {
-            if (words.word3 != 1 || (words.word5 == 0) != (words.word6 == 0)) {
-                revert AmbiguousPendingWithdrawalLayout(requester);
-            }
-            cooldown = words.word4;
-        } else {
-            revert UnsupportedPendingWithdrawalLayout(uint8(sourceLayout));
-        }
-
-        _pendingWithdrawalMigrationState[requester] = PendingWithdrawalMigrationState.Confirmed;
-        emit PendingWithdrawalLayoutMigrated(requester, cooldown);
+        _delegateStateModule(
+            abi.encodeCall(AtRiskUSDStateModule.migratePendingWithdrawalLayout, (requester, uint8(sourceLayout)))
+        );
     }
 
     function totalYieldAccrued() external view returns (uint256) {
@@ -1077,114 +885,66 @@ contract atRISKUSD is
         }
         if (migrationState == PendingWithdrawalMigrationState.Confirmed) return;
 
-        PendingWithdrawalLayoutKind kind = _pendingWithdrawalLayoutKind(_loadPendingWithdrawalWords(requester));
-        if (kind == PendingWithdrawalLayoutKind.CooldownFirst) {
+        AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind kind =
+            _pendingWithdrawalLayoutKind(_loadPendingWithdrawalWords(requester));
+        if (kind == AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind.CooldownFirst) {
             revert PendingWithdrawalMigrationRequired(requester);
         }
-        if (kind == PendingWithdrawalLayoutKind.Ambiguous) {
+        if (kind == AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind.Ambiguous) {
             revert AmbiguousPendingWithdrawalLayout(requester);
         }
+    }
+
+    function _requireWithdrawalApprovalDuration() private view {
+        IAllowlist registry = IAllowlist(allowlist());
+        if (registry.isSystemAccount(msg.sender)) return;
+        uint256 cooldown = _cooldownPeriod;
+        if (cooldown > type(uint256).max - WEEKLY_WITHDRAWAL_WINDOW) revert AllowlistHorizonOverflow();
+        uint256 horizon = cooldown + WEEKLY_WITHDRAWAL_WINDOW;
+        if (block.timestamp > type(uint256).max - horizon) revert AllowlistHorizonOverflow();
+        uint256 requiredUntil = block.timestamp + horizon;
+        uint256 allowedUntil = registry.allowedUntil(msg.sender);
+        if (allowedUntil < requiredUntil) revert InsufficientAllowlistDuration(requiredUntil, allowedUntil);
     }
 
     function _pendingWithdrawalLayoutReadyForView(address requester) private view returns (bool) {
         PendingWithdrawalMigrationState migrationState = _pendingWithdrawalMigrationState[requester];
         if (migrationState == PendingWithdrawalMigrationState.Confirmed) return true;
         if (migrationState == PendingWithdrawalMigrationState.SharesRecovering) return false;
-        PendingWithdrawalLayoutKind kind = _pendingWithdrawalLayoutKind(_loadPendingWithdrawalWords(requester));
-        return kind == PendingWithdrawalLayoutKind.Empty || kind == PendingWithdrawalLayoutKind.Current;
+        AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind kind =
+            _pendingWithdrawalLayoutKind(_loadPendingWithdrawalWords(requester));
+        return kind == AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind.Empty
+            || kind == AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind.Current;
     }
 
     function _loadPendingWithdrawalWords(address requester)
         private
         view
-        returns (PendingWithdrawalWords memory words)
+        returns (AtRiskUSDStateModuleStorage.PendingWithdrawalWords memory words)
     {
-        bytes32 base = _pendingWithdrawalStorageBase(requester);
-        assembly {
-            mstore(words, sload(base))
-            mstore(add(words, 32), sload(add(base, 1)))
-            mstore(add(words, 64), sload(add(base, 2)))
-            mstore(add(words, 96), sload(add(base, 3)))
-            mstore(add(words, 128), sload(add(base, 4)))
-            mstore(add(words, 160), sload(add(base, 5)))
-            mstore(add(words, 192), sload(add(base, 6)))
-        }
-    }
-
-    function _pendingWithdrawalLayoutKind(PendingWithdrawalWords memory words)
-        private
-        pure
-        returns (PendingWithdrawalLayoutKind)
-    {
-        if (
-            words.shares == 0 && words.assetSnapshot == 0 && words.requestTimestamp == 0 && words.word3 == 0
-                && words.word4 == 0 && words.word5 == 0 && words.word6 == 0
-        ) return PendingWithdrawalLayoutKind.Empty;
-
-        bool reservationsPaired = (words.word5 == 0) == (words.word6 == 0);
-        if (words.word3 == 1 && reservationsPaired) {
-            if (words.word4 == 1 && words.word5 == 0) return PendingWithdrawalLayoutKind.Ambiguous;
-            return PendingWithdrawalLayoutKind.Current;
-        }
-        if (words.word4 == 1 && words.word3 != 1 && words.shares != 0 && words.word5 == 0 && words.word6 == 0) {
-            return PendingWithdrawalLayoutKind.CooldownFirst;
-        }
-        return PendingWithdrawalLayoutKind.Ambiguous;
-    }
-
-    function _recoverUnclassifiedPendingWithdrawalShares(
-        address requester,
-        PendingWithdrawalWords memory words,
-        PendingWithdrawalLayoutKind kind
-    ) private {
-        if (kind == PendingWithdrawalLayoutKind.Empty) revert NoPendingWithdrawal();
-        if (kind == PendingWithdrawalLayoutKind.Current) {
-            revert PendingWithdrawalShareRecoveryNotNeeded(requester);
-        }
-        if (words.shares == 0) revert AmbiguousPendingWithdrawalLayout(requester);
-
-        if (_emergencyRecoveryWindowOpen()) {
-            if (!_yieldSourceIsUnreachable()) revert YieldSourceReachable();
-        } else {
-            _requireNoLossPending();
-        }
-        uint256 escrowed = balanceOf(address(this));
-        if (words.shares > escrowed) {
-            revert PendingWithdrawalShareRecoveryUnavailable(requester, words.shares, escrowed);
-        }
-
-        _pendingWithdrawalMigrationState[requester] = PendingWithdrawalMigrationState.SharesRecovering;
-        _transfer(address(this), requester, words.shares);
-        bytes32 base = _pendingWithdrawalStorageBase(requester);
-        assembly {
-            sstore(base, 0)
-            sstore(add(base, 1), 0)
-            sstore(add(base, 2), 0)
-            sstore(add(base, 3), 0)
-            sstore(add(base, 4), 0)
-            sstore(add(base, 5), 0)
-            sstore(add(base, 6), 0)
-        }
-        delete _pendingWithdrawalMigrationState[requester];
-        emit PendingWithdrawalSharesRecovered(requester, words.shares);
-    }
-
-    function _pendingWithdrawalStorageBase(address requester) private pure returns (bytes32 base) {
         uint256 mappingSlot;
         assembly {
             mappingSlot := _pendingWithdrawals.slot
         }
-        return keccak256(abi.encode(requester, mappingSlot));
+        return AtRiskUSDStateModuleStorage.loadPendingWithdrawalWords(requester, mappingSlot);
+    }
+
+    function _pendingWithdrawalLayoutKind(AtRiskUSDStateModuleStorage.PendingWithdrawalWords memory words)
+        private
+        view
+        returns (AtRiskUSDStateModuleStorage.PendingWithdrawalLayoutKind)
+    {
+        return _stateModule.classifyPendingWithdrawalLayout(words);
     }
 
     // ============================================================
     // UUPS
     // ============================================================
-    /// @notice Reinitializer for UUPS upgrade — seeds _legitimateAssets from raw asset balance.
-    /// @dev OF-17-001: Uses IERC20(asset()).balanceOf(address(this)) instead of totalAssets()
-    /// to break the circular dependency introduced by OF-16-007 (totalAssets returns _legitimateAssets).
+    /// @notice Reinitializer for UUPS upgrade — seeds funded assets from the raw asset balance.
+    /// @dev OF-17-001: Uses IERC20(asset()).balanceOf(address(this)) to seed only funded assets.
     function initializeV2() external onlyAllowedCaller reinitializer(2) onlyOwner {
         _legitimateAssets = IERC20(asset()).balanceOf(address(this));
+        _notifyVaultRegistryAssetsChanged();
     }
 
     function initializeV3(string memory abbreviation_) external onlyAllowedCaller reinitializer(3) onlyOwner {
@@ -1227,8 +987,21 @@ contract atRISKUSD is
         super.acceptOwnership();
     }
 
-    /// @notice Point the caller gate at an allowlist registry; not itself gated.
-    function setAllowlist(address allowlist_) external onlyOwner {
+    function setAllowlist(address allowlist_) external {
+        if (allowlist() == address(0)) {
+            if (msg.sender != owner()) revert OwnableUnauthorizedAccount(msg.sender);
+            if (allowlist_ == address(0) || allowlist_.code.length == 0) revert IAllowlist.AllowlistUnavailable();
+            IAllowlist proposedAllowlist = IAllowlist(allowlist_);
+            if (!proposedAllowlist.isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
+            if (!proposedAllowlist.isSystemAccount(address(this))) {
+                revert IAllowlist.CallerNotAllowed(address(this));
+            }
+            _setAllowlist(allowlist_);
+            return;
+        }
+        _checkAllowedCaller();
+        if (msg.sender != owner()) revert OwnableUnauthorizedAccount(msg.sender);
+        _validateAllowlistTransition(allowlist_);
         _setAllowlist(allowlist_);
     }
 
@@ -1236,36 +1009,7 @@ contract atRISKUSD is
     // Transfer Lock Semantics
     // ============================================================
     function _update(address from, address to, uint256 value) internal override {
-        // Block transfers while sender is locked (except mint/burn and self-transfers for cooldown)
-        if (from != address(0) && to != address(0) && value > 0) {
-            // Allow StakingQueue and contract itself (cooldown operations)
-            if (from != _stakingQueue && from != address(this)) {
-                if (block.timestamp < _lockExpiry[from]) {
-                    revert LockupNotExpired(_lockExpiry[from]);
-                }
-                if (to != address(this) && _hasExpiredAutoRenewDisabledAccount(from)) {
-                    revert ExpiredAutoRenewDisabledLockup();
-                }
-            }
-        }
-        if (from != address(0)) {
-            _requireNotBlocked(from);
-        }
-        if (to != address(0)) {
-            _requireNotBlocked(to);
-        }
-
-        super._update(from, to, value);
-
-        // OF-16-024: StakingQueue lockup propagation removed — _lockExpiry[_stakingQueue] is always 0
-        // because StakingQueue never has its own lockup set. Actual lockup is set in deposit() at
-        // line 170 BEFORE super.deposit() triggers _update. The propagation was dead code.
-        if (from != address(0)) {
-            _syncAutoRenewDisabledTracking(from);
-        }
-        if (to != address(0) && to != from) {
-            _syncAutoRenewDisabledTracking(to);
-        }
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.update, (from, to, value)));
     }
 
     function approve(address spender, uint256 value) public override(ERC20Upgradeable, IERC20) returns (bool) {
@@ -1276,24 +1020,15 @@ contract atRISKUSD is
         return super.approve(spender, value);
     }
 
-    function transfer(address to, uint256 value)
-        public
-        override(ERC20Upgradeable, IERC20)
-        onlyAllowedCaller
-        returns (bool)
-    {
-        _requireAllowedBeneficiary(to);
+    function transfer(address to, uint256 value) public override(ERC20Upgradeable, IERC20) returns (bool) {
         return super.transfer(to, value);
     }
 
     function transferFrom(address from, address to, uint256 value)
         public
         override(ERC20Upgradeable, IERC20)
-        onlyAllowedCaller
         returns (bool)
     {
-        _requireAllowedBeneficiary(from);
-        _requireAllowedBeneficiary(to);
         _requireNotBlocked(msg.sender);
         return super.transferFrom(from, to, value);
     }
@@ -1301,11 +1036,54 @@ contract atRISKUSD is
     // ============================================================
     // Internal Helpers
     // ============================================================
-    /// @notice OF-16-007: Override totalAssets() to return _legitimateAssets instead of raw balance.
-    /// Prevents donation amplification — direct RISKUSD transfers to the vault cannot inflate
-    /// the share price visible through convertToAssets/convertToShares.
+    /// @notice Reports funded assets plus recognized yield claims, excluding direct donations.
     function totalAssets() public view override returns (uint256) {
-        return _legitimateAssets;
+        uint256 claim = _unfundedYieldClaim();
+        if (claim >= type(uint256).max - _legitimateAssets) {
+            revert YieldAssetValueOverflow(_legitimateAssets, claim);
+        }
+        return _legitimateAssets + claim;
+    }
+
+    function _unfundedYieldClaim() private view returns (uint256 claim) {
+        address source = _yieldSource;
+        if (source.code.length == 0) revert YieldClaimsUnavailable(source);
+        IUSDCTreasuryYieldClaims claims = IUSDCTreasuryYieldClaims(source);
+        bool ready;
+        try claims.yieldClaimsReady() returns (bool value) {
+            ready = value;
+        } catch {
+            revert YieldClaimsUnavailable(source);
+        }
+        if (!ready) revert YieldClaimsNotReady(source);
+        try claims.unfundedYieldClaim(address(this)) returns (uint256 value) {
+            claim = value;
+        } catch {
+            revert YieldClaimsUnavailable(source);
+        }
+    }
+
+    function _requireNoUnfundedZeroSupplyClaim() private view {
+        if (totalSupply() != 0) return;
+        uint256 claim = _unfundedYieldClaim();
+        if (claim != 0) revert UnfundedZeroSupplyClaim(claim);
+    }
+
+    function _sharesWithinAssetCap(uint256 cap, uint256 shareLimit) private view returns (uint256 shares) {
+        uint256 assets = totalAssets();
+        if (cap >= assets) return shareLimit;
+        uint256 numerator = totalSupply() + SHARE_SCALE;
+        shares = Math.mulDiv(cap + 1, numerator, assets + 1, Math.Rounding.Ceil) - 1;
+        if (shares > shareLimit) shares = shareLimit;
+    }
+
+    function _sharesRedeemableWithFunds(address owner_) private view returns (uint256 shares) {
+        shares = _sharesWithdrawableInView(owner_);
+        uint256 supply = totalSupply();
+        if (supply == 0 || shares == 0) return 0;
+        uint256 fundedLimit = _sharesWithinAssetCap(_legitimateAssets, supply);
+        if (shares > fundedLimit) shares = fundedLimit;
+        if (shares == supply && _unfundedYieldClaim() != 0) --shares;
     }
 
     function _decimalsOffset() internal pure override returns (uint8) {
@@ -1399,120 +1177,35 @@ contract atRISKUSD is
     }
 
     function _extendLockup(address receiver) private {
-        uint256 newExpiry = block.timestamp + _lockupPeriod;
-        if (newExpiry > _lockExpiry[receiver]) {
-            _lockExpiry[receiver] = newExpiry;
-            _syncAutoRenewDisabledTracking(receiver);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.extendLockup, (receiver)));
+    }
+
+    function _delegateStateModule(bytes memory callData) private {
+        address module = address(_stateModule);
+        assembly {
+            let success := delegatecall(gas(), module, add(callData, 32), mload(callData), 0, 0)
+            if iszero(success) {
+                let size := returndatasize()
+                returndatacopy(0, 0, size)
+                revert(0, size)
+            }
         }
+    }
+
+    function _delegateStateModuleUint(bytes memory callData) private returns (uint256 result) {
+        address module = address(_stateModule);
+        (bool success, bytes memory data) = module.delegatecall(callData);
+        if (!success) {
+            assembly {
+                revert(add(data, 32), mload(data))
+            }
+        }
+        if (data.length != 32) revert ModuleReturnDataInvalid();
+        result = abi.decode(data, (uint256));
     }
 
     function _syncAutoRenewDisabledTracking(address account) private {
-        uint256 expiry = _lockExpiry[account];
-        uint256 effectiveBalance = _autoRenewDisabledEffectiveBalance(account);
-        bool trackedExpired = _autoRenewDisabledTracked[account] && expiry != 0 && block.timestamp >= expiry;
-        if (
-            _lockupPeriod == 0 || (!_autoRenewDisabled[account] && !trackedExpired) || expiry == 0
-                || effectiveBalance == 0
-        ) {
-            _untrackAutoRenewDisabled(account);
-            return;
-        }
-
-        if (!_autoRenewDisabledTracked[account]) {
-            _autoRenewDisabledTracked[account] = true;
-            _autoRenewDisabledTrackedCount += 1;
-        }
-        if (_autoRenewDisabledTrackedExpiry[account] != expiry) {
-            uint256 oldExpiry = _autoRenewDisabledTrackedExpiry[account];
-            if (oldExpiry != 0) {
-                _autoRenewDisabledExpiryCounts[oldExpiry] -= 1;
-            }
-            _autoRenewDisabledTrackedExpiry[account] = expiry;
-            _autoRenewDisabledExpiryCounts[expiry] += 1;
-            _pushAutoRenewDisabledExpiry(account, expiry);
-        }
-        _pruneAutoRenewDisabledExpiryHeap();
-    }
-
-    function _autoRenewDisabledEffectiveBalance(address account) private view returns (uint256) {
-        if (_pendingWithdrawalMigrationState[account] == PendingWithdrawalMigrationState.SharesRecovering) {
-            return balanceOf(account);
-        }
-        _requirePendingWithdrawalLayoutReady(account);
-        PendingWithdrawal storage pending = _pendingWithdrawals[account];
-        uint256 pendingShares = pending.active ? pending.atriskusdAmount : 0;
-        return balanceOf(account) + pendingShares;
-    }
-
-    function _hasExpiredAutoRenewDisabledAccount(address account) private view returns (bool) {
-        uint256 expiry = _autoRenewDisabledTrackedExpiry[account];
-        return _autoRenewDisabledTracked[account] && expiry != 0 && block.timestamp >= expiry;
-    }
-
-    function _untrackAutoRenewDisabled(address account) private {
-        if (!_autoRenewDisabledTracked[account]) return;
-        _autoRenewDisabledTracked[account] = false;
-        uint256 oldExpiry = _autoRenewDisabledTrackedExpiry[account];
-        _autoRenewDisabledTrackedExpiry[account] = 0;
-        if (oldExpiry != 0) {
-            _autoRenewDisabledExpiryCounts[oldExpiry] -= 1;
-        }
-        uint256 count = _autoRenewDisabledTrackedCount;
-        _autoRenewDisabledTrackedCount = count == 0 ? 0 : count - 1;
-        if (_autoRenewDisabledTrackedCount == 0) {
-            _earliestAutoRenewDisabledExpiry = 0;
-            delete _autoRenewDisabledExpiryHeap;
-            return;
-        }
-        _pruneAutoRenewDisabledExpiryHeap();
-    }
-
-    function _pushAutoRenewDisabledExpiry(address, uint256 expiry) private {
-        _autoRenewDisabledExpiryHeap.push(expiry);
-        uint256 index = _autoRenewDisabledExpiryHeap.length - 1;
-        while (index != 0) {
-            uint256 parent = (index - 1) / 2;
-            if (_autoRenewDisabledExpiryHeap[parent] <= expiry) break;
-            _autoRenewDisabledExpiryHeap[index] = _autoRenewDisabledExpiryHeap[parent];
-            index = parent;
-        }
-        _autoRenewDisabledExpiryHeap[index] = expiry;
-    }
-
-    function _pruneAutoRenewDisabledExpiryHeap() private {
-        while (_autoRenewDisabledExpiryHeap.length != 0) {
-            uint256 root = _autoRenewDisabledExpiryHeap[0];
-            if (_autoRenewDisabledExpiryCounts[root] != 0) {
-                _earliestAutoRenewDisabledExpiry = root;
-                return;
-            }
-            _popAutoRenewDisabledExpiryHeap();
-        }
-        _earliestAutoRenewDisabledExpiry = 0;
-    }
-
-    function _popAutoRenewDisabledExpiryHeap() private {
-        uint256 length = _autoRenewDisabledExpiryHeap.length;
-        if (length == 1) {
-            _autoRenewDisabledExpiryHeap.pop();
-            return;
-        }
-
-        uint256 tail = _autoRenewDisabledExpiryHeap[length - 1];
-        _autoRenewDisabledExpiryHeap.pop();
-        uint256 index = 0;
-        uint256 child = 1;
-        while (child < length - 1) {
-            uint256 right = child + 1;
-            if (right < length - 1 && _autoRenewDisabledExpiryHeap[right] < _autoRenewDisabledExpiryHeap[child]) {
-                child = right;
-            }
-            if (_autoRenewDisabledExpiryHeap[child] >= tail) break;
-            _autoRenewDisabledExpiryHeap[index] = _autoRenewDisabledExpiryHeap[child];
-            index = child;
-            child = index * 2 + 1;
-        }
-        _autoRenewDisabledExpiryHeap[index] = tail;
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.syncAutoRenewDisabledTracking, (account)));
     }
 
     function _backingPerShareRay() private view returns (uint256) {
@@ -1531,6 +1224,20 @@ contract atRISKUSD is
     function _decreaseLegitimateAssets(uint256 amount) private {
         uint256 current = _legitimateAssets;
         _legitimateAssets = current >= amount ? current - amount : 0;
+        _notifyVaultRegistryAssetsChanged();
+    }
+
+    function _notifyVaultRegistryAssetsChanged() private {
+        address source = _yieldSource;
+        if (source.code.length == 0) revert YieldClaimsUnavailable(source);
+        address registry;
+        try IUSDCTreasuryYieldClaims(source).vaultRegistry() returns (address value) {
+            registry = value;
+        } catch {
+            revert YieldSourceWiringMismatch(source);
+        }
+        if (registry.code.length == 0) revert YieldSourceWiringMismatch(source);
+        IVaultRegistry(registry).onTierVaultAssetsChanged();
     }
 
     function _effectiveWeeklyWithdrawalCapBps() private view returns (uint256) {
@@ -1577,17 +1284,6 @@ contract atRISKUSD is
         if (assets > remaining) revert WeeklyWithdrawalCapExceeded(assets, remaining);
     }
 
-    function _refundWeeklyWithdrawalCap(uint256 windowStart, uint256 assets) private {
-        if (assets == 0 || windowStart == 0 || _weeklyWithdrawalWindowStart != windowStart) return;
-        uint256 used = _weeklyWithdrawalUsed;
-        _weeklyWithdrawalUsed = assets >= used ? 0 : used - assets;
-    }
-
-    function _refreshPendingWithdrawalWindow(uint256 reservedWindowStart) private returns (bool) {
-        _resetWeeklyWithdrawalWindowIfExpired();
-        return reservedWindowStart != _weeklyWithdrawalWindowStart;
-    }
-
     function _resetWeeklyWithdrawalWindowIfExpired() private {
         uint256 start = _weeklyWithdrawalWindowStart;
         if (start == 0 || block.timestamp > start + WEEKLY_WITHDRAWAL_WINDOW) {
@@ -1597,16 +1293,9 @@ contract atRISKUSD is
         }
     }
 
-    function _requireWithdrawalApprovalDuration() private view {
-        IAllowlist registry = IAllowlist(allowlist());
-        if (registry.isSystemAccount(msg.sender)) return;
-        uint256 cooldown = _cooldownPeriod;
-        if (cooldown > type(uint256).max - WEEKLY_WITHDRAWAL_WINDOW) revert AllowlistHorizonOverflow();
-        uint256 horizon = cooldown + WEEKLY_WITHDRAWAL_WINDOW;
-        if (block.timestamp > type(uint256).max - horizon) revert AllowlistHorizonOverflow();
-        uint256 requiredUntil = block.timestamp + horizon;
-        uint256 allowedUntil = registry.allowedUntil(msg.sender);
-        if (allowedUntil < requiredUntil) revert InsufficientAllowlistDuration(requiredUntil, allowedUntil);
+    function _refreshPendingWithdrawalWindow(uint256 reservedWindowStart) private returns (bool) {
+        _resetWeeklyWithdrawalWindowIfExpired();
+        return reservedWindowStart != _weeklyWithdrawalWindowStart;
     }
 
     function _requireAllowedBeneficiary(address account) private view {

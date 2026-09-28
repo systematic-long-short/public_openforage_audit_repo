@@ -129,6 +129,45 @@
   },
   {
     "type": "function",
+    "name": "_queueForageLockAction",
+    "inputs": [
+      {
+        "name": "action",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "admissionMode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
@@ -841,6 +880,40 @@
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "queueEntryProgress",
+    "inputs": [
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "remainingRiskusd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "remainingMinimumShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sharesMinted",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadlineCeiling",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -1932,6 +2005,37 @@
   },
   {
     "type": "event",
+    "name": "QueueEntryDemoted",
+    "inputs": [
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "remainingRiskusd",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reason",
+        "type": "bytes4",
+        "indexed": false,
+        "internalType": "bytes4"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "QueueEntrySkippedBlocked",
     "inputs": [
       {
@@ -2260,6 +2364,17 @@
   },
   {
     "type": "error",
+    "name": "BlocklistUnavailable",
+    "inputs": [
+      {
+        "name": "blocklist",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CallerNotAllowed",
     "inputs": [
       {
@@ -2371,6 +2486,69 @@
   },
   {
     "type": "error",
+    "name": "ForageLockAccountingMismatch",
+    "inputs": [
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "entryWeight",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "obligations",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "liveBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ForageLockBalanceUnavailable",
+    "inputs": [
+      {
+        "name": "forage",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ForageLockRequirementAccountingMismatch",
+    "inputs": [
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "entryRequirement",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "activeRequirements",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InternalOnly",
     "inputs": []
   },
@@ -2413,6 +2591,11 @@
   {
     "type": "error",
     "name": "InvalidTierUpgrade",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LegacyForageLockAccountingUnsupported",
     "inputs": []
   },
   {
@@ -2661,6 +2844,43 @@
   },
   {
     "type": "error",
+    "name": "TierVaultProbeFailed",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultUnavailable",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -2700,6 +2920,17 @@
     "type": "error",
     "name": "VaultNotActive",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultRegistryUnavailable",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

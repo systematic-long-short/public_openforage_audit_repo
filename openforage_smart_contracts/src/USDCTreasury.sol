@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
+import "./interfaces/IUSDCTreasuryYieldClaims.sol";
 import "./interfaces/IVaultRegistry.sol";
 
 interface IUSDCTreasuryBlocklist {
@@ -33,6 +34,7 @@ interface IRISKUSDVaultLossSettlement {
 
 interface IUSDCTreasuryTierVault {
     function legitimateAssets() external view returns (uint256);
+    function totalSupply() external view returns (uint256);
     function accrueYield(uint256 riskusdAmount) external;
     function absorbLoss(uint256 riskusdAmount) external;
     function totalYieldAccrued() external view returns (uint256);
@@ -51,9 +53,36 @@ contract USDCTreasury is
     UUPSUpgradeable,
     ReentrancyGuard,
     FinalizeDelayProfile,
-    AllowlistGatedUpgradeable
+    AllowlistGatedUpgradeable,
+    IUSDCTreasuryYieldClaims
 {
     using SafeERC20 for IERC20;
+
+    struct VaultFeeCarry {
+        uint16 protocolRemainder;
+        uint16 foundationRemainder;
+    }
+
+    struct LossRateWindow {
+        uint256 start;
+        uint256 tierAssets;
+        uint256 used;
+    }
+
+    struct PnLReturnState {
+        uint256 outstandingClaim;
+        uint256 existingPending;
+    }
+
+    struct PnLReturnAllocation {
+        uint256 protocol;
+        uint256 foundation;
+        uint256 retained;
+        uint256 vaultTopUp;
+        uint256 agent;
+        uint16 protocolRemainder;
+        uint16 foundationRemainder;
+    }
 
     error ZeroAddress();
     error ZeroAmount();
@@ -73,6 +102,8 @@ contract USDCTreasury is
     error PrincipalReturnsUseVault();
     error USDCAmountMismatch(uint256 expected, uint256 actual);
     error PnLNotRecognized(uint256 vaultId);
+    error PnLReturnAccountingUninitialized();
+    error PnLReturnExceedsUnpaidProfit(uint256 vaultId, uint256 requested, uint256 unpaid);
     error ProposalExpired();
     error InvalidLossRateCap(uint256 capBps);
     error LossRateCapWideningNotAllowed(uint256 requested, uint256 current);
@@ -85,6 +116,9 @@ contract USDCTreasury is
     error VaultTopUpAmountMismatch(uint256 provided, uint256 pending);
     error SettlementValueMismatch(address account, uint256 expected, uint256 actual);
     error TierVaultUnavailable(address tierVault);
+    error ZeroSupplyTier(address tierVault, uint256 amount);
+    error TierYieldClaimMismatch(uint256 vaultId, address tierVault, uint256 expected, uint256 actual);
+    error YieldClaimInvariant(uint256 vaultId, uint256 aggregateClaim, uint256 tierClaim);
 
     bytes32 public constant EARMARK_VAULT_TOP_UP = keccak256("VAULT_TOP_UP");
     bytes32 public constant EARMARK_AGENT_PAY = keccak256("AGENT_PAY");
@@ -105,10 +139,10 @@ contract USDCTreasury is
     uint256 public constant MAX_LOSS_RATE_CAP_BPS = type(uint16).max;
 
     IERC20 private _usdc;
-    address public riskusdVault;
-    address public vaultRegistry;
-    address public pnlAttestor;
-    address public hlTradingBridge;
+    address public override riskusdVault;
+    address public override vaultRegistry;
+    address public override pnlAttestor;
+    address public override hlTradingBridge;
     address public foundationPrimary;
     address public foundationBackup;
     address public protocolPrimary;
@@ -138,8 +172,14 @@ contract USDCTreasury is
     uint256 private _lossRateWindowUsed;
     uint256 private _lossRateWindowTierAssets;
     mapping(uint256 => mapping(uint8 => uint256)) private _fundedTierYield;
+    mapping(address => uint256) private _unfundedTierYieldClaim;
+    bool private _yieldClaimsReady;
+    mapping(uint256 => VaultFeeCarry) private _vaultFeeCarry;
+    mapping(uint256 => LossRateWindow) private _lossRateWindows;
+    mapping(uint256 => uint256) public unreturnedRecognizedProfit;
+    bool private _profitReturnAccountingInitialized;
 
-    uint256[23] private __gap;
+    uint256[17] private __gap;
 
     event PnLRecognized(uint256 indexed vaultId, int256 amount);
     event PrincipalReturned(uint256 amount);
@@ -191,6 +231,16 @@ contract USDCTreasury is
         _foundationAllocationBps = DEFAULT_FOUNDATION_ALLOCATION_BPS;
         _earmarkWindowStart[EARMARK_FOUNDATION] = block.timestamp;
         lossRateCapBps = DEFAULT_LOSS_RATE_CAP_BPS;
+        _yieldClaimsReady = true;
+        _profitReturnAccountingInitialized = true;
+    }
+
+    function yieldClaimsReady() external view override returns (bool) {
+        return _yieldClaimsReady;
+    }
+
+    function unfundedYieldClaim(address tierVault) external view override returns (uint256) {
+        return _unfundedTierYieldClaim[tierVault];
     }
 
     function setPnLAttestor(address attestor) external onlyAllowedCaller onlyOwner {
@@ -212,7 +262,7 @@ contract USDCTreasury is
     }
 
     function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+        _transitionAllowlist(allowlist_);
     }
 
     function setDistributor(address distributor_) external onlyAllowedCaller onlyOwner {
@@ -234,14 +284,18 @@ contract USDCTreasury is
         return _pendingDistributor;
     }
 
-    function recognizePnL(uint256 vaultId, int256 amount) external onlyAllowedCaller {
+    function recognizePnL(uint256 vaultId, int256 amount) external onlyAllowedCaller nonReentrant {
         if (msg.sender != pnlAttestor) revert UnauthorizedAttestor();
         if (amount >= 0) {
+            if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
             uint256 profit = SignedMath.abs(amount);
-            recognizedProfit[vaultId] += profit;
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
+            _validateYieldClaimProjection(vaultId, config);
+            recognizedProfit[vaultId] += profit;
+            unreturnedRecognizedProfit[vaultId] += profit;
             uint256 depositorYield = _recognizeTierYield(vaultId, profit, config);
             recognizedDepositorClaim[vaultId] += depositorYield;
+            _validateYieldClaimProjection(vaultId, config);
         } else {
             uint256 loss = SignedMath.abs(amount);
             if (_hasOpenAttestedLoss()) revert AttestedLossPending();
@@ -311,43 +365,82 @@ contract USDCTreasury is
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external onlyAllowedCaller nonReentrant {
         if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
         if (amount == 0) revert ZeroAmount();
+        if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
         if (recognizedProfit[vaultId] == 0) revert PnLNotRecognized(vaultId);
-        uint256 balanceBefore = _usdc.balanceOf(address(this));
-        _usdc.safeTransferFrom(msg.sender, address(this), amount);
-        uint256 received = _usdc.balanceOf(address(this)) - balanceBefore;
+        uint256 unpaid = unreturnedRecognizedProfit[vaultId];
+        if (amount > unpaid) revert PnLReturnExceedsUnpaidProfit(vaultId, amount, unpaid);
+        PnLReturnState memory state = _preflightPnLReturn(vaultId);
+        unreturnedRecognizedProfit[vaultId] = unpaid - amount;
+        _collectPnLReturn(amount);
+        PnLReturnAllocation memory allocation =
+            _calculatePnLReturnAllocation(vaultId, amount, state.outstandingClaim, state.existingPending);
+        _commitPnLReturn(vaultId, amount, allocation);
+    }
+
+    function _preflightPnLReturn(uint256 vaultId) private view returns (PnLReturnState memory state) {
+        VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
+        state.outstandingClaim = _validateYieldClaimProjection(vaultId, config);
+        state.existingPending = pendingVaultTopUp[vaultId];
+        if (state.existingPending > state.outstandingClaim) {
+            revert SettlementValueMismatch(address(this), state.outstandingClaim, state.existingPending);
+        }
+    }
+
+    function _collectPnLReturn(uint256 amount) private {
+        IERC20 token = _usdc;
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = token.balanceOf(address(this)) - balanceBefore;
         if (received != amount) revert USDCAmountMismatch(amount, received);
+    }
 
-        uint256 foundation = amount * PROTOCOL_SHARE_BPS / 10_000 * _foundationAllocationBps / 10_000;
-        uint256 retained = amount * PROTOCOL_SHARE_BPS / 10_000 - foundation;
-        uint256 claim = recognizedDepositorClaim[vaultId];
-        uint256 fundedClaim = fundedDepositorClaim[vaultId];
-        uint256 pendingClaim = pendingVaultTopUp[vaultId];
-        if (fundedClaim > claim || pendingClaim > claim - fundedClaim) {
-            revert SettlementValueMismatch(address(this), claim, fundedClaim + pendingClaim);
-        }
-        uint256 vaultTopUp = claim - fundedClaim - pendingClaim;
-        if (vaultTopUp > amount - foundation - retained) {
-            vaultTopUp = amount - foundation - retained;
-        }
-        uint256 agent = amount - foundation - retained - vaultTopUp;
-        pendingVaultTopUp[vaultId] += vaultTopUp;
+    function _calculatePnLReturnAllocation(
+        uint256 vaultId,
+        uint256 amount,
+        uint256 outstandingClaim,
+        uint256 existingPending
+    ) private view returns (PnLReturnAllocation memory allocation) {
+        VaultFeeCarry storage carry = _vaultFeeCarry[vaultId];
+        uint256 protocolRemainder = mulmod(amount, PROTOCOL_SHARE_BPS, 10_000) + carry.protocolRemainder;
+        allocation.protocol = Math.mulDiv(amount, PROTOCOL_SHARE_BPS, 10_000) + protocolRemainder / 10_000;
+        uint256 foundationRemainder =
+            mulmod(allocation.protocol, _foundationAllocationBps, 10_000) + carry.foundationRemainder;
+        allocation.foundation =
+            Math.mulDiv(allocation.protocol, _foundationAllocationBps, 10_000) + foundationRemainder / 10_000;
+        allocation.retained = allocation.protocol - allocation.foundation;
+        allocation.protocolRemainder = uint16(protocolRemainder % 10_000);
+        allocation.foundationRemainder = uint16(foundationRemainder % 10_000);
+        uint256 availableTopUp = amount - allocation.protocol;
+        allocation.vaultTopUp = outstandingClaim - existingPending;
+        if (allocation.vaultTopUp > availableTopUp) allocation.vaultTopUp = availableTopUp;
+        allocation.agent = availableTopUp - allocation.vaultTopUp;
+    }
 
-        earmarkBalance[EARMARK_FOUNDATION] += foundation;
-        earmarkBalance[EARMARK_PROTOCOL_RETAINED] += retained;
-        earmarkBalance[EARMARK_VAULT_TOP_UP] += vaultTopUp;
-        earmarkBalance[EARMARK_AGENT_PAY] += agent;
+    function _commitPnLReturn(uint256 vaultId, uint256 amount, PnLReturnAllocation memory allocation) private {
+        pendingVaultTopUp[vaultId] += allocation.vaultTopUp;
+        earmarkBalance[EARMARK_FOUNDATION] += allocation.foundation;
+        earmarkBalance[EARMARK_PROTOCOL_RETAINED] += allocation.retained;
+        earmarkBalance[EARMARK_VAULT_TOP_UP] += allocation.vaultTopUp;
+        earmarkBalance[EARMARK_AGENT_PAY] += allocation.agent;
+        VaultFeeCarry storage carry = _vaultFeeCarry[vaultId];
+        carry.protocolRemainder = allocation.protocolRemainder;
+        carry.foundationRemainder = allocation.foundationRemainder;
         emit PnLReturned(vaultId, amount);
     }
 
     function deliverVaultTopUp(uint256 vaultId, uint256 amount) external onlyAllowedCaller onlyOwner nonReentrant {
-        uint256[4] memory allocations = _prepareVaultTopUp(vaultId, amount);
         VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
+        uint256[4] memory allocations = _prepareVaultTopUp(vaultId, amount, config);
         IERC20 riskusd = _mintTopUpRISKUSD(amount);
-        _accrueTierYield(config, riskusd, allocations);
+        _accrueTierYield(vaultId, config, riskusd, allocations);
         emit VaultTopUpDelivered(vaultId, amount);
     }
 
-    function _prepareVaultTopUp(uint256 vaultId, uint256 amount) private returns (uint256[4] memory allocations) {
+    function _prepareVaultTopUp(uint256 vaultId, uint256 amount, VaultConfig memory config)
+        private
+        view
+        returns (uint256[4] memory allocations)
+    {
         uint256 pending = pendingVaultTopUp[vaultId];
         if (amount == 0) revert ZeroAmount();
         if (amount != pending) revert VaultTopUpAmountMismatch(amount, pending);
@@ -355,25 +448,19 @@ contract USDCTreasury is
         uint256 earmark = earmarkBalance[EARMARK_VAULT_TOP_UP];
         if (amount > earmark) revert InsufficientEarmark();
 
-        uint256 claim = recognizedDepositorClaim[vaultId];
-        uint256 funded = fundedDepositorClaim[vaultId];
-        if (funded > claim || amount > claim - funded) {
-            revert SettlementValueMismatch(address(this), claim, funded + amount);
+        uint256 outstandingClaim = _validateYieldClaimProjection(vaultId, config);
+        if (amount > outstandingClaim) {
+            revert SettlementValueMismatch(address(this), outstandingClaim, amount);
         }
 
-        uint256[4] memory outstanding = _outstandingTierYield(vaultId);
+        uint256[4] memory outstanding = _outstandingTierYield(vaultId, config);
         uint256 totalOutstanding = _sum(outstanding);
-        uint256 unfundedClaim = claim - funded;
-        if (totalOutstanding != unfundedClaim || amount > totalOutstanding) {
-            revert SettlementValueMismatch(address(0), unfundedClaim, totalOutstanding);
+        if (totalOutstanding != outstandingClaim || amount > totalOutstanding) {
+            revert SettlementValueMismatch(address(0), outstandingClaim, totalOutstanding);
         }
         allocations = _allocateCapped(amount, outstanding, totalOutstanding);
-
-        earmarkBalance[EARMARK_VAULT_TOP_UP] = earmark - amount;
-        pendingVaultTopUp[vaultId] = 0;
-        fundedDepositorClaim[vaultId] = funded + amount;
         for (uint8 i; i < 4; ++i) {
-            _fundedTierYield[vaultId][i] += allocations[i];
+            if (allocations[i] != 0) _requireTierHasSupply(config.tierVaults[i], allocations[i]);
         }
     }
 
@@ -391,7 +478,9 @@ contract USDCTreasury is
         _requireBalanceIncrease(riskusd, address(this), treasuryRiskusdBefore, amount);
     }
 
-    function _accrueTierYield(VaultConfig memory config, IERC20 riskusd, uint256[4] memory allocations) private {
+    function _accrueTierYield(uint256 vaultId, VaultConfig memory config, IERC20 riskusd, uint256[4] memory allocations)
+        private
+    {
         uint256 treasuryRiskusdBefore = riskusd.balanceOf(address(this));
         uint256 totalYield;
         for (uint8 i; i < 4; ++i) {
@@ -406,6 +495,7 @@ contract USDCTreasury is
             uint256 yieldTotalBefore = tier.totalYieldAccrued();
             riskusd.forceApprove(tierVault, yieldAmount);
             tier.accrueYield(yieldAmount);
+            _commitTierFunding(vaultId, i, tierVault, yieldAmount);
             riskusd.forceApprove(tierVault, 0);
             _requireValueIncrease(tierVault, assetsBefore, tier.legitimateAssets(), yieldAmount);
             _requireValueIncrease(tierVault, tierBalanceBefore, riskusd.balanceOf(tierVault), yieldAmount);
@@ -428,9 +518,8 @@ contract USDCTreasury is
 
         VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
         (uint256[4] memory tierAssets, uint256 totalTierAssets) = _tierAssetSnapshot(config);
-        _consumeLossRateBudget(loss, totalTierAssets);
-
         uint256 tierLoss = loss < totalTierAssets ? loss : totalTierAssets;
+        _consumeLossRateBudget(vaultId, tierLoss, totalTierAssets);
         uint256 retainedCover = loss - tierLoss;
         uint256 retained = earmarkBalance[EARMARK_PROTOCOL_RETAINED];
         if (retainedCover > retained) revert InsufficientEarmark();
@@ -591,10 +680,14 @@ contract USDCTreasury is
         returns (uint256 totalYield)
     {
         uint256[4] memory tierAssets;
+        uint256[4] memory tierYield;
         uint256 totalAssets;
         for (uint8 i; i < 4; ++i) {
             address tierVault = config.tierVaults[i];
-            if (tierVault == address(0)) continue;
+            if (tierVault == address(0)) {
+                if (config.status != VaultStatus.WindingDown) revert TierVaultUnavailable(tierVault);
+                continue;
+            }
             if (tierVault.code.length == 0) revert TierVaultUnavailable(tierVault);
             tierAssets[i] = IUSDCTreasuryTierVault(tierVault).legitimateAssets();
             totalAssets += tierAssets[i];
@@ -609,8 +702,21 @@ contract USDCTreasury is
                 uint256 weightedBps = 7_000 * uint256(config.yieldSplitsBps[i]);
                 yieldAmount = Math.mulDiv(tierProfit[i], weightedBps, 10_000 * splitTotal);
             }
-            _tierAccountingValue[vaultId][i] += yieldAmount;
+            if (yieldAmount != 0) _requireTierHasSupply(config.tierVaults[i], yieldAmount);
+            tierYield[i] = yieldAmount;
             totalYield += yieldAmount;
+        }
+        for (uint8 i; i < 4; ++i) {
+            uint256 yieldAmount = tierYield[i];
+            if (yieldAmount == 0) continue;
+            address tierVault = config.tierVaults[i];
+            uint256 recorded = _tierAccountingValue[vaultId][i];
+            uint256 projected = _unfundedTierYieldClaim[tierVault];
+            if (yieldAmount > type(uint256).max - recorded || yieldAmount > type(uint256).max - projected) {
+                revert TierYieldClaimMismatch(vaultId, tierVault, recorded, projected);
+            }
+            _tierAccountingValue[vaultId][i] = recorded + yieldAmount;
+            _unfundedTierYieldClaim[tierVault] = projected + yieldAmount;
         }
     }
 
@@ -621,6 +727,10 @@ contract USDCTreasury is
     {
         for (uint8 i; i < 4; ++i) {
             address tierVault = config.tierVaults[i];
+            if (tierVault == address(0)) {
+                if (config.status != VaultStatus.WindingDown) revert TierVaultUnavailable(tierVault);
+                continue;
+            }
             if (tierVault.code.length == 0) revert TierVaultUnavailable(tierVault);
             uint256 assets = IUSDCTreasuryTierVault(tierVault).legitimateAssets();
             tierAssets[i] = assets;
@@ -669,13 +779,66 @@ contract USDCTreasury is
         if (remainder != 0) revert SettlementValueMismatch(address(0), amount, amount - remainder);
     }
 
-    function _outstandingTierYield(uint256 vaultId) private view returns (uint256[4] memory outstanding) {
+    function _outstandingTierYield(uint256 vaultId, VaultConfig memory config)
+        private
+        view
+        returns (uint256[4] memory outstanding)
+    {
         for (uint8 i; i < 4; ++i) {
             uint256 recognized = _tierAccountingValue[vaultId][i];
             uint256 funded = _fundedTierYield[vaultId][i];
             if (funded > recognized) revert SettlementValueMismatch(address(this), recognized, funded);
             outstanding[i] = recognized - funded;
+            address tierVault = config.tierVaults[i];
+            if (tierVault == address(0)) {
+                if (config.status != VaultStatus.WindingDown) revert TierVaultUnavailable(tierVault);
+                if (outstanding[i] != 0) revert TierYieldClaimMismatch(vaultId, tierVault, 0, outstanding[i]);
+            } else if (_unfundedTierYieldClaim[tierVault] != outstanding[i]) {
+                revert TierYieldClaimMismatch(vaultId, tierVault, outstanding[i], _unfundedTierYieldClaim[tierVault]);
+            }
         }
+    }
+
+    function _validateYieldClaimProjection(uint256 vaultId, VaultConfig memory config)
+        private
+        view
+        returns (uint256 aggregateOutstanding)
+    {
+        uint256 claim = recognizedDepositorClaim[vaultId];
+        uint256 funded = fundedDepositorClaim[vaultId];
+        if (funded > claim) revert SettlementValueMismatch(address(this), claim, funded);
+        aggregateOutstanding = claim - funded;
+        uint256[4] memory tierClaims = _outstandingTierYield(vaultId, config);
+        uint256 projected;
+        for (uint8 i; i < 4; ++i) {
+            projected += tierClaims[i];
+        }
+        if (projected != aggregateOutstanding) {
+            revert YieldClaimInvariant(vaultId, aggregateOutstanding, projected);
+        }
+    }
+
+    function _requireTierHasSupply(address tierVault, uint256 amount) private view {
+        if (tierVault.code.length == 0) revert TierVaultUnavailable(tierVault);
+        (bool ok, bytes memory data) =
+            tierVault.staticcall(abi.encodeWithSelector(IUSDCTreasuryTierVault.totalSupply.selector));
+        if (!ok || data.length != 32) revert TierVaultUnavailable(tierVault);
+        uint256 supply = abi.decode(data, (uint256));
+        if (supply == 0) revert ZeroSupplyTier(tierVault, amount);
+    }
+
+    function _commitTierFunding(uint256 vaultId, uint8 tierIndex, address tierVault, uint256 amount) private {
+        uint256 claim = _unfundedTierYieldClaim[tierVault];
+        uint256 pending = pendingVaultTopUp[vaultId];
+        uint256 earmark = earmarkBalance[EARMARK_VAULT_TOP_UP];
+        if (claim < amount) revert TierYieldClaimMismatch(vaultId, tierVault, amount, claim);
+        if (pending < amount) revert SettlementValueMismatch(address(this), amount, pending);
+        if (earmark < amount) revert InsufficientEarmark();
+        _unfundedTierYieldClaim[tierVault] = claim - amount;
+        _fundedTierYield[vaultId][tierIndex] += amount;
+        fundedDepositorClaim[vaultId] += amount;
+        pendingVaultTopUp[vaultId] = pending - amount;
+        earmarkBalance[EARMARK_VAULT_TOP_UP] = earmark - amount;
     }
 
     function _sum(uint256[4] memory values) private pure returns (uint256 total) {
@@ -684,18 +847,20 @@ contract USDCTreasury is
         }
     }
 
-    function _consumeLossRateBudget(uint256 loss, uint256 tierAssets) private {
-        uint256 windowStart = _lossRateWindowStart;
+    function _consumeLossRateBudget(uint256 vaultId, uint256 tierLoss, uint256 tierAssets) private {
+        if (tierLoss == 0) return;
+        LossRateWindow storage window = _lossRateWindows[vaultId];
+        uint256 windowStart = window.start;
         if (windowStart == 0 || block.timestamp >= windowStart + LOSS_RATE_WINDOW) {
-            _lossRateWindowStart = block.timestamp;
-            _lossRateWindowTierAssets = tierAssets;
-            _lossRateWindowUsed = 0;
+            window.start = block.timestamp;
+            window.tierAssets = tierAssets;
+            window.used = 0;
         }
-        uint256 cap = Math.mulDiv(_lossRateWindowTierAssets, lossRateCapBps, 10_000);
-        uint256 used = _lossRateWindowUsed;
+        uint256 cap = Math.mulDiv(window.tierAssets, lossRateCapBps, 10_000);
+        uint256 used = window.used;
         uint256 remaining = cap > used ? cap - used : 0;
-        if (loss > remaining) revert LossRateCapExceeded(loss, remaining);
-        _lossRateWindowUsed = used + loss;
+        if (tierLoss > remaining) revert LossRateCapExceeded(tierLoss, remaining);
+        window.used = used + tierLoss;
     }
 
     function _setLossRateCapBps(uint256 newCapBps) private {
@@ -760,8 +925,11 @@ contract USDCTreasury is
         if (actual != expected) revert SettlementValueMismatch(account, expected, actual);
     }
 
-    function _enforceEarmarkWindowCap(bytes32 earmark, uint256 amount, uint256 basis, uint16 capBps) internal {
+    function _enforceEarmarkWindowCap(bytes32 earmark, uint256 amount, uint256 currentBalance, uint16 capBps)
+        internal
+    {
         _resetEarmarkWindowIfExpired(earmark);
+        uint256 basis = currentBalance + _earmarkWindowUsed[earmark];
         uint256 cap = basis * capBps / 10_000;
         if (_earmarkWindowUsed[earmark] + amount > cap) revert PurposeCapExceeded();
         _earmarkWindowUsed[earmark] += amount;

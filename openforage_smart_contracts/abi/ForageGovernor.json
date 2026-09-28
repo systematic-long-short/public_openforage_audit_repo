@@ -2155,6 +2155,22 @@
   },
   {
     "type": "error",
+    "name": "TimelockRoleMissing",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TimelockSelfProposerGrant",
     "inputs": []
   },

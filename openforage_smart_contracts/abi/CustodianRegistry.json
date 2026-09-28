@@ -1884,7 +1884,7 @@
         "internalType": "bytes32"
       },
       {
-        "name": "previousNAV",
+        "name": "navCapReference",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -2086,6 +2086,33 @@
   },
   {
     "type": "error",
+    "name": "GuardianGovernorUnavailable",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianModuleLookupFailed",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianRotationRetired",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidBps",
     "inputs": []
   },
@@ -2103,6 +2130,17 @@
     "type": "error",
     "name": "InvalidCustodianKind",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidGuardianModule",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
+import "./interfaces/IAllowlist.sol";
 import "./interfaces/IVaultRegistry.sol";
 
 /// @dev OF-14-001: Minimal interface for RISKUSDVault lossPending query in startWindDown.
@@ -18,6 +19,12 @@ interface IRISKUSDVaultLossQuery {
 interface ITierVaultAccountingQuery {
     function totalSupply() external view returns (uint256);
     function totalAssets() external view returns (uint256);
+    function legitimateAssets() external view returns (uint256);
+    function yieldSource() external view returns (address);
+}
+
+interface ITierVaultYieldSourceRoute {
+    function vaultRegistry() external view returns (address);
 }
 
 /// @title VaultRegistry — Central on-chain registry of all strategy vaults
@@ -67,6 +74,11 @@ contract VaultRegistry is
     error Deprecated(); // OF-15-004: dead code marker
     error InvalidRISKUSDVaultInterface(address target);
     error ResidualTierVaultAssets(address tierVault, uint256 assets);
+    error TierVaultProbeFailed(uint8 tier, address tierVault, bytes4 selector);
+    error TierVaultRegistryRouteMismatch(address tierVault, address yieldSource, address registry);
+    error TierVaultSystemCallerRequired(address tierVault, address allowlist);
+    error TierVaultRegistrationInvariant(address tierVault, uint256 expectedVaultId, uint256 actualVaultId);
+    error TierVaultAggregateInvariant(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket);
 
     // ── Events ──
     event VaultAdded(uint256 indexed vaultId, string name, string abbreviation);
@@ -77,11 +89,22 @@ contract VaultRegistry is
     event YieldSplitsUpdated(uint256 indexed vaultId);
     event AbbreviationReleased(uint256 indexed vaultId, string abbreviation);
     event TierVaultsReleased(uint256 indexed vaultId);
+    event TierVaultReleaseDeferred(
+        uint256 indexed vaultId,
+        uint8 indexed tier,
+        address indexed tierVault,
+        uint256 supply,
+        uint256 totalAssets,
+        uint8 blockingTier
+    );
     event YieldSplitsProposed(uint256 indexed vaultId); // OF-13-010
     event CapacityCapProposed(uint256 indexed vaultId, uint256 newCap); // OF-13-028
     event RISKUSDVaultProposed(address indexed current, address indexed pending); // OF-15-004
     event RISKUSDVaultUpdated(address indexed oldVault, address indexed newVault); // OF-15-004
     event LossResolutionBlockMigrated(uint256 oldValue, uint256 newValue);
+    event TierVaultAssetsUpdated(
+        address indexed tierVault, uint256 indexed vaultId, uint256 previousF, uint256 currentF
+    );
 
     // ── Storage ──
     uint256 private _nextVaultId;
@@ -130,7 +153,16 @@ contract VaultRegistry is
     uint256[] private _activeVaultIds;
     mapping(uint256 => uint256) private _activeVaultIndexPlusOne;
 
-    uint256[42] private __gap; // 44 - active index slots
+    struct RegisteredTierVaultAssets {
+        uint256 vaultId;
+        uint256 fundedAssets;
+    }
+
+    mapping(address => RegisteredTierVaultAssets) private _registeredTierVaultAssets;
+    uint256 private _activeRegisteredTierAssets;
+    uint256 private _inactiveRegisteredTierAssets;
+
+    uint256[39] private __gap;
 
     // ── Constructor (disable initializers on implementation) ──
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -150,7 +182,7 @@ contract VaultRegistry is
     }
 
     function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+        _transitionAllowlist(allowlist_);
     }
 
     // ── Vault Registration ──
@@ -164,69 +196,84 @@ contract VaultRegistry is
         uint16[4] calldata yieldSplitsBps_,
         uint16[4] calldata fundingBps_
     ) external onlyAllowedCaller onlyOwner returns (uint256) {
-        if (bytes(name_).length == 0) revert EmptyName();
-        if (bytes(abbreviation_).length == 0) revert EmptyAbbreviation();
+        uint256 vaultId;
+        {
+            if (bytes(name_).length == 0) revert EmptyName();
+            if (bytes(abbreviation_).length == 0) revert EmptyAbbreviation();
 
-        // OF-003: Validate tier vault addresses are non-zero, intra-vault unique,
-        // AND globally unique across all registered vaults.
-        for (uint256 i; i < 4;) {
-            if (tierVaults_[i] == address(0)) revert ZeroAddress();
-            if (_tierVaultUsed[tierVaults_[i]]) revert DuplicateTierVault();
-            unchecked {
-                ++i;
-            }
-        }
-        // PHASE2-021: Ensure all tier vault addresses are unique within this vault
-        for (uint256 i; i < 4;) {
-            for (uint256 j = i + 1; j < 4;) {
-                if (tierVaults_[i] == tierVaults_[j]) revert DuplicateTierVault();
+            // OF-003: Validate tier vault addresses are non-zero, intra-vault unique,
+            // AND globally unique across all registered vaults.
+            for (uint256 i; i < 4;) {
+                if (tierVaults_[i] == address(0)) revert ZeroAddress();
+                if (_tierVaultUsed[tierVaults_[i]]) revert DuplicateTierVault();
                 unchecked {
-                    ++j;
+                    ++i;
                 }
             }
-            unchecked {
-                ++i;
+            // PHASE2-021: Ensure all tier vault addresses are unique within this vault
+            for (uint256 i; i < 4;) {
+                for (uint256 j = i + 1; j < 4;) {
+                    if (tierVaults_[i] == tierVaults_[j]) revert DuplicateTierVault();
+                    unchecked {
+                        ++j;
+                    }
+                }
+                unchecked {
+                    ++i;
+                }
             }
-        }
-        if (stakingQueue_ == address(0)) revert ZeroAddress();
-        if (capacityCap_ == 0) revert ZeroCapacity();
-        if (lockupDurations_[0] != 0) revert NonZeroTier0Lockup();
+            if (stakingQueue_ == address(0)) revert ZeroAddress();
+            if (capacityCap_ == 0) revert ZeroCapacity();
+            if (lockupDurations_[0] != 0) revert NonZeroTier0Lockup();
 
-        for (uint256 i; i < 4;) {
-            if (yieldSplitsBps_[i] == 0) revert ZeroYieldSplit(uint8(i));
-            if (uint256(yieldSplitsBps_[i]) + uint256(fundingBps_[i]) > 10000) revert InvalidSplitTotal(uint8(i));
-            unchecked {
-                ++i;
+            for (uint256 i; i < 4;) {
+                if (yieldSplitsBps_[i] == 0) revert ZeroYieldSplit(uint8(i));
+                if (uint256(yieldSplitsBps_[i]) + uint256(fundingBps_[i]) > 10000) revert InvalidSplitTotal(uint8(i));
+                unchecked {
+                    ++i;
+                }
             }
-        }
 
-        bytes32 abbrHash = keccak256(bytes(abbreviation_));
-        if (_abbreviationToVaultId[abbrHash] != 0) revert DuplicateAbbreviation(abbreviation_);
+            bytes32 abbrHash = keccak256(bytes(abbreviation_));
+            if (_abbreviationToVaultId[abbrHash] != 0) revert DuplicateAbbreviation(abbreviation_);
 
-        uint256 vaultId = _nextVaultId;
+            uint256[4] memory tierAssets;
+            for (uint8 i; i < 4; ++i) {
+                tierAssets[i] = _validateAndReadTierVault(tierVaults_[i], i);
+            }
 
-        VaultConfig storage v = _vaults[vaultId];
-        v.vaultId = vaultId;
-        v.name = name_;
-        v.abbreviation = abbreviation_;
-        v.tierVaults = tierVaults_;
-        v.stakingQueue = stakingQueue_;
-        v.capacityCap = capacityCap_;
-        v.lockupDurations = lockupDurations_;
-        v.yieldSplitsBps = yieldSplitsBps_;
-        v.fundingBps = fundingBps_;
-        v.status = VaultStatus.Active;
+            vaultId = _nextVaultId;
 
-        _abbreviationToVaultId[abbrHash] = vaultId;
-        _allVaultIds.push(vaultId);
-        _addActiveVaultId(vaultId);
-        _nextVaultId = vaultId + 1;
+            VaultConfig storage v = _vaults[vaultId];
+            v.vaultId = vaultId;
+            v.name = name_;
+            v.abbreviation = abbreviation_;
+            v.tierVaults = tierVaults_;
+            v.stakingQueue = stakingQueue_;
+            v.capacityCap = capacityCap_;
+            v.lockupDurations = lockupDurations_;
+            v.yieldSplitsBps = yieldSplitsBps_;
+            v.fundingBps = fundingBps_;
+            v.status = VaultStatus.Active;
 
-        // OF-003: Mark all tier vault addresses as used globally
-        for (uint256 i; i < 4;) {
-            _tierVaultUsed[tierVaults_[i]] = true;
-            unchecked {
-                ++i;
+            _abbreviationToVaultId[abbrHash] = vaultId;
+            _allVaultIds.push(vaultId);
+            _addActiveVaultId(vaultId);
+            _nextVaultId = vaultId + 1;
+
+            // OF-003: Mark all tier vault addresses as used globally
+            for (uint256 i; i < 4;) {
+                address tierVault = tierVaults_[i];
+                uint256 fundedAssets = tierAssets[i];
+                _tierVaultUsed[tierVault] = true;
+                _registeredTierVaultAssets[tierVault] =
+                    RegisteredTierVaultAssets({vaultId: vaultId, fundedAssets: fundedAssets});
+                _activeRegisteredTierAssets =
+                    _addTierAssets(tierVault, _activeRegisteredTierAssets, fundedAssets, uint8(VaultStatus.Active));
+                if (fundedAssets != 0) emit TierVaultAssetsUpdated(tierVault, vaultId, 0, fundedAssets);
+                unchecked {
+                    ++i;
+                }
             }
         }
 
@@ -241,6 +288,7 @@ contract VaultRegistry is
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
 
+        _moveVaultTierAssets(vaultId, vault, false, VaultStatus.Paused);
         vault.status = VaultStatus.Paused;
         _removeActiveVaultId(vaultId);
 
@@ -252,6 +300,7 @@ contract VaultRegistry is
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Paused) revert VaultNotPaused();
+        _moveVaultTierAssets(vaultId, vault, true, VaultStatus.Active);
         vault.status = VaultStatus.Active;
         _addActiveVaultId(vaultId);
         emit VaultResumed(vaultId);
@@ -290,6 +339,7 @@ contract VaultRegistry is
         }
 
         if (vault.status == VaultStatus.Active) {
+            _moveVaultTierAssets(vaultId, vault, false, VaultStatus.WindingDown);
             _removeActiveVaultId(vaultId);
         }
         vault.status = VaultStatus.WindingDown;
@@ -319,21 +369,37 @@ contract VaultRegistry is
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
 
-        address[4] memory tierVaults = vault.tierVaults;
-        bool anyUsed = false;
-        for (uint256 i; i < 4;) {
-            if (_tierVaultUsed[tierVaults[i]] && _tierVaultIsReleasable(tierVaults[i])) {
-                _tierVaultUsed[tierVaults[i]] = false;
-                vault.tierVaults[i] = address(0);
-                anyUsed = true;
-            }
-            unchecked {
-                ++i;
+        uint256[4] memory supplies;
+        uint256[4] memory assets;
+        _preflightTierVaults(vault.tierVaults, supplies, assets);
+        bool higherTierBlocked;
+        uint8 blockingTier;
+        bool released;
+        for (uint8 i = 1; i < 4; ++i) {
+            address tierVault = vault.tierVaults[i];
+            if (tierVault == address(0)) continue;
+            if (supplies[i] == 0 && assets[i] == 0) {
+                _releaseTierVault(vaultId, vault, i, tierVault);
+                released = true;
+            } else {
+                if (!higherTierBlocked) blockingTier = i;
+                higherTierBlocked = true;
+                emit TierVaultReleaseDeferred(vaultId, i, tierVault, supplies[i], assets[i], i);
             }
         }
-        if (!anyUsed) revert TierVaultsNotUsed();
 
-        emit TierVaultsReleased(vaultId);
+        address tierZero = vault.tierVaults[0];
+        if (tierZero != address(0)) {
+            if (supplies[0] == 0 && assets[0] == 0 && !higherTierBlocked) {
+                _releaseTierVault(vaultId, vault, 0, tierZero);
+                released = true;
+            } else {
+                uint8 blocker = supplies[0] != 0 || assets[0] != 0 ? 0 : blockingTier;
+                emit TierVaultReleaseDeferred(vaultId, 0, tierZero, supplies[0], assets[0], blocker);
+            }
+        }
+
+        if (released) emit TierVaultsReleased(vaultId);
     }
 
     // ── Vault Configuration Updates ──
@@ -492,6 +558,10 @@ contract VaultRegistry is
         nextOffset = end;
     }
 
+    function activeRegisteredTierAssets() external view returns (uint256) {
+        return _activeRegisteredTierAssets;
+    }
+
     function vaultCount() external view returns (uint256) {
         return _allVaultIds.length;
     }
@@ -602,6 +672,35 @@ contract VaultRegistry is
         _lastLossResolutionBlock = block.number;
     }
 
+    function onTierVaultAssetsChanged() external onlyAllowedCaller {
+        RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[msg.sender];
+        uint256 vaultId = cached.vaultId;
+        if (vaultId == 0 || !_tierVaultUsed[msg.sender]) {
+            revert TierVaultRegistrationInvariant(msg.sender, 0, vaultId);
+        }
+        VaultConfig storage vault = _vaults[vaultId];
+        if (vault.vaultId != vaultId) {
+            revert TierVaultRegistrationInvariant(msg.sender, vaultId, vault.vaultId);
+        }
+        uint8 tier = _registeredTierIndex(vault, msg.sender, vaultId);
+        _requireTierVaultRegistryRoute(msg.sender, tier);
+        uint256 previousF = cached.fundedAssets;
+        uint256 currentF = _readTierVaultFundedAssets(msg.sender, tier);
+        if (currentF == previousF) return;
+        if (vault.status == VaultStatus.Active) {
+            _activeRegisteredTierAssets = _replaceTierAssets(
+                msg.sender, _activeRegisteredTierAssets, previousF, currentF, uint8(VaultStatus.Active)
+            );
+        } else if (vault.status == VaultStatus.Paused || vault.status == VaultStatus.WindingDown) {
+            _inactiveRegisteredTierAssets =
+                _replaceTierAssets(msg.sender, _inactiveRegisteredTierAssets, previousF, currentF, uint8(vault.status));
+        } else {
+            revert TierVaultAggregateInvariant(msg.sender, uint256(vault.status), currentF, uint8(vault.status));
+        }
+        cached.fundedAssets = currentF;
+        emit TierVaultAssetsUpdated(msg.sender, vaultId, previousF, currentF);
+    }
+
     /// @notice View the current RISKUSDVault address.
     function riskusdVault() external view returns (address) {
         return _riskusdVault;
@@ -631,24 +730,183 @@ contract VaultRegistry is
         if (!ok || data.length < 32) revert InvalidRISKUSDVaultInterface(vault_);
     }
 
-    function _tierVaultIsReleasable(address tierVault) private view returns (bool) {
-        if (tierVault == address(0)) return false;
-        try ITierVaultAccountingQuery(tierVault).totalSupply() returns (uint256 supply) {
-            if (supply != 0) return false;
-        } catch {
-            return false;
+    function _preflightTierVaults(address[4] storage tierVaults, uint256[4] memory supplies, uint256[4] memory assets)
+        private
+        view
+    {
+        for (uint8 i; i < 4; ++i) {
+            address tierVault = tierVaults[i];
+            if (tierVault == address(0)) continue;
+            supplies[i] = _readTierVaultValue(tierVault, i, ITierVaultAccountingQuery.totalSupply.selector);
+            assets[i] = _readTierVaultValue(tierVault, i, ITierVaultAccountingQuery.totalAssets.selector);
         }
-        try ITierVaultAccountingQuery(tierVault).totalAssets() returns (uint256 assets) {
-            if (assets != 0) revert ResidualTierVaultAssets(tierVault, assets);
-        } catch (bytes memory reason) {
-            if (reason.length != 0) {
-                assembly {
-                    revert(add(reason, 32), mload(reason))
-                }
+    }
+
+    function _readTierVaultValue(address tierVault, uint8 tier, bytes4 selector) private view returns (uint256 value) {
+        if (tierVault.code.length == 0) revert TierVaultProbeFailed(tier, tierVault, selector);
+        (bool success, bytes memory data) = tierVault.staticcall(abi.encodeWithSelector(selector));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, tierVault, selector);
+        value = abi.decode(data, (uint256));
+    }
+
+    function _releaseTierVault(uint256 vaultId, VaultConfig storage vault, uint8 tier, address tierVault) private {
+        RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[tierVault];
+        if (cached.vaultId != vaultId) {
+            revert TierVaultRegistrationInvariant(tierVault, vaultId, cached.vaultId);
+        }
+        _inactiveRegisteredTierAssets = _subtractTierAssets(
+            tierVault, _inactiveRegisteredTierAssets, cached.fundedAssets, uint8(VaultStatus.WindingDown)
+        );
+        delete _registeredTierVaultAssets[tierVault];
+        _tierVaultUsed[tierVault] = false;
+        vault.tierVaults[tier] = address(0);
+    }
+
+    function _validateAndReadTierVault(address tierVault, uint8 tier) private view returns (uint256 fundedAssets) {
+        address source = _readRouteAddress(
+            tierVault,
+            tier,
+            tierVault,
+            ITierVaultAccountingQuery.yieldSource.selector,
+            abi.encodeWithSelector(ITierVaultAccountingQuery.yieldSource.selector)
+        );
+        if (source.code.length == 0) revert TierVaultRegistryRouteMismatch(tierVault, source, address(0));
+        address registry = _readRouteAddress(
+            source,
+            tier,
+            tierVault,
+            ITierVaultYieldSourceRoute.vaultRegistry.selector,
+            abi.encodeWithSelector(ITierVaultYieldSourceRoute.vaultRegistry.selector)
+        );
+        if (registry != address(this)) revert TierVaultRegistryRouteMismatch(tierVault, source, registry);
+        address currentAllowlist = allowlist();
+        if (!_isSystemTierCaller(currentAllowlist, tierVault, tier)) {
+            revert TierVaultSystemCallerRequired(tierVault, currentAllowlist);
+        }
+        fundedAssets = _readTierVaultFundedAssets(tierVault, tier);
+    }
+
+    function _readRouteAddress(address target, uint8 tier, address tierVault, bytes4 selector, bytes memory callData)
+        private
+        view
+        returns (address value)
+    {
+        if (target.code.length == 0) revert TierVaultProbeFailed(tier, tierVault, selector);
+        (bool success, bytes memory data) = target.staticcall(callData);
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, tierVault, selector);
+        uint256 raw;
+        assembly ("memory-safe") {
+            raw := mload(add(data, 32))
+        }
+        if (raw > type(uint160).max) revert TierVaultProbeFailed(tier, tierVault, selector);
+        value = address(uint160(raw));
+    }
+
+    function _isSystemTierCaller(address currentAllowlist, address tierVault, uint8 tier) private view returns (bool) {
+        bytes4 selector = IAllowlist.isSystemAccount.selector;
+        if (currentAllowlist.code.length == 0) revert TierVaultProbeFailed(tier, currentAllowlist, selector);
+        (bool success, bytes memory data) = currentAllowlist.staticcall(abi.encodeWithSelector(selector, tierVault));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, currentAllowlist, selector);
+        uint256 value;
+        assembly ("memory-safe") {
+            value := mload(add(data, 32))
+        }
+        if (value > 1) revert TierVaultProbeFailed(tier, currentAllowlist, selector);
+        return value == 1;
+    }
+
+    function _requireTierVaultRegistryRoute(address tierVault, uint8 tier) private view {
+        address source = _readRouteAddress(
+            tierVault,
+            tier,
+            tierVault,
+            ITierVaultAccountingQuery.yieldSource.selector,
+            abi.encodeWithSelector(ITierVaultAccountingQuery.yieldSource.selector)
+        );
+        if (source.code.length == 0) revert TierVaultRegistryRouteMismatch(tierVault, source, address(0));
+        address registry = _readRouteAddress(
+            source,
+            tier,
+            tierVault,
+            ITierVaultYieldSourceRoute.vaultRegistry.selector,
+            abi.encodeWithSelector(ITierVaultYieldSourceRoute.vaultRegistry.selector)
+        );
+        if (registry != address(this)) revert TierVaultRegistryRouteMismatch(tierVault, source, registry);
+    }
+
+    function _readTierVaultFundedAssets(address tierVault, uint8 tier) private view returns (uint256 fundedAssets) {
+        fundedAssets = _readTierVaultValue(tierVault, tier, ITierVaultAccountingQuery.legitimateAssets.selector);
+    }
+
+    function _registeredTierIndex(VaultConfig storage vault, address tierVault, uint256 vaultId)
+        private
+        view
+        returns (uint8)
+    {
+        for (uint8 tier; tier < 4; ++tier) {
+            if (vault.tierVaults[tier] == tierVault) return tier;
+        }
+        revert TierVaultRegistrationInvariant(tierVault, vaultId, 0);
+    }
+
+    function _moveVaultTierAssets(
+        uint256 vaultId,
+        VaultConfig storage vault,
+        bool toActive,
+        VaultStatus destinationStatus
+    ) private {
+        for (uint8 tier; tier < 4; ++tier) {
+            address tierVault = vault.tierVaults[tier];
+            if (tierVault == address(0)) continue;
+            RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[tierVault];
+            if (cached.vaultId != vaultId) {
+                revert TierVaultRegistrationInvariant(tierVault, vaultId, cached.vaultId);
             }
-            return false;
+            if (toActive) {
+                _inactiveRegisteredTierAssets = _subtractTierAssets(
+                    tierVault, _inactiveRegisteredTierAssets, cached.fundedAssets, uint8(vault.status)
+                );
+                _activeRegisteredTierAssets = _addTierAssets(
+                    tierVault, _activeRegisteredTierAssets, cached.fundedAssets, uint8(VaultStatus.Active)
+                );
+            } else {
+                _activeRegisteredTierAssets = _subtractTierAssets(
+                    tierVault, _activeRegisteredTierAssets, cached.fundedAssets, uint8(VaultStatus.Active)
+                );
+                _inactiveRegisteredTierAssets = _addTierAssets(
+                    tierVault, _inactiveRegisteredTierAssets, cached.fundedAssets, uint8(destinationStatus)
+                );
+            }
         }
-        return true;
+    }
+
+    function _replaceTierAssets(address tierVault, uint256 aggregate, uint256 previousF, uint256 currentF, uint8 bucket)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 remaining = _subtractTierAssets(tierVault, aggregate, previousF, bucket);
+        return _addTierAssets(tierVault, remaining, currentF, bucket);
+    }
+
+    function _subtractTierAssets(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket)
+        private
+        pure
+        returns (uint256)
+    {
+        if (amount > aggregate) revert TierVaultAggregateInvariant(tierVault, aggregate, amount, bucket);
+        return aggregate - amount;
+    }
+
+    function _addTierAssets(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket)
+        private
+        pure
+        returns (uint256)
+    {
+        if (amount > type(uint256).max - aggregate) {
+            revert TierVaultAggregateInvariant(tierVault, aggregate, amount, bucket);
+        }
+        return aggregate + amount;
     }
 
     function _addActiveVaultId(uint256 vaultId) private {

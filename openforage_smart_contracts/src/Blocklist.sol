@@ -288,7 +288,7 @@ contract Blocklist is
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+        _transitionAllowlist(allowlist_);
     }
 
     function transferOwnership(address newOwner) public override onlyAllowedCaller {

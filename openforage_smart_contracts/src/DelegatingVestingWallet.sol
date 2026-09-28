@@ -95,7 +95,7 @@ contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
         if (msg.sender != _tokenSetter && msg.sender != _blocklistSetter) {
             revert UnauthorizedTokenSetter(msg.sender);
         }
-        _setAllowlist(allowlist_);
+        _transitionAllowlist(allowlist_);
     }
 
     function setBlocklist(address blocklist_) external onlyAllowedCaller {

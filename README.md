@@ -1,41 +1,47 @@
 # OpenForage Public Smart Contract Audit Snapshot
 
-This repository is a selective production-source snapshot for external review. It is not a deployment repository or a copy of the private monorepo. The reviewed branch is append-only from public `main`; public `main` is never rewritten.
+This repository is a selective production-source snapshot for independent review. It is not a deployment repository or a copy of the private monorepo.
 
-## Source and preparation identities
+## Public snapshot identity
 
-The accepted private production-source checkpoint for this reconciled snapshot is `c0f8db4d79825da948ce170150f77e099cc08fc5`. It identifies the source selection, not the whole private tree or private history. `openforage_smart_contracts/src/FORAGETreasury.sol` is copied byte-for-byte from that accepted source and has SHA-256 `cb97eeee0db40031b9f847793aaef9b7f0b279bc8e4ec28be5c3a35bf86cf596`.
+The copied public history starts at PR 9 head `bd005bad4fe3432401a6e4ae920830e267369e38`, based on public commit `6fbbc51c4da48fce46f7119d1053088ba119d7bf`. This packet prepares a local review candidate only. It does not update a remote branch, open a pull request, change a label, or start an Octane analysis.
 
-The final Treasury source keeps direct `claimAgent` self-called and eligibility-gated. Its authorized distributor route may pay a non-allowlisted recipient when that recipient is not blocklisted. This is the accepted source policy, not a separate security conclusion.
+The measured source overlay covers 62 paths: 30 Solidity sources, 18 ABI artifacts, two public status documents, two Semgrep manifest/exception files, and ten scripts or interfaces. `README.md` is an additional required path. `documentation/review_commands.md` remains unchanged.
 
-All 26 production Solidity sources and 18 ABI artifacts were accounted against the accepted private source. Relative to the retained public-only snapshot, only `FORAGETreasury.sol` changed among those sources; the other 25 source hashes and all 18 ABI hashes remain unchanged. The generated Treasury ABI is byte-identical to its committed artifact and the accepted-source ABI. Seventeen source-associated ABI artifacts match; `FoundationTreasury.json` remains the one source-less artifact. The Treasury storage-layout output is unchanged from both the retained snapshot and the accepted source proof.
+The import inventory distinguishes 91 dependency source files from the two top-level and nine recursive Gitlinks. The top-level pins are Chainlink CCIP `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441` and OpenZeppelin upgradeable contracts `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`. The `lib/` entries remain Gitlinks, not copied vendor trees.
 
-The public-only baseline, extracted `IAllowlistSettable` interface and signature, deployment script and order, import graph, no-tests guard, public-safe scanner and analyzer variants, and dependency gitlinks are preserved from the retained snapshot. The source update adds no import, interface, ABI, or storage change.
+## Candidate source changes
 
-## Verification status
+The public source overlay includes candidate changes to governance bounds, voting history, vault accounting, Bridge settlement, queue ordering, expiry handling, Registry accounting, Treasury claim funding, and deployment setup. The exact paths remain under `openforage_smart_contracts/`. These are source claims, not deployed behavior or final independent acceptance.
 
-- The production-only Forge build compiled 98 files with Solc 0.8.24 and completed successfully with compiler warnings. No tests or scripts were executed.
-- The no-tests inventory guard passed on the candidate worktree and committed tree. That proves the forbidden test inputs are absent; it is not a test pass.
-- Forge ABI and storage inspections matched the committed Treasury ABI and the accepted private source outputs. The production import graph matched the retained graph byte-for-byte.
-- Static checks are not green. The retained 0072 public static run, against the earlier public Treasury source hash `59d6a498ab7e3ed93533df220c6f71c222472e97d75ae59aa12ebb9bf04e9a9b`, reported 206 Slither results, 194 unsuppressed and 56 stale suppression entries, and 9 blocking Semgrep findings; the simplify checker stopped at its missing `ProtocolTreasury` build artifact. These results are from that earlier public source, not a rerun on this replacement.
-- A separate private-source-bound Slither scan at the accepted source reported 206 raw results and process exit 255 despite `success: true` and `error: null` in its JSON. It has no finding dispositions and is not a public-snapshot static pass. No static scanner was rerun for this public candidate; no private suppressions or scanner proposals were applied.
+The configured distributor route may pay a recipient who is not allow-listed when that recipient is not blocklisted. A paid recipient gains no system-account status or restricted-call permission. External vesting approval does not create those rights either.
 
-Removing tests or changing the payout source does not clear any audit finding. Historical private test counts describe an earlier candidate and do not prove this public snapshot. No new Octane analysis, test suite, fuzz/formal campaign, Anvil run, deployment, chain action, push, or pull request was performed.
+## Saved proof and open findings
 
-See `documentation/audit_scope.md`, `documentation/review_commands.md`, and `documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md` for scope, review steps, and limitations.
+The saved final compiler pair used Forge 1.3.5, Solidity 0.8.24, and Cancun settings against 125 source inputs. The checker repair updates JavaScript source-text controls and their bound manifest only; it changes no Solidity compiler input or ABI. This candidate reuses the saved pair and does not rerun a compiler or analyzer.
 
-## Included and excluded
+- The default-profile compiler produced no compiler errors, but its command exited 1. Six runtime-size limits and the `atRISKUSD` initcode limit remain over the configured boundaries.
+- The Deploy profile exited 0, produced no compiler errors, and fit all 20 measured runtime/initcode pairs. This result does not clear the default profile.
+- The saved ABI comparison matched all 17 source-backed artifacts. `FoundationTreasury.json` remains the source-less orphan.
+- The storage baseline remains red at 14 checks and five divergences. The saved current-layout comparison does not establish old-proxy state, a migration, or upgrade safety.
+- Slither reported 326 unique findings with process exit 255, while its JSON says `success: true` and `error: null`. The unchanged suppression checker matched 8 rows, left 318 unmatched and 60 stale, and exited 1.
+- Configured Semgrep reported seven findings over 48 inputs. The disjointness configuration reported zero over 34 inputs. The exception-free configuration reported 57 over 48 inputs. These outputs are separate; none is a full static pass.
+- Two Windows MSVC checks remain red because the required native compiler and SDK were not available. No Windows result is inferred from another target.
 
-- `openforage_smart_contracts/` contains production Solidity source and ABI artifacts, approved deployment and static-checker sources, static-analysis configuration, and pinned Solidity dependency gitlinks.
-- `documentation/` contains public-safe audit scope, review guidance, and historical assessments.
-- First-party tests, test helpers, fuzz/formal harnesses, deployment manifests, generated output, private audit captures, local caches, credentials, and vendored dependency contents are not included.
+All 155 captured `(analysis, UUID)` identities remain in the public remediation ledger. The counts are 55, 11, 9, 14, 9, 5, 28, and 24 for analyses 1 through 8. The latest completed analysis is 8; its 24 rows are acknowledged. Acknowledgement changes workflow reporting only. This candidate does not claim a finding is resolved because of an acknowledgement or a missing later result.
 
-## Dependency pins
+Warning 28 retains UUID `3c2ba48b-3798-4f57-beba-90dc904af4d8`. The later 2026-09-25 description capture remains identified, but the original 2026-09-24 capture bytes are missing. No original description has been reconstructed.
 
-Initialize the public dependencies with:
+A8-14 remains `Other` and open. A conditional source calculation reported 31,555,113 required and 29,061,962 spent against a dated 32,000,000 comparison. This is not measured gas or a complete transaction bound. The current transaction cap, arbitrary-provider behavior, and legacy funded-proxy state remain unanswered.
 
-```bash
-git submodule update --init --recursive
-```
+## Test and deployment boundaries
 
-The top-level pins are Chainlink CCIP `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441` and OpenZeppelin upgradeable contracts `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`. The `lib/` paths remain gitlinks, not vendored copies.
+`make -C openforage_smart_contracts no-tests` returned `NO_TESTS_INVENTORY_PASS`. It checks the first-party test paths, named test-only controls, and their tracked paths. It is an inventory result, not a contract-test pass. This packet ran no contract test, fuzz/formal campaign, Anvil stack, runtime simulation, or gas simulation.
+
+The pinned upstream submodules contain their own test-looking files. They are vendor files under dependency Gitlinks, not first-party tests in this repository. The dated 2026-06-09 audit record retains historical log files, including earlier test-named logs; this packet did not execute, refresh, or treat them as current evidence. Deployment scripts remain reviewable controls and were not run.
+
+Removing tests does not clear any finding. No full Octane audit, new Octane analysis, public write, deployment, or chain action was performed for this candidate.
+
+## Review documents
+
+See [`documentation/audit_scope.md`](documentation/audit_scope.md), [`documentation/review_commands.md`](documentation/review_commands.md), and [`documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md`](documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md) for scope, commands, the finding census, source changes, and remaining conditions.

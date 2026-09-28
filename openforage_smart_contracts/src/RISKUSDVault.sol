@@ -27,12 +27,12 @@ interface IVaultRegistryWiringQuery {
     function pendingRISKUSDVault() external view returns (address);
 }
 
-interface IERC4626TotalAssets {
-    function totalAssets() external view returns (uint256);
+interface IERC4626LegitimateAssets {
+    function legitimateAssets() external view returns (uint256);
 }
 
 interface IManualCustodianNAVNormalizer {
-    function normalizeManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce)
+    function normalizeManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
         external
         view
         returns (bool shouldRecord, uint256 normalizedNav);
@@ -128,6 +128,8 @@ contract RISKUSDVault is
     error InvalidBlocklist(address target);
     error InvalidVaultRegistryInterface(address target);
     error ManualAttestationNormalizationFailed(address custodian);
+    error InvalidManualNAVObservation(uint256 observedAt, uint256 currentTimestamp);
+    error ManualNAVAcknowledgementFailed(address custodian);
     error LossResolutionNotificationFailed(address registry);
     error DeploymentBufferEnumerationFailed(address target);
     error FirstDepositBelowMinimum(uint256 amount, uint256 minimum);
@@ -167,6 +169,9 @@ contract RISKUSDVault is
     event AttestationIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event CustodianNAVRecorded(uint256 nav, uint256 timestamp);
     event CustodianNAVAttested(uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, uint256 timestamp);
+    event AttestedLossAmountRecomputed(
+        uint256 indexed vaultId, uint256 indexed lossNonce, uint256 oldAmount, uint256 newAmount
+    );
     event ManualCustodianNAVDeferred(
         uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, address indexed custodian
     );
@@ -317,7 +322,16 @@ contract RISKUSDVault is
         _disableInitializers();
     }
 
-    function initialize(address usdc_, address riskusd_, address initialOwner_) external initializer {
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    function initialize(address usdc_, address riskusd_, address initialOwner_)
+        external
+        onlyDuringConstructionBeforeInitialization
+        initializer
+    {
         _initializeCore(usdc_, riskusd_, initialOwner_);
     }
 
@@ -329,7 +343,7 @@ contract RISKUSDVault is
         address initialOwner_,
         address initialCustodian_,
         address initialLossReporter_
-    ) external initializer {
+    ) external onlyDuringConstructionBeforeInitialization initializer {
         if (initialCustodian_ == address(0) || initialLossReporter_ == address(0)) {
             revert ZeroAddress();
         }
@@ -431,6 +445,8 @@ contract RISKUSDVault is
         _totalRedeemed += riskusdAmount;
         _weeklyRedemptionUsed += weeklyCapCharge;
         _dailyRedemptionUsed += dailyCapCharge;
+        _reduceWeeklyRedemptionBasis(riskusdAmount);
+        _reduceDailyRedemptionBasis(riskusdAmount);
 
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
@@ -483,6 +499,7 @@ contract RISKUSDVault is
         if (countReturnedSinceLastAttestation) {
             _returnedSinceLastAttestation += usdcAmount;
         }
+        _recomputeLatestLossAmount();
 
         // Pull USDC from custodian
         _usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
@@ -515,7 +532,11 @@ contract RISKUSDVault is
     /// @notice Governance-configured manual attestation path for emergency custodian fallback.
     /// @dev The reporter is set via two-stage owner/governance handoff. Manual attestations
     /// enter the same nonce-bound settlement path as custodian bridge attestations.
-    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyAllowedCaller {
+    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
+        external
+        onlyAllowedCaller
+        nonReentrant
+    {
         _delegateToModule();
     }
 
@@ -770,9 +791,38 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-    /// @notice KYC-02: sets the caller allowlist. Ungated so the first wiring can land on a fresh proxy.
     function setAllowlist(address allowlist_) external onlyOwner {
+        if (allowlist() != address(0)) _checkAllowedCaller();
+        _requireAllowlistCandidate(allowlist_, msg.sender);
         _setAllowlist(allowlist_);
+    }
+
+    function _requireAllowlistCandidate(address registry, address caller) private view {
+        if (registry == address(0) || registry.code.length == 0) revert IAllowlist.AllowlistUnavailable();
+        _requireRegistryCaller(registry, caller);
+        _requireVaultSystemAccount(registry);
+    }
+
+    function _requireRegistryCaller(address registry, address caller) private view {
+        (bool ok, bytes memory returnedData) = registry.staticcall(abi.encodeCall(IAllowlist.isAllowed, (caller)));
+        if (!ok || returnedData.length != 32) revert IAllowlist.AllowlistUnavailable();
+        uint256 allowed;
+        assembly ("memory-safe") {
+            allowed := mload(add(returnedData, 0x20))
+        }
+        if (allowed == 0) revert IAllowlist.CallerNotAllowed(caller);
+        if (allowed != 1) revert IAllowlist.AllowlistUnavailable();
+    }
+
+    function _requireVaultSystemAccount(address registry) private view {
+        (bool ok, bytes memory returnedData) =
+            registry.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
+        if (!ok || returnedData.length != 32) revert IAllowlist.AllowlistUnavailable();
+        uint256 systemAccount;
+        assembly ("memory-safe") {
+            systemAccount := mload(add(returnedData, 0x20))
+        }
+        if (systemAccount != 1) revert IAllowlist.AllowlistUnavailable();
     }
 
     /// @notice KYC-03: sets the minimum first deposit for a wallet basis (basis 2 is the on-chain floor).
@@ -1153,6 +1203,31 @@ contract RISKUSDVault is
 
     function _hasOpenAttestedLossNonce() internal view returns (bool) {
         return _latestLossNonce != 0 && _latestLossNonce > _settledLossNonce && _latestLossVaultId != 0;
+    }
+
+    function _recomputeLatestLossAmount() internal {
+        if (!_hasOpenAttestedLossNonce() || _latestLossAmount == 0) return;
+        uint256 oldAmount = _latestLossAmount;
+        uint256 adjustedNav = _adjustedCustodianNAVNoStaleFallback();
+        uint256 principal = _totalDeployed;
+        uint256 currentAmount = principal > adjustedNav ? principal - adjustedNav : 0;
+        if (currentAmount == oldAmount) return;
+        _latestLossAmount = currentAmount;
+        emit AttestedLossAmountRecomputed(_latestLossVaultId, _latestLossNonce, oldAmount, currentAmount);
+    }
+
+    function _reduceDailyRedemptionBasis(uint256 redeemedAmount) internal {
+        if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) return;
+        uint256 basis = _dailyRedemptionWindowStartSupply;
+        if (basis == 0) return;
+        _dailyRedemptionWindowStartSupply = redeemedAmount >= basis ? 0 : basis - redeemedAmount;
+    }
+
+    function _reduceWeeklyRedemptionBasis(uint256 redeemedAmount) internal {
+        if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) return;
+        uint256 basis = _windowStartSupply;
+        if (basis == 0) return;
+        _windowStartSupply = redeemedAmount >= basis ? 0 : basis - redeemedAmount;
     }
 
     /// @dev OF-002: Safe depositor USDC computation with underflow protection.
@@ -1543,7 +1618,7 @@ contract RISKUSDVault is
 
     /// @notice Sets the delegatecall target for the moved admin, NAV, loss, registry and rescue cluster.
     /// @dev Only the owner can wire the module; an unset module makes every moved selector revert ModuleUnavailable.
-    function setVaultModule(address module_) external onlyOwner {
+    function setVaultModule(address module_) external onlyAllowedCaller onlyOwner {
         if (module_.code.length == 0) revert ZeroAddress();
         VaultModuleStorage storage $ = _getVaultModuleStorage();
         address previous = $.module;

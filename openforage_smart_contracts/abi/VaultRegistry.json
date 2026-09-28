@@ -65,6 +65,19 @@
   },
   {
     "type": "function",
+    "name": "activeRegisteredTierAssets",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "addVault",
     "inputs": [
       {
@@ -416,6 +429,13 @@
   {
     "type": "function",
     "name": "notifyLossResolved",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "onTierVaultAssetsChanged",
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -914,6 +934,80 @@
   },
   {
     "type": "event",
+    "name": "TierVaultAssetsUpdated",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "previousF",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentF",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TierVaultReleaseDeferred",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "tierVault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "supply",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalAssets",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "blockingTier",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TierVaultsReleased",
     "inputs": [
       {
@@ -1234,6 +1328,111 @@
         "name": "assets",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultAggregateInvariant",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "aggregate",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bucket",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultProbeFailed",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultRegistrationInvariant",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedVaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualVaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultRegistryRouteMismatch",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "yieldSource",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultSystemCallerRequired",
+    "inputs": [
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "allowlist",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },

@@ -12,6 +12,8 @@ interface IAllowlist {
     function basisOf(address account) external view returns (uint8);
 
     function isSystemAccount(address account) external view returns (bool);
+
+    function isVestingSourceRegistrationPending(address source) external view returns (bool);
 }
 
 interface IVoteEligibilityObserver {

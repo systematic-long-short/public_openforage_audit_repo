@@ -1922,6 +1922,22 @@
   },
   {
     "type": "error",
+    "name": "VestingSourceRegistrationRequired",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "VotesExpiredSignature",
     "inputs": [
       {

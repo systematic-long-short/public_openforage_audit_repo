@@ -22,6 +22,10 @@ interface ICustodianLossWriteDownPort {
     function recordLossWriteDown(uint256 amount) external returns (uint256 writtenDown);
 }
 
+interface ICustodianManualNAVAcknowledger {
+    function acknowledgeManualCustodianNAV(uint256 submittedRawNav) external returns (bool);
+}
+
 /// @title RISKUSDVaultModule - delegatecall target for RISKUSDVault's admin, NAV, loss,
 ///        vault-registry and rescue cluster.
 /// @notice Each moved function mirrors its selector and body; the vault's forwarder runs the
@@ -96,6 +100,8 @@ contract RISKUSDVaultModule is
     error InvalidBlocklist(address target);
     error InvalidVaultRegistryInterface(address target);
     error ManualAttestationNormalizationFailed(address custodian);
+    error InvalidManualNAVObservation(uint256 observedAt, uint256 currentTimestamp);
+    error ManualNAVAcknowledgementFailed(address custodian);
     error LossResolutionNotificationFailed(address registry);
     error DeploymentBufferEnumerationFailed(address target);
     error FirstDepositBelowMinimum(uint256 amount, uint256 minimum);
@@ -134,6 +140,9 @@ contract RISKUSDVaultModule is
     event AttestationIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event CustodianNAVRecorded(uint256 nav, uint256 timestamp);
     event CustodianNAVAttested(uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, uint256 timestamp);
+    event AttestedLossAmountRecomputed(
+        uint256 indexed vaultId, uint256 indexed lossNonce, uint256 oldAmount, uint256 newAmount
+    );
     event ManualCustodianNAVDeferred(
         uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, address indexed custodian
     );
@@ -157,8 +166,6 @@ contract RISKUSDVaultModule is
     uint256 public constant WEEKLY_WINDOW = 7 days;
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
-    uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
-    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR = bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
     // State — immutable post-initialization
     IERC20 internal _usdc;
@@ -348,19 +355,30 @@ contract RISKUSDVaultModule is
         _recordCustodianNAV(vaultId, nav, lossNonce, observedAt);
     }
 
-    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyDelegateCall {
+    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
+        external
+        onlyDelegateCall
+    {
+        address custodian_ = _custodian;
+        uint256 submittedRawNav = nav;
         if (msg.sender != _manualAttestationReporter) revert UnauthorizedManualAttestationReporter();
         if (_manualAttestationReporter == address(0)) revert UnauthorizedManualAttestationReporter();
+        if (observedAt == 0 || observedAt > block.timestamp || block.timestamp - observedAt > 1 days) {
+            revert InvalidManualNAVObservation(observedAt, block.timestamp);
+        }
         _requireNotBlocked(msg.sender);
 
-        (bool shouldRecord, uint256 normalizedNav) = _normalizeManualCustodianNAV(vaultId, nav, lossNonce);
+        (bool shouldRecord, uint256 normalizedNav) =
+            _normalizeManualCustodianNAV(custodian_, vaultId, submittedRawNav, lossNonce, observedAt);
         if (!shouldRecord) {
-            emit ManualCustodianNAVDeferred(vaultId, nav, lossNonce, _custodian);
+            emit ManualCustodianNAVDeferred(vaultId, submittedRawNav, lossNonce, custodian_);
             return;
         }
 
-        nav = normalizedNav;
-        _recordCustodianNAV(vaultId, nav, lossNonce, block.timestamp);
+        _recordCustodianNAV(vaultId, normalizedNav, lossNonce, observedAt);
+        if (!ICustodianManualNAVAcknowledger(custodian_).acknowledgeManualCustodianNAV(submittedRawNav)) {
+            revert ManualNAVAcknowledgementFailed(custodian_);
+        }
     }
 
     function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyDelegateCall {
@@ -801,7 +819,7 @@ contract RISKUSDVaultModule is
         if (lossNonce != 0 && lossNonce <= _latestLossNonce) revert StaleLossNonce();
         if (lossNonce != 0 && vaultId == 0) revert InvalidVaultId();
         if (lossNonce != 0) {
-            _requireActiveVault(vaultId);
+            _requireActiveVault(vaultId, nav);
             uint256 pendingVaultId = _pendingLossVaultIdForBinding();
             if (pendingVaultId != 0 && vaultId != pendingVaultId) revert VaultIdMismatch();
         }
@@ -865,7 +883,10 @@ contract RISKUSDVaultModule is
             uint256 deployedReduction = directLoss > _totalDeployed ? _totalDeployed : directLoss;
             _totalDeployed -= deployedReduction;
             _totalLostCapital += deployedReduction;
-            if (deployedReduction > 0) _recordCustodianLossWriteDown(deployedReduction);
+            if (deployedReduction > 0) {
+                _recomputeLatestLossAmount();
+                _recordCustodianLossWriteDown(deployedReduction);
+            }
         }
 
         // OF-001 (11th audit): Clear loss pending when all acknowledged loss is consumed
@@ -944,6 +965,9 @@ contract RISKUSDVaultModule is
         (bool ok, bytes memory data) =
             vaultRegistry_.staticcall(abi.encodeWithSelector(IVaultRegistry.getVaultsPage.selector, 0, 1));
         if (!ok || data.length < 96) revert InvalidVaultRegistryInterface(vaultRegistry_);
+        (ok, data) =
+            vaultRegistry_.staticcall(abi.encodeWithSelector(IVaultRegistry.activeRegisteredTierAssets.selector));
+        if (!ok || data.length != 32) revert InvalidVaultRegistryInterface(vaultRegistry_);
     }
 
     function _isGuardianModule(address caller) internal view returns (bool) {
@@ -1024,28 +1048,44 @@ contract RISKUSDVaultModule is
         return _latestLossNonce != 0 && _latestLossNonce > _settledLossNonce && _latestLossVaultId != 0;
     }
 
+    function _recomputeLatestLossAmount() internal {
+        if (!_hasOpenAttestedLossNonce() || _latestLossAmount == 0) return;
+        uint256 oldAmount = _latestLossAmount;
+        uint256 adjustedNav = _adjustedCustodianNAVNoStaleFallback();
+        uint256 principal = _totalDeployed;
+        uint256 currentAmount = principal > adjustedNav ? principal - adjustedNav : 0;
+        if (currentAmount == oldAmount) return;
+        _latestLossAmount = currentAmount;
+        emit AttestedLossAmountRecomputed(_latestLossVaultId, _latestLossNonce, oldAmount, currentAmount);
+    }
+
     function _pendingLossVaultIdForBinding() internal view returns (uint256) {
         if (_hasUnresolvedAttestedLoss()) return _latestLossVaultId;
         return _lossPendingVaultId;
     }
 
-    function _requireActiveVault(uint256 vaultId) internal view {
-        if (address(_vaultRegistry) != address(0)) {
-            VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
-            if (vc.status != VaultStatus.Active) revert VaultNotActive();
-        }
+    function _requireActiveVault(uint256 vaultId, uint256 nav) internal view {
+        if (address(_vaultRegistry) == address(0)) revert VaultRegistryRequired();
+        VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
+        if (vc.vaultId != vaultId) revert InvalidVaultId();
+        if (vc.status == VaultStatus.Active) return;
+        if (vc.status != VaultStatus.Paused && vc.status != VaultStatus.WindingDown) revert VaultNotActive();
+        if (nav >= _totalDeployed) revert VaultNotActive();
     }
 
-    function _normalizeManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce)
-        internal
-        view
-        returns (bool shouldRecord, uint256 normalizedNav)
-    {
-        address custodian_ = _custodian;
+    function _normalizeManualCustodianNAV(
+        address custodian_,
+        uint256 vaultId,
+        uint256 nav,
+        uint256 lossNonce,
+        uint256 observedAt
+    ) internal view returns (bool shouldRecord, uint256 normalizedNav) {
         if (custodian_.code.length == 0) revert ManualAttestationNormalizationFailed(custodian_);
 
         (bool ok, bytes memory data) = custodian_.staticcall(
-            abi.encodeCall(IManualCustodianNAVNormalizer.normalizeManualCustodianNAV, (vaultId, nav, lossNonce))
+            abi.encodeCall(
+                IManualCustodianNAVNormalizer.normalizeManualCustodianNAV, (vaultId, nav, lossNonce, observedAt)
+            )
         );
         if (!ok || data.length < 64) revert ManualAttestationNormalizationFailed(custodian_);
 
@@ -1110,75 +1150,11 @@ contract RISKUSDVaultModule is
     }
 
     function _activeRegisteredTierAssets() internal view returns (uint256 assets) {
-        (bool usedActivePagination, uint256 activeAssets) = _activeRegisteredTierAssetsFromActivePages();
-        if (usedActivePagination) return activeAssets;
-
-        return _activeRegisteredTierAssetsFromHistoricalPages();
-    }
-
-    function _activeRegisteredTierAssetsFromActivePages()
-        internal
-        view
-        returns (bool usedActivePagination, uint256 assets)
-    {
-        uint256 offset = 0;
-        uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
-        while (true) {
-            (bool ok, bytes memory data) = address(_vaultRegistry).staticcall(
-                abi.encodeWithSelector(GET_ACTIVE_VAULTS_PAGE_SELECTOR, offset, pageLimit)
-            );
-            if (!ok) return (false, 0);
-
-            usedActivePagination = true;
-            (uint256[] memory vaultIds, uint256 nextOffset, uint256 total) =
-                abi.decode(data, (uint256[], uint256, uint256));
-            if (vaultIds.length == 0) break;
-            for (uint256 i; i < vaultIds.length;) {
-                assets += _activeVaultTierAssets(vaultIds[i]);
-                unchecked {
-                    ++i;
-                }
-            }
-            if (nextOffset >= total || nextOffset <= offset) break;
-            offset = nextOffset;
-        }
-    }
-
-    function _activeRegisteredTierAssetsFromHistoricalPages() internal view returns (uint256 assets) {
-        uint256 offset = 0;
-        uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
-        while (true) {
-            try _vaultRegistry.getVaultsPage(offset, pageLimit) returns (
-                uint256[] memory vaultIds, uint256 nextOffset, uint256 total
-            ) {
-                if (vaultIds.length == 0) break;
-                for (uint256 i; i < vaultIds.length;) {
-                    assets += _activeVaultTierAssets(vaultIds[i]);
-                    unchecked {
-                        ++i;
-                    }
-                }
-                if (nextOffset >= total || nextOffset <= offset) break;
-                offset = nextOffset;
-            } catch {
-                revert DeploymentBufferEnumerationFailed(address(_vaultRegistry));
-            }
-        }
-    }
-
-    function _activeVaultTierAssets(uint256 vaultId) internal view returns (uint256 assets) {
-        VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
-        if (vc.status == VaultStatus.Active) {
-            for (uint256 j; j < 4;) {
-                address tierVault = vc.tierVaults[j];
-                if (tierVault != address(0)) {
-                    assets += IERC4626TotalAssets(tierVault).totalAssets();
-                }
-                unchecked {
-                    ++j;
-                }
-            }
-        }
+        address registry = address(_vaultRegistry);
+        (bool ok, bytes memory data) =
+            registry.staticcall(abi.encodeWithSelector(IVaultRegistry.activeRegisteredTierAssets.selector));
+        if (!ok || data.length != 32) revert DeploymentBufferEnumerationFailed(registry);
+        assets = abi.decode(data, (uint256));
     }
 
     function _assertSolvency() internal {

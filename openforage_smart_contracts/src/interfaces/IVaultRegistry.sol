@@ -34,6 +34,8 @@ interface IVaultRegistry {
         external
         view
         returns (uint256[] memory ids, uint256 nextOffset, uint256 total);
+    function activeRegisteredTierAssets() external view returns (uint256);
+    function onTierVaultAssetsChanged() external;
     /// @dev OF-16-002: Notify VaultRegistry that a loss has been resolved for cooldown tracking.
     function notifyLossResolved() external;
 }

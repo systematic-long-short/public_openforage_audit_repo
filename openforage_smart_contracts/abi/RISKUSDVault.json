@@ -1053,6 +1053,11 @@
         "name": "lossNonce",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -1882,6 +1887,37 @@
       },
       {
         "name": "newInterval",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AttestedLossAmountRecomputed",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lossNonce",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "oldAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2992,6 +3028,22 @@
   },
   {
     "type": "error",
+    "name": "InvalidManualNAVObservation",
+    "inputs": [
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentTimestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidParameter",
     "inputs": []
   },
@@ -3055,6 +3107,17 @@
   {
     "type": "error",
     "name": "ManualAttestationNormalizationFailed",
+    "inputs": [
+      {
+        "name": "custodian",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ManualNAVAcknowledgementFailed",
     "inputs": [
       {
         "name": "custodian",

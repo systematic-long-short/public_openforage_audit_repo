@@ -8,6 +8,10 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
 
+interface IForageGovernorGuardianSource {
+    function guardianModule() external view returns (address);
+}
+
 /// @title CustodianRegistry
 /// @notice R-27/F11 registry shape for N trading custodians.
 /// @dev Hot-path checks are mapping lookups by custodian id; enumeration is only for off-chain/admin views.
@@ -83,6 +87,8 @@ contract CustodianRegistry is
         uint256 deployUsedDayStart;
         uint256 returnUsedThisDay;
         uint256 returnUsedDayStart;
+        uint256 navCapReference;
+        bool navCapReferenceInitialized;
     }
 
     struct PendingCustodianConfig {
@@ -127,8 +133,12 @@ contract CustodianRegistry is
     error FinalizeDelayNotElapsed();
     error ProposalExpired();
     error RenounceOwnershipDisabled();
-    error CustodianNAVDeltaCapExceeded(bytes32 id, uint256 previousNAV, uint256 newNAV);
+    error CustodianNAVDeltaCapExceeded(bytes32 id, uint256 navCapReference, uint256 newNAV);
     error StaleCustodianConfigEpoch(bytes32 id, uint64 expected, uint64 actual);
+    error GuardianRotationRetired();
+    error GuardianGovernorUnavailable(address governor);
+    error GuardianModuleLookupFailed(address governor);
+    error InvalidGuardianModule(address module);
 
     bytes32 public constant HYPERLIQUID_CUSTODIAN_ID = keccak256("HYPERLIQUID");
     bytes32 public constant LIGHTER_CUSTODIAN_ID = keccak256("LIGHTER");
@@ -191,14 +201,7 @@ contract CustodianRegistry is
     }
 
     function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
-    }
-
-    modifier onlyPauseControl() {
-        if (msg.sender != owner() && msg.sender != _forageGovernor && msg.sender != _guardianModule) {
-            revert UnauthorizedPauseControl(msg.sender);
-        }
-        _;
+        _transitionAllowlist(allowlist_);
     }
 
     modifier onlyCustodianRole(bytes32 id, bytes32 role) {
@@ -263,7 +266,9 @@ contract CustodianRegistry is
         delete _pendingCustodianConfigs[id];
     }
 
-    function setCustodianPaused(bytes32 id, bool paused_) external onlyAllowedCaller onlyPauseControl {
+    function setCustodianPaused(bytes32 id, bool paused_) external onlyAllowedCaller {
+        address guardian = _authorizePauseControl();
+        if (guardian != address(0) && !paused_) revert UnauthorizedPauseControl(msg.sender);
         CustodianState storage state = _requireCustodian(id);
         state.paused = paused_;
         emit CustodianPausedSet(id, paused_);
@@ -366,6 +371,8 @@ contract CustodianRegistry is
         _enforceDeploymentCaps(id, state, amount);
         state.deployed += amount;
         _totalDeployed += amount;
+        state.navCapReference += amount;
+        state.navCapReferenceInitialized = true;
         emit CustodianDeploymentRecorded(id, amount, state.deployed);
     }
 
@@ -408,6 +415,7 @@ contract CustodianRegistry is
 
         state.deployed = deployed - amount;
         _totalDeployed = totalDeployed_ - amount;
+        _reduceNAVCapReference(state, amount);
         emit CustodianLossRecorded(id, amount, state.deployed);
         return amount;
     }
@@ -420,10 +428,11 @@ contract CustodianRegistry is
     {
         CustodianState storage state = _requireCustodian(id);
         if (state.paused) revert CustodianPaused(id);
-        if (nav == 0) revert ZeroAmount();
         _enforceNAVDeltaCap(id, state, nav);
         state.lastNAV = nav;
         state.lastNAVTimestamp = block.timestamp;
+        state.navCapReference = nav;
+        state.navCapReferenceInitialized = true;
         emit CustodianNAVRecorded(id, nav, block.timestamp);
     }
 
@@ -446,28 +455,22 @@ contract CustodianRegistry is
     }
 
     function proposeGuardianModule(address newGuardianModule) external onlyAllowedCaller onlyOwner {
-        if (newGuardianModule == address(0)) revert ZeroAddress();
-        _pendingGuardianModule = newGuardianModule;
-        _pendingGuardianModuleProposedAt = block.timestamp;
-        emit GuardianModuleProposed(_guardianModule, newGuardianModule);
+        if (newGuardianModule == address(0)) revert GuardianRotationRetired();
+        revert GuardianRotationRetired();
     }
 
     function finalizeGuardianModule() external onlyAllowedCaller onlyOwner {
-        if (_pendingGuardianModule == address(0)) revert NoPendingGuardianModule();
-        if (block.timestamp < _pendingGuardianModuleProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
-        if (block.timestamp > _pendingGuardianModuleProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        address oldGuardian = _guardianModule;
-        _guardianModule = _pendingGuardianModule;
-        _pendingGuardianModule = address(0);
-        _pendingGuardianModuleProposedAt = 0;
-        emit GuardianModuleUpdated(oldGuardian, _guardianModule);
+        revert GuardianRotationRetired();
     }
 
-    function pause() external onlyAllowedCaller onlyPauseControl {
+    function pause() external onlyAllowedCaller {
+        _authorizePauseControl();
         _pause();
     }
 
-    function unpause() external onlyAllowedCaller onlyPauseControl {
+    function unpause() external onlyAllowedCaller {
+        address guardian = _authorizePauseControl();
+        if (guardian != address(0)) revert UnauthorizedPauseControl(msg.sender);
         _unpause();
     }
 
@@ -585,7 +588,7 @@ contract CustodianRegistry is
     }
 
     function guardianModule() external view returns (address) {
-        return _guardianModule;
+        return _resolveGuardianModule();
     }
 
     function pendingCustodianConfig(bytes32 id)
@@ -624,6 +627,7 @@ contract CustodianRegistry is
         deployed = state.deployed - amount;
         state.deployed = deployed;
         _totalDeployed -= amount;
+        _reduceNAVCapReference(state, amount);
     }
 
     function _requireCustodian(bytes32 id) internal view returns (CustodianState storage state) {
@@ -716,11 +720,38 @@ contract CustodianRegistry is
     }
 
     function _enforceNAVDeltaCap(bytes32 id, CustodianState storage state, uint256 nav) internal view {
-        uint256 previousNAV = state.lastNAV;
-        if (state.lastNAVTimestamp == 0 || state.navDeltaCapBps == 0) return;
-        uint256 delta = nav > previousNAV ? nav - previousNAV : previousNAV - nav;
-        uint256 maxDelta = previousNAV * uint256(state.navDeltaCapBps) / 10000;
-        if (delta > maxDelta) revert CustodianNAVDeltaCapExceeded(id, previousNAV, nav);
+        uint256 navReference = state.navCapReference;
+        if (!state.navCapReferenceInitialized || state.navDeltaCapBps == 0) return;
+        uint256 delta = nav > navReference ? nav - navReference : navReference - nav;
+        uint256 maxDelta = navReference * uint256(state.navDeltaCapBps) / 10000;
+        if (delta > maxDelta) revert CustodianNAVDeltaCapExceeded(id, navReference, nav);
+    }
+
+    function _reduceNAVCapReference(CustodianState storage state, uint256 amount) internal {
+        uint256 navReference = state.navCapReference;
+        state.navCapReference = amount >= navReference ? 0 : navReference - amount;
+        state.navCapReferenceInitialized = true;
+    }
+
+    function _authorizePauseControl() internal view returns (address guardian) {
+        if (msg.sender == owner() || msg.sender == _forageGovernor) return address(0);
+        guardian = _resolveGuardianModule();
+        if (msg.sender != guardian) revert UnauthorizedPauseControl(msg.sender);
+    }
+
+    function _resolveGuardianModule() internal view returns (address module) {
+        address governor = _forageGovernor;
+        if (governor == address(0) || governor.code.length == 0) revert GuardianGovernorUnavailable(governor);
+        (bool ok, bytes memory data) =
+            governor.staticcall(abi.encodeCall(IForageGovernorGuardianSource.guardianModule, ()));
+        if (!ok || data.length != 32) revert GuardianModuleLookupFailed(governor);
+        uint256 moduleWord;
+        assembly ("memory-safe") {
+            moduleWord := mload(add(data, 32))
+        }
+        if (moduleWord > type(uint160).max) revert GuardianModuleLookupFailed(governor);
+        module = address(uint160(moduleWord));
+        if (module == address(0) || module.code.length == 0) revert InvalidGuardianModule(module);
     }
 
     function transferOwnership(address newOwner) public override onlyAllowedCaller onlyOwner {

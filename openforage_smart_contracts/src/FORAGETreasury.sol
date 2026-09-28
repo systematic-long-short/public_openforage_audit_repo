@@ -108,7 +108,7 @@ contract FORAGETreasury is
     }
 
     function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+        _transitionAllowlist(allowlist_);
     }
 
     function publishAgentRoot(uint256 roundId, bytes32 root, uint256 totalAmount, uint64 deadline)

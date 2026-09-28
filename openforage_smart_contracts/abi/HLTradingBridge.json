@@ -117,6 +117,25 @@
   },
   {
     "type": "function",
+    "name": "acknowledgeManualCustodianNAV",
+    "inputs": [
+      {
+        "name": "submittedRawNav",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "allowlist",
     "inputs": [],
     "outputs": [
@@ -450,6 +469,11 @@
         "name": "lossNonce",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -643,6 +667,24 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reconcileCancelledWithdrawalArrival",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "arrivedAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1253,6 +1295,30 @@
   },
   {
     "type": "function",
+    "name": "withdrawalIntentProgress",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "creditedAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "cancelled",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "withdrawalIntentTimeoutSeconds",
     "inputs": [],
     "outputs": [
@@ -1406,6 +1472,37 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ManualCustodianNAVAcknowledged",
+    "inputs": [
+      {
+        "name": "submittedRawNav",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "acceptedNav",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bookValue",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1813,6 +1910,17 @@
   },
   {
     "type": "error",
+    "name": "CancelledWithdrawalIntentWhileAnotherIsOpen",
+    "inputs": [
+      {
+        "name": "openIntentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "DirectionFrozen",
     "inputs": []
   },
@@ -1875,6 +1983,28 @@
   },
   {
     "type": "error",
+    "name": "GuardianModuleResolutionFailed",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianRegistryUnavailable",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "IncompatibleLegacyLayout",
     "inputs": []
   },
@@ -1896,13 +2026,56 @@
   },
   {
     "type": "error",
+    "name": "InsufficientUnreconciledLiquidity",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidBps",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "InvalidGuardianModule",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidManualNAVObservation",
+    "inputs": [
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentTimestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1937,6 +2110,22 @@
     "inputs": [
       {
         "name": "lossNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ManualNAVObservationNotAfterPrincipalChange",
+    "inputs": [
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "principalBookKnownSince",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2024,8 +2213,77 @@
   },
   {
     "type": "error",
+    "name": "PrincipalBookAnchorUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PrincipalReturnBlockedByUnresolvedLoss",
+    "inputs": [
+      {
+        "name": "lossNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ProposalExpired",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ReceiptIndexBelowBaseline",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "baseline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReceiptIndexOverflow",
+    "inputs": [
+      {
+        "name": "unreconciled",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalCredited",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReconciledBalanceExceedsBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reconciled",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2166,6 +2424,48 @@
   },
   {
     "type": "error",
+    "name": "VaultPrincipalMismatch",
+    "inputs": [
+      {
+        "name": "vaultPrincipal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bridgePrincipal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WithdrawalCreditOutOfBounds",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "credited",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "delta",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "WithdrawalIntentAmountExceeded",
     "inputs": [
       {
@@ -2193,6 +2493,33 @@
         "name": "expected",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WithdrawalIntentCollision",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WithdrawalIntentNonceExhausted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WithdrawalIntentNotCancelled",
+    "inputs": [
+      {
+        "name": "intentId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ]
   },

@@ -54,6 +54,10 @@ contract Deploy is Script {
     error SharedAllowlistNotWired(address target, address expected, address actual);
     error SequencerUptimePolicyNotWired(address target, address expected, address actual);
     error ModuleNotWired(address target, address expected, address actual);
+    error ReservedProposalGuardianMissing();
+    error ReservedProposalGuardianNotConfigured(address guardian);
+    error InternalGuardianNotAllowed(address guardian);
+    error GovernanceProposerIsGuardian(address proposer);
 
     uint256 public constant LOCAL_CHAIN_ID = 31337;
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
@@ -128,6 +132,7 @@ contract Deploy is Script {
     bytes32 public cfgHyperliquidSourceAccount;
     uint64 public cfgWithdrawalChainSelector;
     bool public cfgRequireExplicitGuardians;
+    address private _reservedProposalGuardian;
 
     event AllowlistDeployed(address allowlist);
 
@@ -222,13 +227,22 @@ contract Deploy is Script {
     }
 
     function _requireExplicitGuardianConfig() internal view {
-        for (uint256 i; i < 7;) {
-            string memory key = string.concat("GUARDIAN_", vm.toString(i));
-            require(vm.envAddress(key) != address(0), "guardian required");
+        _configuredProposalGuardian(_guardianAddresses(address(0)));
+    }
+
+    function _configuredProposalGuardian(address[] memory guardians) internal view returns (address selectedGuardian) {
+        selectedGuardian = vm.envOr("RESERVED_PROPOSAL_GUARDIAN", address(0));
+        if (selectedGuardian == address(0)) {
+            if (cfgRequireExplicitGuardians) revert ReservedProposalGuardianMissing();
+            selectedGuardian = guardians[0];
+        }
+        for (uint256 i; i < guardians.length;) {
+            if (guardians[i] == selectedGuardian) return selectedGuardian;
             unchecked {
                 ++i;
             }
         }
+        revert ReservedProposalGuardianNotConfigured(selectedGuardian);
     }
 
     function runWithConfig(
@@ -241,6 +255,8 @@ contract Deploy is Script {
         address launchVotingDelegate,
         address sequencerUptimeFeed
     ) public virtual {
+        cfgRequireExplicitGuardians = true;
+        _requireExplicitGuardianConfig();
         _deployWithConfig(
             DeployConfig({
                 usdc: usdc,
@@ -345,6 +361,7 @@ contract Deploy is Script {
     }
 
     function _deployWithConfig(DeployConfig memory cfg, address createSender) internal {
+        _reservedProposalGuardian = _configuredProposalGuardian(_guardianAddresses(cfg.deployer));
         _recordConfig(cfg);
         _deployTimelock(cfg.deployer);
         _deployImplementations();
@@ -463,14 +480,22 @@ contract Deploy is Script {
     }
 
     function _deployAllowlist(DeployConfig memory cfg) internal {
+        address[] memory guardians = _guardianAddresses(cfg.deployer);
         deployedAllowlist = _proxy(
             implAllowlist,
             abi.encodeCall(
                 Allowlist.initialize,
-                (cfg.deployer, _guardianAddresses(cfg.deployer)[0], uint64(Allowlist(implAllowlist).FINALIZE_DELAY()))
+                (cfg.deployer, guardians[0], uint64(Allowlist(implAllowlist).FINALIZE_DELAY()))
             )
         );
-        Allowlist(deployedAllowlist).approveOperator(cfg.beneficiary);
+        Allowlist registry = Allowlist(deployedAllowlist);
+        registry.approveVestingBeneficiary(cfg.beneficiary);
+        for (uint256 i = 1; i < guardians.length;) {
+            registry.approveOperator(guardians[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     function _deployTokenAndTreasuries(DeployConfig memory cfg, PredictedAddresses memory predicted) internal {
@@ -503,8 +528,12 @@ contract Deploy is Script {
     function _deployGovernanceAndRegistry(DeployConfig memory cfg, PredictedAddresses memory predicted) internal {
         address[] memory guardians = _guardianAddresses(cfg.deployer);
         uint256[] memory permissions = new uint256[](guardians.length);
+        Allowlist registry = Allowlist(deployedAllowlist);
+        uint256 proposalPermission = GuardianModule(implGuardianModule).PERMISSION_CAN_PROPOSE();
         for (uint256 i; i < guardians.length;) {
+            if (!registry.isAllowed(guardians[i])) revert InternalGuardianNotAllowed(guardians[i]);
             permissions[i] = GUARDIAN_PERMISSION_PAUSE;
+            if (guardians[i] == _reservedProposalGuardian) permissions[i] |= proposalPermission;
             unchecked {
                 ++i;
             }
@@ -625,12 +654,17 @@ contract Deploy is Script {
     }
 
     function _wireTargetStack(DeployConfig memory cfg) internal {
-        _wireModules();
         _wireSharedAllowlist(cfg);
+        _wireModules();
 
+        if (GuardianModule(deployedGuardianModule).isGuardian(deployedForageGovernor)) {
+            revert GovernanceProposerIsGuardian(deployedForageGovernor);
+        }
         TimelockController(payable(deployedTimelock)).grantRole(PROPOSER_ROLE, deployedForageGovernor);
         TimelockController(payable(deployedTimelock)).grantRole(CANCELLER_ROLE, deployedForageGovernor);
         TimelockController(payable(deployedTimelock)).grantRole(EXECUTOR_ROLE, deployedForageGovernor);
+
+        ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);
 
         DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);
         DelegatingVestingWallet(deployedVestingWallet).precommitForageToken(deployedForageToken);
@@ -654,6 +688,7 @@ contract Deploy is Script {
                 FUNDING_BPS
             );
         VaultRegistry(deployedVaultRegistry).initializeV4();
+        StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);
         StakingQueue(deployedStakingQueue).setVaultId(targetVaultId);
 
         RISKUSD(deployedRiskusd).setMinter(deployedRiskusdVault);
@@ -664,9 +699,7 @@ contract Deploy is Script {
 
         RISKUSDVault(deployedRiskusdVault).setBlocklist(deployedBlocklist);
         RISKUSDVault(deployedRiskusdVault).setDailyRedemptionCapBps(200);
-        RISKUSDVault(deployedRiskusdVault).setMinimumFirstDeposit(2, 200_000e6);
 
-        ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);
         ForageToken(deployedForageToken).setAuthorizedLocker(deployedStakingQueue, true);
 
         FORAGETreasury(deployedFORAGETreasury).setBlocklist(deployedBlocklist);
@@ -677,7 +710,6 @@ contract Deploy is Script {
 
         HLTradingBridge(deployedHLTradingBridge).setBlocklist(deployedBlocklist);
 
-        StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);
         StakingQueue(deployedStakingQueue).setExpiredLockupProcessor(cfg.keeper, true);
 
         _wireSequencerUptimePolicy(cfg.sequencerUptimeFeed);
@@ -719,6 +751,7 @@ contract Deploy is Script {
 
     function _wireModules() internal {
         RISKUSDVault(deployedRiskusdVault).setVaultModule(implRiskusdVaultModule);
+        RISKUSDVault(deployedRiskusdVault).setMinimumFirstDeposit(2, 200_000e6);
         StakingQueue(deployedStakingQueue).setQueueModule(implStakingQueueModule);
     }
 
@@ -938,6 +971,7 @@ contract Deploy is Script {
         timelock.revokeRole(PROPOSER_ROLE, deployer);
         timelock.revokeRole(CANCELLER_ROLE, deployer);
         timelock.revokeRole(EXECUTOR_ROLE, deployer);
+        timelock.revokeRole(bytes32(0), deployer);
     }
 
     function _proxy(address implementation, bytes memory initData) internal returns (address) {

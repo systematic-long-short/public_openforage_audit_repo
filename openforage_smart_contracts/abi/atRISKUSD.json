@@ -2623,8 +2623,30 @@
   },
   {
     "type": "error",
+    "name": "ExpiryHeapInvariant",
+    "inputs": [
+      {
+        "name": "expiry",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "FailedCall",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FinalClaimBurn",
+    "inputs": [
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2642,6 +2664,22 @@
       },
       {
         "name": "allowedUntil",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientFundedAssets",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2675,6 +2713,11 @@
   },
   {
     "type": "error",
+    "name": "ModuleReturnDataInvalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoPendingForageGovernor",
     "inputs": []
   },
@@ -2682,6 +2725,17 @@
     "type": "error",
     "name": "NoPendingWithdrawal",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoPositiveWithdrawalSlice",
+    "inputs": [
+      {
+        "name": "remainingCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2854,6 +2908,17 @@
   },
   {
     "type": "error",
+    "name": "UnfundedZeroSupplyClaim",
+    "inputs": [
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "UnsupportedPendingWithdrawalLayout",
     "inputs": [
       {
@@ -2881,6 +2946,134 @@
   },
   {
     "type": "error",
+    "name": "YieldAssetValueOverflow",
+    "inputs": [
+      {
+        "name": "funded",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldClaimsNotReady",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldClaimsUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceAttestorUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "attestor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceBridgeRouteMismatch",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "bridge",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedTreasury",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualTreasury",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceBridgeUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "bridge",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceCallerNotEligible",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceClaimOutstanding",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "YieldSourceReachable",
     "inputs": []
   },
@@ -2888,6 +3081,17 @@
     "type": "error",
     "name": "YieldSourceUnreachable",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceWiringMismatch",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2907,6 +3111,11 @@
   {
     "type": "error",
     "name": "ZeroRedemptionOutput",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroSupplyYield",
     "inputs": []
   }
 ]

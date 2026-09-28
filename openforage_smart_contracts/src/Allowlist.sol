@@ -39,6 +39,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     event OperatorApproved(address indexed account);
     event Revoked(address indexed account, address indexed by);
     event SystemAccountSet(address indexed account, bool isSystem);
+    event VestingSourceRegistrationPendingSet(address indexed source, bool pending);
     event ApprovalsPerDayCapShrunk(uint32 previous, uint32 next);
     event RegistrarProposed(address indexed account, uint256 proposedAt);
     event RegistrarUpdated(address indexed previous, address indexed next);
@@ -81,12 +82,18 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     mapping(address => bool) private _eligibilityBaselineSet;
     mapping(address => address) private _vestingSourceBeneficiary;
     mapping(address => uint32) public vestingSourceCount;
+    mapping(address => bool) private _pendingVestingSourceRegistration;
 
-    uint256[29] private __gap;
+    uint256[28] private __gap;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    modifier onlyEligibleOwner() {
+        _requireEligibleOwner();
+        _;
     }
 
     function initialize(address owner_, address guardian_, uint64 finalizeDelay_) external initializer {
@@ -100,10 +107,13 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _guardian = guardian_;
         _approvalsPerDayCap = DEFAULT_APPROVALS_PER_DAY_CAP;
         _ensureEligibilityHistory();
+        _approveOperator(owner_);
+        if (guardian_ != owner_) _approveOperator(guardian_);
     }
 
     function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external {
         if (msg.sender != _registrar) revert NotRegistrar();
+        if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
         if (account == address(0)) revert ZeroAddress();
         if (until > uint64(block.timestamp + APPROVAL_TERM_LIMIT)) revert ExpiryTooFar();
         _countApproval();
@@ -117,23 +127,39 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _recordEligibilityChange(account);
     }
 
-    function approveOperator(address account) external onlyOwner {
+    function approveOperator(address account) external onlyEligibleOwner {
+        _approveOperator(account);
+    }
+
+    function approveVestingBeneficiary(address account) external onlyEligibleOwner {
+        if (account == address(0)) revert ZeroAddress();
+        if (block.timestamp > uint256(type(uint64).max) - APPROVAL_TERM_LIMIT) {
+            revert TimestampOutOfRange(block.timestamp);
+        }
+        uint64 until = uint64(block.timestamp + APPROVAL_TERM_LIMIT);
+        _countApproval();
         _captureEligibilityBaseline(account);
-        _allowedUntil[account] = type(uint64).max;
+        _allowedUntil[account] = until;
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
-
-        emit OperatorApproved(account);
+        emit Approved(account, until, 0, bytes32(0));
         _recordEligibilityChange(account);
     }
 
     function revoke(address account) external {
         if (msg.sender != _registrar && msg.sender != _guardian) revert NotGuardianOrRegistrar();
+        if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
 
         _captureEligibilityBaseline(account);
         _allowedUntil[account] = 0;
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
+
+        if (account == owner() && _systemAccounts[account]) {
+            _updateVestingSourceRegistration(account, false);
+            _systemAccounts[account] = false;
+            emit SystemAccountSet(account, false);
+        }
 
         emit Revoked(account, msg.sender);
         _recordEligibilityChange(account);
@@ -141,6 +167,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     function shrinkApprovalsPerDayCap(uint32 newCap) external {
         if (msg.sender != owner() && msg.sender != _guardian) revert NotOwnerOrGuardian();
+        if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
         if (newCap >= _approvalsPerDayCap) revert CapNotShrunk();
 
         uint32 previous = _approvalsPerDayCap;
@@ -151,6 +178,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     function setSystemAccount(address account, bool isSystem) external {
         if (msg.sender != owner() && !_systemRegistrars[msg.sender]) revert NotSystemRegistrar();
+        if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
         if (account == address(0)) revert ZeroAddress();
 
         _captureEligibilityBaseline(account);
@@ -161,17 +189,18 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _recordEligibilityChange(account);
     }
 
-    function proposeRegistrar(address account) external onlyOwner {
+    function proposeRegistrar(address account) external onlyEligibleOwner {
         _pendingRegistrar = account;
         _pendingRegistrarProposedAt = block.timestamp;
 
         emit RegistrarProposed(account, block.timestamp);
     }
 
-    function finalizeRegistrar() external onlyOwner {
+    function finalizeRegistrar() external onlyEligibleOwner {
         address account = _pendingRegistrar;
         if (account == address(0)) revert NoPendingProposal();
         _requireProposalReady(_pendingRegistrarProposedAt);
+        if (!_isAllowed(account)) revert IAllowlist.CallerNotAllowed(account);
 
         address previous = _registrar;
         _registrar = account;
@@ -181,7 +210,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit RegistrarUpdated(previous, account);
     }
 
-    function cancelRegistrar() external onlyOwner {
+    function cancelRegistrar() external onlyEligibleOwner {
         address account = _pendingRegistrar;
         if (account == address(0)) revert NoPendingProposal();
 
@@ -191,17 +220,18 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit RegistrarProposalCancelled(account);
     }
 
-    function proposeGuardian(address account) external onlyOwner {
+    function proposeGuardian(address account) external onlyEligibleOwner {
         _pendingGuardian = account;
         _pendingGuardianProposedAt = block.timestamp;
 
         emit GuardianProposed(account, block.timestamp);
     }
 
-    function finalizeGuardian() external onlyOwner {
+    function finalizeGuardian() external onlyEligibleOwner {
         address account = _pendingGuardian;
         if (account == address(0)) revert NoPendingProposal();
         _requireProposalReady(_pendingGuardianProposedAt);
+        if (!_isAllowed(account)) revert IAllowlist.CallerNotAllowed(account);
 
         address previous = _guardian;
         _guardian = account;
@@ -211,7 +241,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit GuardianUpdated(previous, account);
     }
 
-    function cancelGuardian() external onlyOwner {
+    function cancelGuardian() external onlyEligibleOwner {
         address account = _pendingGuardian;
         if (account == address(0)) revert NoPendingProposal();
 
@@ -221,7 +251,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit GuardianProposalCancelled(account);
     }
 
-    function proposeSystemRegistrar(address account, bool isSystem) external onlyOwner {
+    function proposeSystemRegistrar(address account, bool isSystem) external onlyEligibleOwner {
         _pendingSystemRegistrar = account;
         _pendingSystemRegistrarIsSystem = isSystem;
         _pendingSystemRegistrarProposedAt = block.timestamp;
@@ -229,12 +259,13 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit SystemRegistrarProposed(account, isSystem, block.timestamp);
     }
 
-    function finalizeSystemRegistrar() external onlyOwner {
+    function finalizeSystemRegistrar() external onlyEligibleOwner {
         address account = _pendingSystemRegistrar;
         if (account == address(0)) revert NoPendingProposal();
         _requireProposalReady(_pendingSystemRegistrarProposedAt);
 
         bool isSystem = _pendingSystemRegistrarIsSystem;
+        if (isSystem && !_isAllowed(account)) revert IAllowlist.CallerNotAllowed(account);
         _systemRegistrars[account] = isSystem;
         _pendingSystemRegistrar = address(0);
         _pendingSystemRegistrarIsSystem = false;
@@ -243,7 +274,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit SystemRegistrarUpdated(account, isSystem);
     }
 
-    function cancelSystemRegistrar() external onlyOwner {
+    function cancelSystemRegistrar() external onlyEligibleOwner {
         address account = _pendingSystemRegistrar;
         if (account == address(0)) revert NoPendingProposal();
 
@@ -342,7 +373,12 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return _vestingSourceBeneficiary[source];
     }
 
+    function isVestingSourceRegistrationPending(address source) external view returns (bool) {
+        return _pendingVestingSourceRegistration[source];
+    }
+
     function _countApproval() private {
+        if (_approvalsPerDayCap == 0) revert DailyCapReached();
         uint64 today = uint64(block.timestamp / 1 days);
         if (_approvalsDay != today) {
             _approvalsDay = today;
@@ -351,6 +387,22 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         }
         if (_approvalsTodayCount >= _approvalsPerDayCap) revert DailyCapReached();
         _approvalsTodayCount += 1;
+    }
+
+    function _approveOperator(address account) private {
+        _captureEligibilityBaseline(account);
+        _allowedUntil[account] = type(uint64).max;
+        _basis[account] = 0;
+        _caseRef[account] = bytes32(0);
+
+        emit OperatorApproved(account);
+        _recordEligibilityChange(account);
+    }
+
+    function _requireEligibleOwner() private view {
+        if (msg.sender != owner() || !_isAllowed(msg.sender)) {
+            revert OwnableUnauthorizedAccount(msg.sender);
+        }
     }
 
     function _requireProposalReady(uint256 proposedAt) private view {
@@ -407,6 +459,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     function _updateVestingSourceRegistration(address source, bool isSystem) private {
         address beneficiary_ = _vestingSourceBeneficiary[source];
         if (!isSystem) {
+            _setVestingSourceRegistrationPending(source, false);
             if (beneficiary_ == address(0)) return;
             uint32 previousCount = vestingSourceCount[beneficiary_];
             if (previousCount == 0) revert VestingSourceRegistrationUnderflow(beneficiary_);
@@ -414,7 +467,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
             delete _vestingSourceBeneficiary[source];
             return;
         }
-        if (beneficiary_ != address(0) || source.code.length == 0) return;
+        if (source.code.length == 0) {
+            if (beneficiary_ == address(0)) _setVestingSourceRegistrationPending(source, true);
+            return;
+        }
+        if (beneficiary_ != address(0)) return;
 
         (bool ok, bytes memory data) =
             source.staticcall(abi.encodeWithSelector(IVestingBeneficiarySource.beneficiary.selector));
@@ -427,6 +484,13 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         if (sourceCount >= maximum) revert TooManyVestingSources(beneficiary_, sourceCount, maximum);
         _vestingSourceBeneficiary[source] = beneficiary_;
         vestingSourceCount[beneficiary_] = sourceCount + 1;
+        _setVestingSourceRegistrationPending(source, false);
+    }
+
+    function _setVestingSourceRegistrationPending(address source, bool pending) private {
+        if (_pendingVestingSourceRegistration[source] == pending) return;
+        _pendingVestingSourceRegistration[source] = pending;
+        emit VestingSourceRegistrationPendingSet(source, pending);
     }
 
     function _isAllowed(address account) private view returns (bool) {
@@ -445,5 +509,14 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         revert RenounceOwnershipDisabled();
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function transferOwnership(address newOwner) public override onlyEligibleOwner {
+        super.transferOwnership(newOwner);
+    }
+
+    function acceptOwnership() public override {
+        if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
+        super.acceptOwnership();
+    }
+
+    function _authorizeUpgrade(address) internal override onlyEligibleOwner {}
 }

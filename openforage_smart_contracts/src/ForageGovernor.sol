@@ -12,7 +12,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./GuardianModule.sol";
+import "./ForageGovernorTimelockGuard.sol";
 import "./interfaces/IBlocklist.sol";
+import "./interfaces/IAllowlist.sol";
 
 /// @title ForageGovernor — OZ Governor with BPS-based quorum/threshold and external GuardianModule
 /// @notice Extends OZ Governor with max active proposals, lazy Defeated cleanup,
@@ -54,6 +56,7 @@ contract ForageGovernor is
     error TimelockSelfProposerGrant();
     error TimelockExternalProposerGrant(address account);
     error SignatureVotingDisabled();
+    error TimelockRoleMissing(bytes32 role, address account);
 
     // ── Custom events ────────────────────────────────────────────────────
     event QuorumBpsUpdated(uint256 oldQuorumBps, uint256 newQuorumBps);
@@ -62,6 +65,7 @@ contract ForageGovernor is
     event GuardianModuleUpdated(address oldModule, address newModule);
 
     // ── State variables ──────────────────────────────────────────────────
+    ForageGovernorTimelockGuard private immutable _timelockGuard;
     uint256 internal _maxActiveProposals;
     uint256 internal _quorumBps;
     uint256 internal _proposalThresholdBps;
@@ -74,30 +78,6 @@ contract ForageGovernor is
         bytes32 descriptionHash;
     }
 
-    struct TimelockGuardContext {
-        address executor;
-        address allowedProposer;
-        uint256 depth;
-    }
-
-    struct TimelockArray {
-        uint256 offset;
-        uint256 length;
-        uint256 end;
-    }
-
-    struct TimelockSchedulePayload {
-        address target;
-        bytes data;
-    }
-
-    struct TimelockBatchPayload {
-        bytes data;
-        TimelockArray targets;
-        TimelockArray values;
-        TimelockArray calldatas;
-    }
-
     mapping(uint256 => ProposalParams) internal _proposalParams;
 
     /// @notice External guardian module managing guardian permissions and actions.
@@ -106,8 +86,8 @@ contract ForageGovernor is
     /// @dev OF-13-016: Snapshot quorum BPS at proposal creation to prevent retroactive changes.
     mapping(uint256 => uint256) internal _proposalQuorumBps;
 
-    /// @dev Reserved storage gap for future upgrades (7 vars + 43 gap = 50)
-    uint256[43] private __gap;
+    uint256 private _reservedGuardianProposalIdPlusOne;
+    uint256[42] private __gap;
 
     // ── Constants ──────────────────────────────────────────────────────
     /// @notice OF-13-001: Minimum timelock delay floor to prevent governance self-reduction.
@@ -116,26 +96,23 @@ contract ForageGovernor is
     /// @dev Mainnet / production deployment belongs to a separate production-governance deployer.
     uint32 public constant MIN_VOTING_PERIOD = 1 hours;
     /// @notice CHAIN-V06: Hard cap proposal batch size to keep execution gas bounded.
-    uint256 public constant MAX_PROPOSAL_ACTIONS = 100;
+    uint256 public constant MAX_PROPOSAL_ACTIONS = GovernancePayloadBudget.MAX_TOP_LEVEL_ACTIONS;
     /// @notice CHAIN-V06: Queued proposals older than this no longer consume active proposal slots.
     uint256 public constant STALE_QUEUED_PROPOSAL_AGE = 30 days;
     /// @notice V7: Guardians that bypass token threshold cannot monopolize active proposal slots.
     uint256 public constant MAX_ACTIVE_GUARDIAN_PROPOSALS_PER_GUARDIAN = 1;
     uint256 private constant MAX_ACTIVE_ORDINARY_PROPOSALS_PER_PROPOSER = 3;
-    uint256 private constant MAX_TIMELOCK_NESTING = 16;
+    uint256 private constant MAX_TIMELOCK_NESTING = GovernancePayloadBudget.MAX_TIMELOCK_DEPTH;
 
     // ── Public getters ───────────────────────────────────────────────
     function maxActiveProposals() external view returns (uint256) {
         return _maxActiveProposals;
     }
 
-    /// @dev OF-13-055: Optimized with early termination — stops once count reaches
-    /// _maxActiveProposals (no proposal can be added beyond that, so remaining entries
-    /// must all be terminal). Cache length and max to minimize SLOADs.
     function activeProposalCount() public view returns (uint256) {
         uint256 count = 0;
         uint256 len = _activeProposalIds.length;
-        uint256 maxActive = _maxActiveProposals;
+        uint256 maxActive = _maxActiveProposals + 1;
         for (uint256 i = 0; i < len;) {
             ProposalState s = state(_activeProposalIds[i]);
             if (_usesActiveProposalSlot(_activeProposalIds[i], s)) {
@@ -163,6 +140,21 @@ contract ForageGovernor is
         returns (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, bytes32 descriptionHash)
     {
         ProposalParams storage pp = _proposalParams[proposalId];
+        uint256 actionCount = pp.targets.length;
+        if (actionCount > MAX_PROPOSAL_ACTIONS) {
+            revert TooManyProposalActions(actionCount, MAX_PROPOSAL_ACTIONS);
+        }
+        if (actionCount != pp.values.length || actionCount != pp.calldatas.length) {
+            revert MalformedTimelockCalldata();
+        }
+        uint256 actionBytes = 0;
+        for (uint256 i; i < actionCount; ++i) {
+            uint256 length = pp.calldatas[i].length;
+            if (length > GovernancePayloadBudget.MAX_TOP_LEVEL_ACTION_BYTES - actionBytes) {
+                revert MalformedTimelockCalldata();
+            }
+            actionBytes += length;
+        }
         return (pp.targets, pp.values, pp.calldatas, pp.descriptionHash);
     }
 
@@ -171,6 +163,7 @@ contract ForageGovernor is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+        _timelockGuard = new ForageGovernorTimelockGuard();
     }
 
     // ── Initializer ──────────────────────────────────────────────────────
@@ -231,8 +224,6 @@ contract ForageGovernor is
         if (targets.length > MAX_PROPOSAL_ACTIONS) {
             revert TooManyProposalActions(targets.length, MAX_PROPOSAL_ACTIONS);
         }
-        if (activeProposalCount() >= _maxActiveProposals) revert MaxActiveProposalsReached();
-
         // Guardian bypass: skip threshold check if caller has PERMISSION_CAN_PROPOSE in the module
         address proposerAddr = _msgSender();
         _requireNotBlocked(proposerAddr);
@@ -241,6 +232,12 @@ contract ForageGovernor is
         }
         bool isGuardianProposer = address(guardianModule) != address(0)
             && guardianModule.hasPermission(proposerAddr, guardianModule.PERMISSION_CAN_PROPOSE());
+        uint256 activeOrdinaryProposals = _activeOrdinaryProposalCount();
+        bool usesReservedSlot = isGuardianProposer && activeOrdinaryProposals == _maxActiveProposals
+            && !_hasActiveReservedGuardianProposal();
+        if (activeOrdinaryProposals >= _maxActiveProposals && !usesReservedSlot) {
+            revert MaxActiveProposalsReached();
+        }
 
         if (isGuardianProposer) {
             uint256 activeByGuardian = _activeProposalCountFor(proposerAddr, MAX_ACTIVE_GUARDIAN_PROPOSALS_PER_GUARDIAN);
@@ -261,8 +258,15 @@ contract ForageGovernor is
             }
         }
 
+        _requireProposalPayloadBounds(targets, values, calldatas);
+        _enforceTimelockOperations(_executor(), address(this), targets, values, calldatas);
+
         // Call internal _propose (bypasses super's threshold check)
         uint256 proposalId = _propose(targets, values, calldatas, description, proposerAddr);
+        if (usesReservedSlot) {
+            if (proposalId == type(uint256).max) revert InvalidParameter();
+            _reservedGuardianProposalIdPlusOne = proposalId + 1;
+        }
 
         // Store proposal params for guardian cancel
         ProposalParams storage pp = _proposalParams[proposalId];
@@ -328,6 +332,37 @@ contract ForageGovernor is
         }
     }
 
+    function _activeOrdinaryProposalCount() private view returns (uint256 count) {
+        uint256 len = _activeProposalIds.length;
+        for (uint256 i; i < len;) {
+            uint256 proposalId = _activeProposalIds[i];
+            if (!_isReservedGuardianProposal(proposalId) && _usesActiveProposalSlot(proposalId, state(proposalId))) {
+                unchecked {
+                    ++count;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _hasActiveReservedGuardianProposal() private view returns (bool) {
+        uint256 proposalIdPlusOne = _reservedGuardianProposalIdPlusOne;
+        if (proposalIdPlusOne == 0) return false;
+        uint256 proposalId = proposalIdPlusOne - 1;
+        return _usesActiveProposalSlot(proposalId, state(proposalId));
+    }
+
+    function _isReservedGuardianProposal(uint256 proposalId) private view returns (bool) {
+        uint256 proposalIdPlusOne = _reservedGuardianProposalIdPlusOne;
+        return proposalIdPlusOne != 0 && proposalIdPlusOne - 1 == proposalId;
+    }
+
+    function _clearReservedGuardianProposal(uint256 proposalId) private {
+        if (_isReservedGuardianProposal(proposalId)) _reservedGuardianProposalIdPlusOne = 0;
+    }
+
     // ── Parameter setters ────────────────────────────────────────────────
 
     /// @dev OF-13-016: _quorumBps is now snapshotted per-proposal at creation time.
@@ -371,6 +406,7 @@ contract ForageGovernor is
     function setMaxActiveProposals(uint256 maxActiveProposals_) external onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (maxActiveProposals_ == 0 || maxActiveProposals_ > 100) revert InvalidParameter();
+        if (maxActiveProposals_ < _activeOrdinaryProposalCount()) revert InvalidParameter();
 
         uint256 oldMax = _maxActiveProposals;
         _maxActiveProposals = maxActiveProposals_;
@@ -505,11 +541,30 @@ contract ForageGovernor is
     {
         if (address(newTimelock) == address(0)) revert ZeroAddress();
         if (address(newTimelock).code.length == 0) revert NotAContract();
+        if (!IAllowlist(allowlist()).isSystemAccount(address(newTimelock))) {
+            revert IAllowlist.CallerNotAllowed(address(newTimelock));
+        }
         uint256 newDelay = newTimelock.getMinDelay();
         if (newDelay < MIN_TIMELOCK_DELAY) {
             revert TimelockDelayBelowMinimum(newDelay, MIN_TIMELOCK_DELAY);
         }
+        _validateTimelockRoles(newTimelock);
         super.updateTimelock(newTimelock);
+    }
+
+    function _validateTimelockRoles(TimelockControllerUpgradeable newTimelock) private view {
+        bytes32 proposerRole = newTimelock.PROPOSER_ROLE();
+        if (!newTimelock.hasRole(proposerRole, address(this))) revert TimelockRoleMissing(proposerRole, address(this));
+
+        bytes32 cancellerRole = newTimelock.CANCELLER_ROLE();
+        if (!newTimelock.hasRole(cancellerRole, address(this))) {
+            revert TimelockRoleMissing(cancellerRole, address(this));
+        }
+
+        bytes32 executorRole = newTimelock.EXECUTOR_ROLE();
+        if (!newTimelock.hasRole(executorRole, address(0)) && !newTimelock.hasRole(executorRole, address(this))) {
+            revert TimelockRoleMissing(executorRole, address(this));
+        }
     }
 
     function relay(address target, uint256 value, bytes calldata data)
@@ -518,6 +573,7 @@ contract ForageGovernor is
         override(GovernorUpgradeable)
         onlyAllowedCaller
     {
+        if (data.length > GovernancePayloadBudget.MAX_TOP_LEVEL_ACTION_BYTES) revert MalformedTimelockCalldata();
         _enforceTimelockOperationGuards(_executor(), target, data);
         super.relay(target, value, data);
     }
@@ -529,7 +585,7 @@ contract ForageGovernor is
         bytes[] memory calldatas,
         bytes32 descriptionHash
     ) internal override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) returns (uint48) {
-        _enforceTimelockOperations(_executor(), address(this), targets, calldatas);
+        _enforceTimelockOperations(_executor(), address(this), targets, values, calldatas);
         return
             GovernorTimelockControlUpgradeable._queueOperations(proposalId, targets, values, calldatas, descriptionHash);
     }
@@ -542,7 +598,7 @@ contract ForageGovernor is
         bytes32 descriptionHash
     ) internal override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) {
         address executor = _executor();
-        _enforceTimelockOperations(executor, address(this), targets, calldatas);
+        _enforceTimelockOperations(executor, address(this), targets, values, calldatas);
         GovernorTimelockControlUpgradeable._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
         _removeActiveProposal(proposalId);
         delete _proposalParams[proposalId];
@@ -552,26 +608,27 @@ contract ForageGovernor is
         address executor,
         address allowedProposer,
         address[] memory targets,
+        uint256[] memory values,
         bytes[] memory calldatas
-    ) internal pure {
-        if (targets.length != calldatas.length) revert MalformedTimelockCalldata();
-        for (uint256 i; i < targets.length; ++i) {
-            TimelockGuardContext memory context = TimelockGuardContext(executor, allowedProposer, 0);
-            _validateTimelockOperationTree(context, targets[i], calldatas[i]);
-        }
-        for (uint256 i; i < targets.length;) {
-            TimelockGuardContext memory context = TimelockGuardContext(executor, allowedProposer, 0);
-            _enforceTimelockOperation(context, targets[i], calldatas[i], true, false);
-            unchecked {
-                ++i;
+    ) internal view {
+        _timelockGuard.enforceOperations(
+            executor, allowedProposer, MIN_TIMELOCK_DELAY, MAX_TIMELOCK_NESTING, targets, values, calldatas
+        );
+    }
+
+    function _requireProposalPayloadBounds(address[] memory targets, uint256[] memory values, bytes[] memory calldatas)
+        private
+        pure
+    {
+        uint256 actionCount = targets.length;
+        if (actionCount != values.length || actionCount != calldatas.length) revert MalformedTimelockCalldata();
+        uint256 actionBytes = 0;
+        for (uint256 i; i < actionCount; ++i) {
+            uint256 length = calldatas[i].length;
+            if (length > GovernancePayloadBudget.MAX_TOP_LEVEL_ACTION_BYTES - actionBytes) {
+                revert MalformedTimelockCalldata();
             }
-        }
-        for (uint256 i; i < targets.length;) {
-            TimelockGuardContext memory context = TimelockGuardContext(executor, allowedProposer, 0);
-            _enforceTimelockOperation(context, targets[i], calldatas[i], false, true);
-            unchecked {
-                ++i;
-            }
+            actionBytes += length;
         }
     }
 
@@ -610,272 +667,7 @@ contract ForageGovernor is
     }
 
     function _enforceTimelockOperationGuards(address executor, address target, bytes memory data) internal view {
-        _validateTimelockOperationTree(TimelockGuardContext(executor, address(this), 0), target, data);
-        _enforceTimelockOperation(TimelockGuardContext(executor, address(this), 0), target, data, true, false);
-        _enforceTimelockOperation(TimelockGuardContext(executor, address(this), 0), target, data, false, true);
-    }
-
-    function _validateTimelockOperationTree(TimelockGuardContext memory context, address target, bytes memory data)
-        private
-        pure
-    {
-        if (target != context.executor || data.length < 4) return;
-        bytes4 selector = _operationSelector(data);
-        if (selector == _updateDelaySelector()) {
-            _readWord(_operationPayload(data), 0);
-            return;
-        }
-        if (selector == _timelockGrantRoleSelector()) {
-            bytes memory payload = _operationPayload(data);
-            _readWord(payload, 0);
-            _readAddress(payload, 32);
-            return;
-        }
-        if (selector == _timelockScheduleSelector()) {
-            TimelockSchedulePayload memory scheduled = _decodeTimelockSchedule(data);
-            if (scheduled.target == context.executor) {
-                _validateTimelockOperationTree(_nestedTimelockContext(context), scheduled.target, scheduled.data);
-            }
-            return;
-        }
-        if (selector == _timelockScheduleBatchSelector()) {
-            TimelockBatchPayload memory batch = _decodeTimelockBatch(data);
-            for (uint256 i; i < batch.targets.length; ++i) {
-                address scheduledTarget = _readAddress(batch.data, batch.targets.offset + i * 32);
-                if (scheduledTarget == context.executor) {
-                    bytes memory scheduledData = _readBytesArrayElement(batch.data, batch.calldatas, i);
-                    _validateTimelockOperationTree(_nestedTimelockContext(context), scheduledTarget, scheduledData);
-                }
-            }
-        }
-    }
-
-    function _enforceTimelockOperation(
-        TimelockGuardContext memory context,
-        address target,
-        bytes memory data,
-        bool checkDelayFloor,
-        bool checkProposerGrant
-    ) private pure {
-        if (target != context.executor || data.length < 4) return;
-        bytes4 selector = _operationSelector(data);
-        if (checkDelayFloor && selector == _updateDelaySelector()) {
-            _revertIfDelayBelowFloor(_readWord(_operationPayload(data), 0));
-            return;
-        }
-        if (checkProposerGrant && selector == _timelockGrantRoleSelector()) {
-            bytes memory payload = _operationPayload(data);
-            bytes32 role = bytes32(_readWord(payload, 0));
-            address account = _readAddress(payload, 32);
-            if (role == _timelockProposerRole()) {
-                if (account == context.executor) revert TimelockSelfProposerGrant();
-                if (account != context.allowedProposer) revert TimelockExternalProposerGrant(account);
-            }
-            return;
-        }
-        if (selector == _timelockScheduleSelector()) {
-            TimelockSchedulePayload memory scheduled = _decodeTimelockSchedule(data);
-            if (scheduled.target == context.executor) {
-                _enforceTimelockOperation(
-                    _nestedTimelockContext(context),
-                    scheduled.target,
-                    scheduled.data,
-                    checkDelayFloor,
-                    checkProposerGrant
-                );
-            }
-            return;
-        }
-        if (selector == _timelockScheduleBatchSelector()) {
-            TimelockBatchPayload memory batch = _decodeTimelockBatch(data);
-            for (uint256 i; i < batch.targets.length; ++i) {
-                address scheduledTarget = _readAddress(batch.data, batch.targets.offset + i * 32);
-                if (scheduledTarget == context.executor) {
-                    _enforceTimelockOperation(
-                        _nestedTimelockContext(context),
-                        scheduledTarget,
-                        _readBytesArrayElement(batch.data, batch.calldatas, i),
-                        checkDelayFloor,
-                        checkProposerGrant
-                    );
-                }
-            }
-        }
-    }
-
-    function _nestedTimelockContext(TimelockGuardContext memory context)
-        private
-        pure
-        returns (TimelockGuardContext memory nested)
-    {
-        if (context.depth >= MAX_TIMELOCK_NESTING) revert MalformedTimelockCalldata();
-        nested = TimelockGuardContext(context.executor, context.allowedProposer, context.depth + 1);
-    }
-
-    function _decodeTimelockSchedule(bytes memory data)
-        private
-        pure
-        returns (TimelockSchedulePayload memory scheduled)
-    {
-        bytes memory payload = _operationPayload(data);
-        if (payload.length < 192) revert MalformedTimelockCalldata();
-        scheduled.target = _readAddress(payload, 0);
-        uint256 dataOffset = _validatedDynamicOffset(payload, 64, 192);
-        scheduled.data = _readDynamicBytes(payload, dataOffset);
-    }
-
-    function _decodeTimelockBatch(bytes memory data) private pure returns (TimelockBatchPayload memory batch) {
-        batch.data = _operationPayload(data);
-        if (batch.data.length < 192) revert MalformedTimelockCalldata();
-
-        uint256 targetsArrayOffset = _validatedDynamicOffset(batch.data, 0, 192);
-        uint256 valuesArrayOffset = _validatedDynamicOffset(batch.data, 32, 192);
-        uint256 calldatasArrayOffset = _validatedDynamicOffset(batch.data, 64, 192);
-        batch.targets = _decodeTimelockArray(batch.data, targetsArrayOffset);
-        batch.values = _decodeTimelockArray(batch.data, valuesArrayOffset);
-        batch.calldatas = _decodeTimelockArray(batch.data, calldatasArrayOffset);
-
-        if (
-            batch.targets.length != batch.values.length || batch.targets.length != batch.calldatas.length
-                || batch.values.offset < batch.targets.end || batch.calldatas.offset < batch.values.end
-        ) {
-            revert MalformedTimelockCalldata();
-        }
-        _validateTimelockAddressArray(batch.data, batch.targets);
-        _validateTimelockBytesArray(batch.data, batch.calldatas);
-    }
-
-    function _decodeTimelockArray(bytes memory payload, uint256 arrayOffset)
-        private
-        pure
-        returns (TimelockArray memory array)
-    {
-        array.length = _readWord(payload, arrayOffset);
-        array.offset = arrayOffset + 32;
-        uint256 available = payload.length - array.offset;
-        if (array.length > available / 32) revert MalformedTimelockCalldata();
-        array.end = array.offset + array.length * 32;
-    }
-
-    function _validateTimelockAddressArray(bytes memory payload, TimelockArray memory array) private pure {
-        for (uint256 i; i < array.length; ++i) {
-            _readAddress(payload, array.offset + i * 32);
-        }
-    }
-
-    function _validateTimelockBytesArray(bytes memory payload, TimelockArray memory array) private pure {
-        uint256 available = payload.length - array.offset;
-        uint256 previousEnd = array.length * 32;
-        for (uint256 i; i < array.length; ++i) {
-            uint256 relativeOffset = _readWord(payload, array.offset + i * 32);
-            if (
-                relativeOffset < previousEnd || relativeOffset % 32 != 0 || relativeOffset > available
-                    || available - relativeOffset < 32
-            ) {
-                revert MalformedTimelockCalldata();
-            }
-            (,, uint256 paddedLength) = _validateDynamicBytes(payload, array.offset + relativeOffset);
-            previousEnd = relativeOffset + 32 + paddedLength;
-        }
-    }
-
-    function _readBytesArrayElement(bytes memory payload, TimelockArray memory array, uint256 index)
-        private
-        pure
-        returns (bytes memory)
-    {
-        if (index >= array.length) revert MalformedTimelockCalldata();
-        uint256 relativeOffset = _readWord(payload, array.offset + index * 32);
-        return _readDynamicBytes(payload, array.offset + relativeOffset);
-    }
-
-    function _validatedDynamicOffset(bytes memory payload, uint256 headOffset, uint256 headLength)
-        private
-        pure
-        returns (uint256 offset)
-    {
-        offset = _readWord(payload, headOffset);
-        if (offset < headLength || offset % 32 != 0 || offset > payload.length || payload.length - offset < 32) {
-            revert MalformedTimelockCalldata();
-        }
-    }
-
-    function _readDynamicBytes(bytes memory payload, uint256 offset) private pure returns (bytes memory value) {
-        (uint256 length, uint256 dataOffset,) = _validateDynamicBytes(payload, offset);
-        value = new bytes(length);
-        for (uint256 i; i < length; ++i) {
-            value[i] = payload[dataOffset + i];
-        }
-    }
-
-    function _validateDynamicBytes(bytes memory payload, uint256 offset)
-        private
-        pure
-        returns (uint256 length, uint256 dataOffset, uint256 paddedLength)
-    {
-        length = _readWord(payload, offset);
-        dataOffset = offset + 32;
-        uint256 available = payload.length - dataOffset;
-        if (length > available) revert MalformedTimelockCalldata();
-        uint256 padding = (32 - (length % 32)) % 32;
-        if (padding > available - length) revert MalformedTimelockCalldata();
-        paddedLength = length + padding;
-    }
-
-    function _readAddress(bytes memory data, uint256 offset) private pure returns (address account) {
-        uint256 encoded = _readWord(data, offset);
-        if (encoded > type(uint160).max) revert MalformedTimelockCalldata();
-        account = address(uint160(encoded));
-    }
-
-    function _readWord(bytes memory data, uint256 offset) private pure returns (uint256 value) {
-        if (offset > data.length || data.length - offset < 32) revert MalformedTimelockCalldata();
-        assembly ("memory-safe") {
-            value := mload(add(add(data, 0x20), offset))
-        }
-    }
-
-    function _operationSelector(bytes memory data) internal pure returns (bytes4 selector) {
-        assembly {
-            selector := mload(add(data, 0x20))
-        }
-    }
-
-    function _operationPayload(bytes memory data) internal pure returns (bytes memory payload) {
-        uint256 payloadLength = data.length - 4;
-        payload = new bytes(payloadLength);
-        for (uint256 i; i < payloadLength;) {
-            payload[i] = data[i + 4];
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _revertIfDelayBelowFloor(uint256 newDelay) internal pure {
-        if (newDelay < MIN_TIMELOCK_DELAY) {
-            revert TimelockDelayBelowMinimum(newDelay, MIN_TIMELOCK_DELAY);
-        }
-    }
-
-    function _updateDelaySelector() internal pure returns (bytes4) {
-        return bytes4(keccak256("updateDelay(uint256)"));
-    }
-
-    function _timelockScheduleSelector() internal pure returns (bytes4) {
-        return bytes4(keccak256("schedule(address,uint256,bytes,bytes32,bytes32,uint256)"));
-    }
-
-    function _timelockScheduleBatchSelector() internal pure returns (bytes4) {
-        return bytes4(keccak256("scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)"));
-    }
-
-    function _timelockGrantRoleSelector() internal pure returns (bytes4) {
-        return bytes4(keccak256("grantRole(bytes32,address)"));
-    }
-
-    function _timelockProposerRole() internal pure returns (bytes32) {
-        return keccak256("PROPOSER_ROLE");
+        _timelockGuard.enforceOperation(executor, address(this), MIN_TIMELOCK_DELAY, MAX_TIMELOCK_NESTING, target, data);
     }
 
     function _castVote(uint256 proposalId, address account, uint8 support, string memory reason, bytes memory params)
@@ -1003,11 +795,24 @@ contract ForageGovernor is
 
     function setAllowlist(address allowlist_) external {
         if (msg.sender != _executor()) revert Unauthorized();
+        if (allowlist_ == address(0) || allowlist_.code.length == 0) revert IAllowlist.AllowlistUnavailable();
+
+        address currentAllowlist = allowlist();
+        if (currentAllowlist != address(0)) _checkAllowedCaller();
+
+        IAllowlist proposedAllowlist = IAllowlist(allowlist_);
+        if (!proposedAllowlist.isAllowed(msg.sender) || !proposedAllowlist.isSystemAccount(msg.sender)) {
+            revert IAllowlist.CallerNotAllowed(msg.sender);
+        }
+        if (!proposedAllowlist.isAllowed(address(this)) || !proposedAllowlist.isSystemAccount(address(this))) {
+            revert IAllowlist.CallerNotAllowed(address(this));
+        }
         _setAllowlist(allowlist_);
     }
 
     function _authorizeUpgrade(address) internal override {
         if (msg.sender != _executor()) revert Unauthorized();
+        _checkAllowedCaller();
     }
 
     function _requireNotBlocked(address account) internal view {
@@ -1031,12 +836,6 @@ contract ForageGovernor is
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    /// @dev OF-006: _activeProposalIds growth is bounded. Every propose() call runs
-    /// _cleanupTerminalProposals(), which removes all terminal proposals (Defeated, Expired,
-    /// Executed, Canceled). After cleanup, remaining entries ≤ _maxActiveProposals (max 100).
-    /// Additionally, cleanupDefeated() allows permissionless cleanup without submitting a proposal.
-    /// Therefore the array can never grow beyond _maxActiveProposals + number of proposals
-    /// created in a single block (practically bounded by block gas limit).
     function _cleanupTerminalProposals() internal {
         uint256 writeIdx = 0;
         // OF-035: Cache storage length to avoid redundant SLOAD per iteration
@@ -1049,9 +848,12 @@ contract ForageGovernor is
                     _activeProposalIds[writeIdx] = proposalId;
                 }
                 writeIdx++;
-            } else if (s != ProposalState.Queued) {
-                // OF-L19: Clear stored proposal params for terminal proposals (Defeated, Expired, Executed, Canceled)
-                delete _proposalParams[proposalId];
+            } else {
+                _clearReservedGuardianProposal(proposalId);
+                if (s != ProposalState.Queued) {
+                    // OF-L19: Clear stored proposal params for terminal proposals (Defeated, Expired, Executed, Canceled)
+                    delete _proposalParams[proposalId];
+                }
             }
             unchecked {
                 ++i;
@@ -1075,6 +877,7 @@ contract ForageGovernor is
     }
 
     function _removeActiveProposal(uint256 proposalId) internal {
+        _clearReservedGuardianProposal(proposalId);
         // OF-035: Cache storage length to avoid redundant SLOAD per iteration
         uint256 len = _activeProposalIds.length;
         for (uint256 i = 0; i < len;) {
