@@ -29,7 +29,7 @@ contract Blocklist is
     error FinalizeDelayNotElapsed();
     error ProposalExpired();
     error RenounceOwnershipDisabled();
-    error InvalidLegacyInterval();
+    error BlocklistLegacyStateUnsupported(uint256 storedVersion);
     error NotVoteEligibilityObserver();
     error VoteEligibilityObserverAlreadyRegistered(address observer);
     error InvalidVoteEligibilityObserver(address observer);
@@ -41,10 +41,6 @@ contract Blocklist is
     event GuardianProposed(address indexed currentGuardian, address indexed pendingGuardian, uint256 proposedAt);
     event GuardianUpdated(address indexed oldGuardian, address indexed newGuardian);
     event GuardianProposalCancelled(address indexed pendingGuardian);
-    event LegacyBlockedIntervalImported(address indexed account, uint256 start, uint256 end);
-    event LegacyBlockedCheckpointImported(
-        address indexed account, uint48 indexed key, uint208 previousValue, uint208 newValue
-    );
     event VoteEligibilityObserverSet(address indexed previous, address indexed next);
 
     uint256 public constant BLOCK_DURATION = 365 days;
@@ -60,7 +56,14 @@ contract Blocklist is
     mapping(address => uint256) private _preCheckpointBlockedUntil;
     address private _voteEligibilityObserver;
 
-    uint256[48] private __gap;
+    uint256 private _freshLayoutVersion;
+    uint256[47] private __gap;
+
+    modifier freshOnly() {
+        uint256 version = _freshLayoutVersion;
+        if (version != 1) revert BlocklistLegacyStateUnsupported(version);
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -68,6 +71,9 @@ contract Blocklist is
     }
 
     function initialize(address guardian_, address initialOwner_) external initializer {
+        if (address(this).code.length != 0 || _freshLayoutVersion != 0 || owner() != address(0)) {
+            revert BlocklistLegacyStateUnsupported(_freshLayoutVersion);
+        }
         if (guardian_ == address(0)) revert ZeroAddress();
         if (initialOwner_ == address(0)) revert ZeroAddress();
 
@@ -75,15 +81,15 @@ contract Blocklist is
         __Ownable2Step_init();
 
         _guardian = guardian_;
+        _freshLayoutVersion = 1;
     }
 
-    function blockAddress(address account) external onlyAllowedCaller {
+    function blockAddress(address account) external freshOnly onlyAllowedCaller {
         if (msg.sender != _guardian) revert UnauthorizedGuardian();
         if (account == address(0)) revert ZeroAddress();
 
         uint256 newExpiry = block.timestamp + BLOCK_DURATION;
         uint256 currentExpiry = blockedUntil[account];
-        _recordPreCheckpointLegacyExpiry(account, currentExpiry);
         if (currentExpiry > newExpiry) {
             newExpiry = currentExpiry;
         }
@@ -101,7 +107,7 @@ contract Blocklist is
         _notifyVoteEligibilityObserver(account);
     }
 
-    function proposeUnblock(address account) external onlyAllowedCaller onlyOwner {
+    function proposeUnblock(address account) external freshOnly onlyAllowedCaller onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         if (!isBlocked(account)) revert NotBlocked();
 
@@ -109,12 +115,11 @@ contract Blocklist is
         emit UnblockProposed(account, block.timestamp);
     }
 
-    function finalizeUnblock(address account) external onlyAllowedCaller onlyOwner {
+    function finalizeUnblock(address account) external freshOnly onlyAllowedCaller onlyOwner {
         uint256 proposedAt = pendingUnblock[account];
         if (proposedAt == 0) revert NoPendingUnblock();
         _requireProposalReady(proposedAt);
 
-        _recordPreCheckpointLegacyExpiry(account, blockedUntil[account]);
         blockedUntil[account] = 0;
         (uint208 previousExpiry, uint208 writtenExpiry) =
             _blockedUntilCheckpoints[account].push(uint48(block.timestamp), 0);
@@ -126,14 +131,14 @@ contract Blocklist is
         _notifyVoteEligibilityObserver(account);
     }
 
-    function cancelUnblock(address account) external onlyAllowedCaller onlyOwner {
+    function cancelUnblock(address account) external freshOnly onlyAllowedCaller onlyOwner {
         if (pendingUnblock[account] == 0) revert NoPendingUnblock();
 
         pendingUnblock[account] = 0;
         emit UnblockCancelled(account);
     }
 
-    function proposeGuardian(address guardian_) external onlyAllowedCaller onlyOwner {
+    function proposeGuardian(address guardian_) external freshOnly onlyAllowedCaller onlyOwner {
         if (guardian_ == address(0)) revert ZeroAddress();
         if (guardian_ == _guardian) revert InvalidGuardian();
         if (!IAllowlist(allowlist()).isAllowed(guardian_)) revert IAllowlist.CallerNotAllowed(guardian_);
@@ -144,7 +149,7 @@ contract Blocklist is
         emit GuardianProposed(_guardian, guardian_, block.timestamp);
     }
 
-    function finalizeGuardian() external onlyAllowedCaller onlyOwner {
+    function finalizeGuardian() external freshOnly onlyAllowedCaller onlyOwner {
         address newGuardian = _pendingGuardian;
         if (newGuardian == address(0)) revert NoPendingGuardian();
         if (!IAllowlist(allowlist()).isAllowed(newGuardian)) revert IAllowlist.CallerNotAllowed(newGuardian);
@@ -158,7 +163,7 @@ contract Blocklist is
         emit GuardianUpdated(oldGuardian, newGuardian);
     }
 
-    function cancelGuardianProposal() external onlyAllowedCaller onlyOwner {
+    function cancelGuardianProposal() external freshOnly onlyAllowedCaller onlyOwner {
         address cancelledGuardian = _pendingGuardian;
         if (cancelledGuardian == address(0)) revert NoPendingGuardian();
 
@@ -180,7 +185,7 @@ contract Blocklist is
         return true;
     }
 
-    function registerVoteEligibilityObserver() external onlyAllowedCaller {
+    function registerVoteEligibilityObserver() external freshOnly onlyAllowedCaller {
         address allowlist_ = allowlist();
         bool systemAccount_;
         try IAllowlist(allowlist_).isSystemAccount(msg.sender) returns (bool value) {
@@ -198,7 +203,7 @@ contract Blocklist is
         emit VoteEligibilityObserverSet(previous, msg.sender);
     }
 
-    function unregisterVoteEligibilityObserver() external {
+    function unregisterVoteEligibilityObserver() external freshOnly {
         if (_voteEligibilityObserver == address(0)) return;
         if (msg.sender != _voteEligibilityObserver) revert NotVoteEligibilityObserver();
 
@@ -219,58 +224,6 @@ contract Blocklist is
         return expiry != 0 && expiry >= timepoint;
     }
 
-    /// @notice Imports a precise legacy blocked interval for migration-time historical governance reads.
-    /// @dev Writes an inclusive [start, end] interval and a clearing checkpoint at end + 1 when possible.
-    function importLegacyBlockedInterval(address account, uint256 start, uint256 end)
-        external
-        onlyAllowedCaller
-        onlyOwner
-    {
-        if (account == address(0)) revert ZeroAddress();
-        if (start > end || end > type(uint48).max) revert InvalidLegacyInterval();
-
-        uint208 importedEnd = uint208(end);
-        (uint208 previousEnd, uint208 storedEnd) = _blockedUntilCheckpoints[account].push(uint48(start), importedEnd);
-        if (storedEnd != importedEnd) revert InvalidLegacyInterval();
-        emit LegacyBlockedCheckpointImported(account, uint48(start), previousEnd, storedEnd);
-
-        if (end < type(uint48).max) {
-            (uint208 previousClear, uint208 storedClear) = _blockedUntilCheckpoints[account].push(uint48(end + 1), 0);
-            if (storedClear != 0) revert InvalidLegacyInterval();
-            emit LegacyBlockedCheckpointImported(account, uint48(end + 1), previousClear, storedClear);
-        }
-        _preCheckpointBlockedUntil[account] = 0;
-
-        emit LegacyBlockedIntervalImported(account, start, end);
-    }
-
-    /// @notice Migration-aware historical block state for governance vote exclusion.
-    /// @dev `wasBlockedAt` remains checkpoint-only; this function applies the explicit
-    /// legacy `blockedUntil` fallback until an account's first checkpoint becomes authoritative.
-    function wasEffectivelyBlockedAt(address account, uint256 timepoint) public view returns (bool) {
-        if (wasBlockedAt(account, timepoint)) return true;
-        if (timepoint > type(uint48).max) return false;
-
-        Checkpoints.Trace208 storage checkpoints = _blockedUntilCheckpoints[account];
-        uint256 checkpointCount = checkpoints.length();
-        if (checkpointCount != 0) {
-            Checkpoints.Checkpoint208 memory firstCheckpoint = checkpoints.at(0);
-            if (uint48(timepoint) >= firstCheckpoint._key) return false;
-
-            uint256 preCheckpointExpiry = _preCheckpointBlockedUntil[account];
-            return preCheckpointExpiry != 0 && preCheckpointExpiry >= timepoint;
-        }
-
-        uint256 legacyExpiry = blockedUntil[account];
-        return legacyExpiry != 0 && legacyExpiry >= timepoint;
-    }
-
-    function _recordPreCheckpointLegacyExpiry(address account, uint256 legacyExpiry) private {
-        if (legacyExpiry != 0 && _blockedUntilCheckpoints[account].length() == 0) {
-            _preCheckpointBlockedUntil[account] = legacyExpiry;
-        }
-    }
-
     function _notifyVoteEligibilityObserver(address account) private {
         address observer = _voteEligibilityObserver;
         if (observer != address(0)) IVoteEligibilityObserver(observer).syncVoteEligibility(account);
@@ -285,21 +238,27 @@ contract Blocklist is
         revert RenounceOwnershipDisabled();
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _authorizeUpgrade(address) internal override freshOnly onlyOwner {}
 
-    function setAllowlist(address allowlist_) external onlyOwner {
+    function setAllowlist(address allowlist_) external freshOnly onlyOwner {
         _transitionAllowlist(allowlist_);
     }
 
-    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+    function transferOwnership(address newOwner) public override freshOnly onlyAllowedCaller {
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshOnly onlyAllowedCaller {
         super.acceptOwnership();
     }
 
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 }

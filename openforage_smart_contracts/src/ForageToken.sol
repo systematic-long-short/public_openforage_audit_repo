@@ -2,10 +2,12 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20VotesUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {
@@ -16,19 +18,18 @@ import {
 } from "./interfaces/IAllowlist.sol";
 import {IBlocklist, IBlocklistVoteEligibility} from "./interfaces/IBlocklist.sol";
 import "./AllowlistGatedUpgradeable.sol";
-import {ForageTokenStateModule, ForageTokenStateUpdate} from "./modules/ForageTokenStateModule.sol";
-
-interface IAllowlistVestingSourceLimit {
-    function maxVestingSourcesPerBeneficiary() external view returns (uint256);
-}
-
-interface IAllowlistVestingSourceRegistry {
-    function vestingSourceBeneficiary(address source) external view returns (address);
-}
+import {
+    ForageTokenActiveProjection,
+    ForageTokenPastProjection,
+    ForageTokenRotationStatus,
+    ForageTokenSourceEligibility,
+    ForageTokenStateModule
+} from "./modules/ForageTokenStateModule.sol";
 
 contract ForageToken is
     Initializable,
     ERC20Upgradeable,
+    ERC20PermitUpgradeable,
     Ownable2StepUpgradeable,
     ERC20VotesUpgradeable,
     UUPSUpgradeable,
@@ -65,6 +66,14 @@ contract ForageToken is
     error LegacyDelegateSourceIndexCorrupted(address delegatee, uint256 count, uint256 maximum);
     error EligibilityAccountingUnderflow(address delegatee, uint256 available, uint256 requested);
     error EligibilityAccountingOverflow(address delegatee, uint256 value);
+    error LegacySourceInventoryUnavailable(address currentBlocklist, address proposedBlocklist);
+    error BlocklistRotationInProgress(address pendingBlocklist);
+    error BlocklistRotationUnavailable();
+    error BlocklistRotationIncomplete(uint256 cursor, uint256 inventoryLength, uint256 processed, uint256 dirty);
+    error UnsupportedLegacyVestingBeneficiary(address source);
+    error ProjectionGenerationExhausted();
+    error InvalidProjectionGeneration(uint256 generation);
+    error UnauthorizedTokenQuery(address caller);
 
     // Events
     event TokensReleased(address indexed to, uint256 amount);
@@ -74,6 +83,19 @@ contract ForageToken is
     event ForageUnlocked(address indexed account, uint256 amount, address indexed locker);
     event AuthorizedLockerUpdated(address indexed locker, bool authorized);
     event BlocklistSet(address indexed oldBlocklist, address indexed newBlocklist);
+    event VoteSourceInventoried(address indexed source, uint256 inventoryLength);
+    event BlocklistRotationStarted(
+        address indexed currentBlocklist,
+        address indexed candidateBlocklist,
+        uint256 indexed generation,
+        uint256 inventoryLength
+    );
+    event BlocklistRotationProgress(
+        uint256 indexed generation, uint256 cursor, uint256 inventoryLength, uint256 processed, uint256 dirty
+    );
+    event BlocklistRotationActivated(
+        address indexed oldBlocklist, address indexed newBlocklist, uint256 indexed generation, uint48 activationTime
+    );
 
     // Constants
     uint256 public constant TOTAL_SUPPLY = 100_000_000 * 10 ** 18;
@@ -93,21 +115,6 @@ contract ForageToken is
         int256 firstTransitionDelta;
         uint48 secondTransitionTime;
         int256 secondTransitionDelta;
-    }
-
-    struct VoteTransitions {
-        uint48 firstTime;
-        int256 firstDelta;
-        uint48 secondTime;
-        int256 secondDelta;
-    }
-
-    struct SourceEligibility {
-        bool allowlisted;
-        bool systemAccount;
-        bool blocked;
-        uint64 allowedUntil;
-        uint256 blockedUntil;
     }
 
     // State
@@ -135,6 +142,16 @@ contract ForageToken is
 
     ForageTokenStateModule private immutable _STATE_MODULE;
 
+    modifier freshInventoryReady() {
+        _requireFreshInventory();
+        _;
+    }
+
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
     // ── OF-001: Timestamp-based clock for Arbitrum L2 compatibility ──
     // OZ default uses block.number, but Arbitrum produces blocks at ~250ms,
     // making block-based governance periods too short (~30 min for 7200 blocks).
@@ -155,6 +172,14 @@ contract ForageToken is
     }
 
     function _delegateStateModule(bytes memory data) private {
+        _delegateStateModuleCall(data);
+    }
+
+    function _delegateStateModuleInitialization(bytes memory data) private {
+        _delegateStateModuleCall(data);
+    }
+
+    function _delegateStateModuleCall(bytes memory data) private {
         address target = address(_STATE_MODULE);
         assembly ("memory-safe") {
             let success := delegatecall(gas(), target, add(data, 32), mload(data), 0, 0)
@@ -164,6 +189,85 @@ contract ForageToken is
                 returndatacopy(ptr, 0, size)
                 revert(ptr, size)
             }
+        }
+    }
+
+    function _delegateStateModuleResult(bytes memory data) private returns (bytes memory result) {
+        address target = address(_STATE_MODULE);
+        assembly ("memory-safe") {
+            let success := delegatecall(gas(), target, add(data, 32), mload(data), 0, 0)
+            let size := returndatasize()
+            let pointer := mload(0x40)
+            mstore(pointer, size)
+            returndatacopy(add(pointer, 32), 0, size)
+            mstore(0x40, and(add(add(pointer, 63), size), not(31)))
+            result := pointer
+            if iszero(success) { revert(add(pointer, 32), size) }
+        }
+    }
+
+    function _delegateLiveProjection(address delegatee) private returns (ForageTokenActiveProjection memory) {
+        return abi.decode(
+            _delegateStateModuleResult(abi.encodeCall(ForageTokenStateModule.liveIndexedProjection, (delegatee))),
+            (ForageTokenActiveProjection)
+        );
+    }
+
+    function _readLiveProjection(address delegatee) private view returns (ForageTokenActiveProjection memory) {
+        function(address) internal view returns (ForageTokenActiveProjection memory) reader;
+        function(address) internal returns (ForageTokenActiveProjection memory) delegateReader = _delegateLiveProjection;
+        assembly ("memory-safe") {
+            reader := delegateReader
+        }
+        return reader(delegatee);
+    }
+
+    function _delegatePastProjection(address delegatee, uint256 timepoint)
+        private
+        returns (ForageTokenPastProjection memory)
+    {
+        return abi.decode(
+            _delegateStateModuleResult(
+                abi.encodeCall(ForageTokenStateModule.pastIndexedProjection, (delegatee, timepoint))
+            ),
+            (ForageTokenPastProjection)
+        );
+    }
+
+    function _readPastProjection(address delegatee, uint256 timepoint)
+        private
+        view
+        returns (ForageTokenPastProjection memory)
+    {
+        function(address, uint256) internal view returns (ForageTokenPastProjection memory) reader;
+        function(address, uint256) internal returns (ForageTokenPastProjection memory) delegateReader =
+            _delegatePastProjection;
+        assembly ("memory-safe") {
+            reader := delegateReader
+        }
+        return reader(delegatee, timepoint);
+    }
+
+    function _delegateRotationStatus() private returns (ForageTokenRotationStatus memory) {
+        return abi.decode(
+            _delegateStateModuleResult(abi.encodeCall(ForageTokenStateModule.blocklistRotationStatus, ())),
+            (ForageTokenRotationStatus)
+        );
+    }
+
+    function _readRotationStatus() private view returns (ForageTokenRotationStatus memory status) {
+        function() internal view returns (ForageTokenRotationStatus memory) reader;
+        function() internal returns (ForageTokenRotationStatus memory) delegateReader = _delegateRotationStatus;
+        assembly ("memory-safe") {
+            reader := delegateReader
+        }
+        return reader();
+    }
+
+    function _requireFreshInventory() private view returns (ForageTokenRotationStatus memory status) {
+        status = _readRotationStatus();
+        if (!status.inventorySupported || status.epochCount == 0) {
+            revert LegacySourceInventoryUnavailable(_blocklist, address(0));
         }
     }
 
@@ -183,45 +287,9 @@ contract ForageToken is
         }
     }
 
-    function _delegateEligibilityTransitionPrefix(address delegatee, uint256 timepoint)
-        private
-        returns (uint256 value)
-    {
-        bytes32 selectorWord = bytes32(bytes4(keccak256("eligibilityTransitionPrefix(address,uint256)")));
-        address target = address(_STATE_MODULE);
-        assembly ("memory-safe") {
-            let input := mload(0x40)
-            mstore(input, selectorWord)
-            mstore(add(input, 4), delegatee)
-            mstore(add(input, 36), timepoint)
-            let success := delegatecall(gas(), target, input, 68, 0, 0)
-            let size := returndatasize()
-            if iszero(success) {
-                let result := mload(0x40)
-                returndatacopy(result, 0, size)
-                revert(result, size)
-            }
-            if iszero(eq(size, 32)) { revert(0, 0) }
-            returndatacopy(input, 0, 32)
-            value := mload(input)
-        }
-    }
-
-    function _readEligibilityTransitionPrefixWord(address delegatee, uint256 timepoint)
-        private
-        view
-        returns (uint256 value)
-    {
-        function(address, uint256) internal view returns (uint256) readOnly;
-        function(address, uint256) internal returns (uint256) delegateReader = _delegateEligibilityTransitionPrefix;
-        assembly ("memory-safe") {
-            readOnly := delegateReader
-        }
-        value = readOnly(delegatee, timepoint);
-    }
-
     function initialize(address teamVestingAddress_, address forageTreasuryAddress_, address initialOwner_)
         external
+        onlyDuringConstructionBeforeInitialization
         initializer
     {
         if (teamVestingAddress_ == address(0)) revert ZeroAddress();
@@ -229,12 +297,13 @@ contract ForageToken is
         if (initialOwner_ == address(0)) revert ZeroAddress();
 
         __ERC20_init("Forage Token", "FORAGE");
-        __EIP712_init("Forage Token", "1");
+        __ERC20Permit_init("Forage Token");
         __ERC20Votes_init();
         __Ownable_init(initialOwner_);
         __Ownable2Step_init();
         _initialTeamVestingSource = teamVestingAddress_;
         _initialTreasurySource = forageTreasuryAddress_;
+        _delegateStateModuleInitialization(abi.encodeCall(ForageTokenStateModule.initializeSourceInventory, ()));
         _mint(teamVestingAddress_, TEAM_VESTING_ALLOCATION);
         _mint(forageTreasuryAddress_, FORAGE_TREASURY_ALLOCATION);
     }
@@ -250,34 +319,41 @@ contract ForageToken is
         emit TokensReleased(to, amount);
     }
 
-    function delegate(address delegatee) public override onlyAllowedCaller {
+    function delegate(address delegatee) public override freshInventoryReady onlyAllowedCaller {
         address account = _msgSender();
         _requireNotBlocked(account);
         if (delegatee != address(0)) {
             _requireNotBlocked(delegatee);
         }
-        address oldDelegate = delegates(account);
         super.delegate(delegatee);
-        _setDelegateSource(account, oldDelegate, delegatee);
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncDelegation, (account, delegatee)));
     }
 
     function getVotes(address account) public view override returns (uint256) {
+        _requireFreshInventory();
         uint256 checkpointVotes = super.getVotes(account);
-        if (!_isDelegateeEligibleNow(account)) return 0;
-
-        uint256 trackedVotes = _liveLegacyEligibleVotes(account) + _liveIndexedEligibleVotes(account);
+        address blocklist_ = _blocklist;
+        if (!_isDelegateeEligibleNow(account, blocklist_)) return 0;
+        ForageTokenActiveProjection memory projection = _readLiveProjection(account);
+        uint256 trackedVotes = projection.indexedVotes;
         return trackedVotes < checkpointVotes ? trackedVotes : checkpointVotes;
     }
 
     function getPastVotes(address account, uint256 timepoint) public view override returns (uint256) {
-        if (msg.sender == address(this)) return _readEligibilityTransitionPrefixWord(account, timepoint);
-
         uint256 checkpointVotes = super.getPastVotes(account, timepoint);
-        if (!_isDelegateeEligibleAt(account, timepoint)) return 0;
-
-        uint256 trackedVotes =
-            _pastLegacyEligibleVotes(account, timepoint) + _pastIndexedEligibleVotes(account, timepoint);
+        ForageTokenPastProjection memory projection = _readPastProjection(account, timepoint);
+        if (_wasBlockedAt(account, timepoint, projection.blocklist)) return 0;
+        uint256 trackedVotes = projection.indexedVotes;
         return trackedVotes < checkpointVotes ? trackedVotes : checkpointVotes;
+    }
+
+    function _isDelegateeEligibleNow(address delegatee, address blocklist_) private view returns (bool) {
+        if (blocklist_ == address(0)) return true;
+        try IBlocklist(blocklist_).isBlocked(delegatee) returns (bool blocked) {
+            return !blocked;
+        } catch {
+            revert InvalidBlocklist(blocklist_);
+        }
     }
 
     function delegateBySig(
@@ -291,25 +367,12 @@ contract ForageToken is
         revert DelegationBySignatureDisabled();
     }
 
-    /// @notice Seeds delegate-source trackers for delegations that existed before this implementation.
-    /// @dev Pre-upgrade delegated votes fail closed while source tracking is missing or incomplete.
-    /// Sources are intentionally allowed to already be blocked.
-    function syncDelegateSources(address[] calldata sources) external onlyAllowedCaller onlyOwner {
-        for (uint256 i; i < sources.length;) {
-            if (sources[i] == address(0)) revert ZeroAddress();
-            _syncDelegateSourceContribution(sources[i]);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     function syncVoteEligibility(address account) external {
-        if (msg.sender != allowlist() && msg.sender != _blocklist) {
+        ForageTokenRotationStatus memory status = _requireFreshInventory();
+        if (msg.sender != allowlist() && msg.sender != _blocklist && msg.sender != status.pendingBlocklist) {
             revert UnauthorizedEligibilityObserver(msg.sender);
         }
-        _syncDelegateSourceContribution(account);
-        _syncVestingSources(account);
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncVoteEligibility, (account)));
     }
 
     /// @notice OF-16-003: CRITICAL INTEGRATION REQUIREMENT — When burn causes balance < locked,
@@ -320,7 +383,7 @@ contract ForageToken is
     ///   (a) query ForageToken.lockerBalances(account, address(this)) before acting on assumed lock amounts, or
     ///   (b) monitor ForageUnlocked events indexed by their address to detect pro-rata reductions.
     /// Failure to do so may allow users to perform actions requiring more locked tokens than actually exist.
-    function burn(address from, uint256 amount) external onlyAllowedCaller {
+    function burn(address from, uint256 amount) external freshInventoryReady onlyAllowedCaller {
         if (!_authorizedBurners[msg.sender]) revert UnauthorizedBurner(msg.sender);
         _requireNotBlocked(msg.sender);
         if (from == address(0)) revert ZeroAddress();
@@ -333,11 +396,16 @@ contract ForageToken is
         emit ForageBurned(from, amount, msg.sender);
     }
 
-    function setAuthorizedBurner(address burner_, bool authorized_) external onlyAllowedCaller onlyOwner {
+    function setAuthorizedBurner(address burner_, bool authorized_)
+        external
+        freshInventoryReady
+        onlyAllowedCaller
+        onlyOwner
+    {
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.setAuthorizedBurner, (burner_, authorized_)));
     }
 
-    function approve(address spender, uint256 value) public override returns (bool) {
+    function approve(address spender, uint256 value) public override freshInventoryReady returns (bool) {
         address owner_ = _msgSender();
         _requireNotBlocked(owner_);
         if (value != 0) {
@@ -350,12 +418,12 @@ contract ForageToken is
         return super.approve(spender, value);
     }
 
-    function transferFrom(address from, address to, uint256 value) public override returns (bool) {
+    function transferFrom(address from, address to, uint256 value) public override freshInventoryReady returns (bool) {
         _requireNotBlocked(msg.sender);
         return super.transferFrom(from, to, value);
     }
 
-    function lock(address account, uint256 amount) external onlyAllowedCaller {
+    function lock(address account, uint256 amount) external freshInventoryReady onlyAllowedCaller {
         if (!_authorizedLockers[msg.sender]) revert UnauthorizedLocker(msg.sender);
         _requireNotBlocked(msg.sender);
         if (account == address(0)) revert ZeroAddress();
@@ -369,7 +437,7 @@ contract ForageToken is
         _delegateStateModuleCalldata();
     }
 
-    function unlock(address account, uint256 amount) external onlyAllowedCaller {
+    function unlock(address account, uint256 amount) external freshInventoryReady onlyAllowedCaller {
         if (!_authorizedLockers[msg.sender]) revert UnauthorizedLocker(msg.sender);
         _requireNotBlocked(msg.sender);
         if (account == address(0)) revert ZeroAddress();
@@ -385,11 +453,16 @@ contract ForageToken is
     /// ensure all active locks by this locker are cleared via unlockBatch() or direct unlock() calls.
     /// Recovery procedure if locks are stranded: re-authorize the locker temporarily, call
     /// unlockBatch() for all affected accounts, then deauthorize again.
-    function setAuthorizedLocker(address locker_, bool authorized_) external onlyAllowedCaller onlyOwner {
+    function setAuthorizedLocker(address locker_, bool authorized_)
+        external
+        freshInventoryReady
+        onlyAllowedCaller
+        onlyOwner
+    {
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.setAuthorizedLocker, (locker_, authorized_)));
     }
 
-    function setLockExempt(address account, bool exempt) external onlyAllowedCaller onlyOwner {
+    function setLockExempt(address account, bool exempt) external freshInventoryReady onlyAllowedCaller onlyOwner {
         if (account == address(0)) revert ZeroAddress();
         if (exempt && _lockedBalances[account] > 0) {
             revert AccountHasActiveLocks(account, _lockedBalances[account]);
@@ -401,7 +474,12 @@ contract ForageToken is
     /// @dev Only works when the locker has been deauthorized (_authorizedLockers[locker] == false).
     /// Reads _lockerBalances[account][locker], decrements _lockedBalances[account], clears the
     /// per-locker balance, removes locker from _accountLockers[account], and emits ForageUnlocked.
-    function emergencyUnlock(address account, address locker) external onlyAllowedCaller onlyOwner {
+    function emergencyUnlock(address account, address locker)
+        external
+        freshInventoryReady
+        onlyAllowedCaller
+        onlyOwner
+    {
         if (account == address(0)) revert ZeroAddress();
         if (locker == address(0)) revert ZeroAddress();
         _requireNotBlocked(account);
@@ -409,7 +487,11 @@ contract ForageToken is
         _delegateStateModuleCalldata();
     }
 
-    function unlockBatch(address[] calldata accounts, uint256[] calldata amounts) external onlyAllowedCaller {
+    function unlockBatch(address[] calldata accounts, uint256[] calldata amounts)
+        external
+        freshInventoryReady
+        onlyAllowedCaller
+    {
         if (!_authorizedLockers[msg.sender]) revert UnauthorizedLocker(msg.sender);
         _requireNotBlocked(msg.sender);
         // OF-L23: Use semantically correct error for array length mismatch
@@ -443,13 +525,41 @@ contract ForageToken is
     }
 
     function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
+        ForageTokenRotationStatus memory status = _requireFreshInventory();
         if (blocklist_ == address(0)) revert ZeroAddress();
         _requireValidBlocklist(blocklist_);
         address oldBlocklist = _blocklist;
-        if (oldBlocklist != blocklist_) _unregisterBlocklistObserver(oldBlocklist);
-        _delegateStateModuleCalldata();
+        if (oldBlocklist == blocklist_) {
+            _registerBlocklistObserver(blocklist_);
+            emit BlocklistSet(oldBlocklist, blocklist_);
+            return;
+        }
+        bool freshEmptyInventory = status.inventorySupported && !status.rotationActive && oldBlocklist == address(0)
+            && status.activeGeneration == 0 && status.inventoryLength == 0;
+        if (freshEmptyInventory) {
+            _registerBlocklistObserver(blocklist_);
+            _delegateStateModule(abi.encodeCall(ForageTokenStateModule.bindInitialBlocklist, (blocklist_, clock())));
+            emit BlocklistSet(oldBlocklist, blocklist_);
+            return;
+        }
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.beginBlocklistRotation, (blocklist_)));
         _registerBlocklistObserver(blocklist_);
-        emit BlocklistSet(oldBlocklist, blocklist_);
+    }
+
+    function processBlocklistRotation() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.processBlocklistRotation, ()));
+    }
+
+    function activateBlocklistRotation() external onlyAllowedCaller onlyOwner {
+        ForageTokenRotationStatus memory status = _requireFreshInventory();
+        if (!status.rotationActive) revert BlocklistRotationUnavailable();
+        _unregisterBlocklistObserverStrict(status.activeBlocklist);
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.activateBlocklistRotation, ()));
+        emit BlocklistSet(status.activeBlocklist, status.pendingBlocklist);
+    }
+
+    function blocklistRotationStatus() external view returns (ForageTokenRotationStatus memory) {
+        return _readRotationStatus();
     }
 
     /// @dev Configuration-time code+interface probe (mirror of DelegatingVestingWallet's
@@ -462,7 +572,7 @@ contract ForageToken is
             revert InvalidBlocklist(blocklist_);
         }
         _readHistoricalBlocklistBoolean(blocklist_, address(this), block.timestamp, IBlocklist.wasBlockedAt.selector);
-        _wasEffectivelyBlockedAt(blocklist_, address(this), block.timestamp);
+        _wasCheckpointBlockedAt(blocklist_, address(this), block.timestamp);
         try IBlocklistVoteEligibility(blocklist_).supportsVoteEligibilityObserver() returns (bool supported) {
             if (!supported) revert InvalidBlocklist(blocklist_);
         } catch {
@@ -482,6 +592,7 @@ contract ForageToken is
         internal
         override(ERC20Upgradeable, ERC20VotesUpgradeable)
     {
+        if (!_isInitializing()) _requireFreshInventory();
         // Lock enforcement: check unlocked balance before transfer
         // Skip on mints (from == 0), burns (to == 0), contract self-transfer, and lock-exempt senders
         if (from != address(0) && to != address(0) && from != address(this) && !_lockExempt[from]) {
@@ -502,24 +613,46 @@ contract ForageToken is
         super._update(from, to, value);
 
         if (!_isInitializing()) {
-            _syncDelegateSourceContribution(from);
-            _syncDelegateSourceContribution(to);
+            if (from != address(0)) {
+                _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken, (from)));
+            }
+            if (to != address(0)) {
+                _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken, (to)));
+            }
         }
     }
 
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshInventoryReady
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
-    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+    function transferOwnership(address newOwner) public override freshInventoryReady onlyAllowedCaller {
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshInventoryReady onlyAllowedCaller {
         super.acceptOwnership();
     }
 
-    function setAllowlist(address allowlist_) external onlyOwner {
+    function permit(address owner_, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        public
+        override
+        freshInventoryReady
+    {
+        super.permit(owner_, spender, value, deadline, v, r, s);
+    }
+
+    function nonces(address owner_) public view override(ERC20PermitUpgradeable, NoncesUpgradeable) returns (uint256) {
+        return super.nonces(owner_);
+    }
+
+    function setAllowlist(address allowlist_) external freshInventoryReady onlyOwner {
         address oldAllowlist = allowlist();
         if (oldAllowlist != allowlist_) {
             _validateAllowlistTransition(allowlist_);
@@ -527,14 +660,16 @@ contract ForageToken is
         }
         _transitionAllowlist(allowlist_);
         _registerAllowlistObserver(allowlist_);
-        _syncInitialVestingSources();
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncInitialVestingSources, ()));
     }
 
     function renounceOwnership() public pure override {
         revert RenounceOwnershipDisabled();
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _authorizeUpgrade(address) internal override onlyOwner {
+        _requireFreshInventory();
+    }
 
     function _requireNotBlocked(address account) internal view {
         address blocklist_ = _blocklist;
@@ -544,100 +679,27 @@ contract ForageToken is
         }
     }
 
-    function _setDelegateSource(address source, address oldDelegate, address newDelegate) internal {
-        uint256 votes = balanceOf(source);
-        address registeredBeneficiary = _prepareDelegateSourceUpdate(source, newDelegate, votes);
-        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.prepareDelegateSourceChange, (source, oldDelegate)));
-        _applyDelegateSourceUpdate(source, newDelegate, votes, true, registeredBeneficiary);
-    }
-
-    function _syncDelegateSourceContribution(address source) internal {
-        if (source == address(0)) return;
-        address delegatee = delegates(source);
-        uint256 votes;
-        if (delegatee != address(0)) votes = balanceOf(source);
-        address registeredBeneficiary = _prepareDelegateSourceUpdate(source, delegatee, votes);
-        _applyDelegateSourceUpdate(source, delegatee, votes, false, registeredBeneficiary);
-    }
-
-    function _prepareDelegateSourceUpdate(address source, address newDelegate, uint256 votes)
-        private
-        returns (address registeredBeneficiary)
-    {
-        if (newDelegate != address(0) && votes != 0) _requireNoPendingVestingSourceRegistration(source);
-        return _rememberVestingBeneficiary(source);
-    }
-
-    function _requireNoPendingVestingSourceRegistration(address source) private view {
-        address allowlist_ = allowlist();
-        (bool ok, bytes memory data) =
-            allowlist_.staticcall(abi.encodeCall(IAllowlist.isVestingSourceRegistrationPending, (source)));
-        if (!ok || data.length != 32) revert IAllowlist.AllowlistUnavailable();
-        if (abi.decode(data, (bool))) {
-            revert VestingSourceRegistrationRequired(source, _readVestingBeneficiary(source));
-        }
-    }
-
-    function _applyDelegateSourceUpdate(
+    function sourceEligibilityForBlocklist(
         address source,
-        address newDelegate,
-        uint256 votes,
-        bool isDelegation,
-        address registeredBeneficiary
-    ) private {
-        ForageTokenStateUpdate memory update;
-        update.source = source;
-        update.newDelegate = newDelegate;
-        update.votes = votes;
-        if (newDelegate != address(0) && votes != 0) {
-            update.unindexedLegacyVestingSource = _isUnindexedLegacyVestingSource(source);
-            if (!update.unindexedLegacyVestingSource && !_historicalDelegateSources[newDelegate].contains(source)) {
-                SourceEligibility memory eligibility = _sourceEligibility(source, registeredBeneficiary, true);
-                update.newBaseVotes = eligibility.allowlisted && !eligibility.blocked ? votes : 0;
-                VoteTransitions memory transitions = _planVoteTransitions(eligibility, votes);
-                update.firstTransitionTime = transitions.firstTime;
-                update.firstTransitionDelta = transitions.firstDelta;
-                update.secondTransitionTime = transitions.secondTime;
-                update.secondTransitionDelta = transitions.secondDelta;
-            }
-        }
-
-        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.applyDelegateSourceUpdate, (update, isDelegation)));
-        address beneficiary = _vestingBeneficiaryBySource[source];
-        if (beneficiary == address(0) || update.unindexedLegacyVestingSource) return;
-        uint256 maximum;
-        if (
-            registeredBeneficiary != address(0) && newDelegate != address(0) && votes != 0
-                && !_vestingSourcesByBeneficiary[beneficiary].contains(source)
-        ) {
-            maximum = _maxVestingSourcesPerBeneficiary();
-        }
-        _delegateStateModule(
-            abi.encodeCall(
-                ForageTokenStateModule.updateRegisteredVestingSourceMembership,
-                (source, newDelegate, votes, maximum, registeredBeneficiary != address(0))
-            )
-        );
-    }
-
-    function _sourceEligibility(address source, address registeredBeneficiary, bool registrationKnown)
-        private
-        view
-        returns (SourceEligibility memory eligibility)
-    {
+        address registeredBeneficiary,
+        bool registrationKnown,
+        bool systemAccount,
+        address blocklist_
+    ) external view returns (ForageTokenSourceEligibility memory eligibility) {
+        if (msg.sender != address(this)) revert UnauthorizedTokenQuery(msg.sender);
         (eligibility.allowlisted, eligibility.systemAccount, eligibility.allowedUntil) =
             _allowlistAccountEligibility(source);
-        address beneficiary_ = registeredBeneficiary;
-        if (!registrationKnown && eligibility.systemAccount && source.code.length != 0) {
-            beneficiary_ = _registeredVestingSourceBeneficiary(allowlist(), source);
-        }
-        if (beneficiary_ != address(0)) {
-            address rememberedBeneficiary = _vestingBeneficiaryBySource[source];
-            if (rememberedBeneficiary != address(0) && rememberedBeneficiary != beneficiary_) {
-                revert IAllowlist.AllowlistUnavailable();
+        address beneficiary = registeredBeneficiary;
+        if (!registrationKnown && systemAccount && eligibility.systemAccount && source.code.length != 0) {
+            if (_readVestingBeneficiary(source) != address(0)) {
+                revert UnsupportedLegacyVestingBeneficiary(source);
             }
+        }
+        if (beneficiary != address(0)) {
+            address remembered = _vestingBeneficiaryBySource[source];
+            if (remembered != address(0) && remembered != beneficiary) revert IAllowlist.AllowlistUnavailable();
             (bool beneficiaryAllowed, bool beneficiarySystem, uint64 beneficiaryUntil) =
-                _allowlistAccountEligibility(beneficiary_);
+                _allowlistAccountEligibility(beneficiary);
             bool sourceSystem = eligibility.systemAccount;
             eligibility.allowlisted = eligibility.allowlisted && beneficiaryAllowed;
             eligibility.systemAccount = sourceSystem && beneficiarySystem;
@@ -647,8 +709,6 @@ contract ForageToken is
                 eligibility.allowedUntil = beneficiaryUntil;
             }
         }
-
-        address blocklist_ = _blocklist;
         if (blocklist_ == address(0)) return eligibility;
         try IBlocklist(blocklist_).isBlocked(source) returns (bool blocked) {
             eligibility.blocked = blocked;
@@ -660,15 +720,15 @@ contract ForageToken is
         } catch {
             revert InvalidBlocklist(blocklist_);
         }
-        if (beneficiary_ != address(0)) {
+        if (beneficiary != address(0)) {
             bool beneficiaryBlocked;
             uint256 beneficiaryBlockedUntil;
-            try IBlocklist(blocklist_).isBlocked(beneficiary_) returns (bool blocked) {
+            try IBlocklist(blocklist_).isBlocked(beneficiary) returns (bool blocked) {
                 beneficiaryBlocked = blocked;
             } catch {
                 revert InvalidBlocklist(blocklist_);
             }
-            try IBlocklistVoteEligibility(blocklist_).blockedUntil(beneficiary_) returns (uint256 blockedUntil_) {
+            try IBlocklistVoteEligibility(blocklist_).blockedUntil(beneficiary) returns (uint256 blockedUntil_) {
                 beneficiaryBlockedUntil = blockedUntil_;
             } catch {
                 revert InvalidBlocklist(blocklist_);
@@ -683,7 +743,7 @@ contract ForageToken is
     function _allowlistAccountEligibility(address account)
         private
         view
-        returns (bool allowed, bool systemAccount_, uint64 allowedUntil_)
+        returns (bool allowed, bool systemAccount, uint64 allowedUntil)
     {
         address allowlist_ = allowlist();
         if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
@@ -693,323 +753,44 @@ contract ForageToken is
             revert IAllowlist.AllowlistUnavailable();
         }
         try IAllowlist(allowlist_).isSystemAccount(account) returns (bool currentSystem) {
-            systemAccount_ = currentSystem;
+            systemAccount = currentSystem;
         } catch {
             revert IAllowlist.AllowlistUnavailable();
         }
         try IAllowlist(allowlist_).allowedUntil(account) returns (uint64 currentUntil) {
-            allowedUntil_ = currentUntil;
+            allowedUntil = currentUntil;
         } catch {
             revert IAllowlist.AllowlistUnavailable();
         }
     }
 
-    function _planVoteTransitions(SourceEligibility memory eligibility, uint256 votes)
-        private
-        view
-        returns (VoteTransitions memory transitions)
-    {
-        if (votes == 0 || !eligibility.allowlisted) return transitions;
-        uint48 currentTime = clock();
-        int256 signedVotes = int256(votes);
-        uint256 maximumTime = uint256(type(uint48).max);
-
-        if (!eligibility.blocked) {
-            if (!eligibility.systemAccount && eligibility.allowedUntil >= currentTime) {
-                uint256 expiry = eligibility.allowedUntil;
-                if (expiry < maximumTime) {
-                    transitions.firstTime = uint48(expiry + 1);
-                    transitions.firstDelta = signedVotes;
-                }
-            }
-            return transitions;
-        }
-
-        uint256 blockedUntil_ = eligibility.blockedUntil;
-        if (blockedUntil_ >= currentTime && blockedUntil_ < maximumTime) {
-            if (eligibility.systemAccount || uint256(eligibility.allowedUntil) > blockedUntil_) {
-                transitions.firstTime = uint48(blockedUntil_ + 1);
-                transitions.firstDelta = -signedVotes;
-            }
-        }
-        if (
-            !eligibility.systemAccount && eligibility.allowedUntil >= currentTime
-                && uint256(eligibility.allowedUntil) < maximumTime && blockedUntil_ < eligibility.allowedUntil
-        ) {
-            transitions.secondTime = uint48(uint256(eligibility.allowedUntil) + 1);
-            transitions.secondDelta = signedVotes;
-        }
+    function _readStrictVestingBeneficiary(address source) private view returns (address beneficiary) {
+        beneficiary = _readVestingBeneficiary(source);
+        if (beneficiary == address(0)) revert UnsupportedLegacyVestingBeneficiary(source);
     }
 
-    function _eligibilityTransitionPrefix(address delegatee, uint256 timepoint) private view returns (int256 delta) {
-        if (timepoint > type(uint48).max) return 0;
-        bytes32 selectorWord = bytes32(this.getPastVotes.selector);
-        assembly ("memory-safe") {
-            let input := mload(0x40)
-            mstore(input, selectorWord)
-            mstore(add(input, 4), delegatee)
-            mstore(add(input, 36), timepoint)
-            let success := staticcall(gas(), address(), input, 68, input, 32)
-            let size := returndatasize()
-            if iszero(success) {
-                returndatacopy(input, 0, size)
-                revert(input, size)
-            }
-            if iszero(eq(size, 32)) { revert(0, 0) }
-            delta := mload(input)
-        }
-    }
-
-    function _applyEligibilityTransition(uint256 baseVotes, int256 delta) private pure returns (uint256) {
-        if (delta >= 0) {
-            uint256 deduction = uint256(delta);
-            return deduction >= baseVotes ? 0 : baseVotes - deduction;
-        }
-        uint256 addition = uint256(-(delta + 1)) + 1;
-        return baseVotes + addition;
-    }
-
-    function _liveIndexedEligibleVotes(address delegatee) private view returns (uint256) {
-        return _applyEligibilityTransition(
-            _eligibleDelegateVotes[delegatee].latest(), _eligibilityTransitionPrefix(delegatee, clock())
-        );
-    }
-
-    function _pastIndexedEligibleVotes(address delegatee, uint256 timepoint) private view returns (uint256) {
-        if (timepoint > type(uint48).max) return 0;
-        return _applyEligibilityTransition(
-            _eligibleDelegateVotes[delegatee].upperLookupRecent(uint48(timepoint)),
-            _eligibilityTransitionPrefix(delegatee, timepoint)
-        );
-    }
-
-    function _delegateSourcePastVotes(address delegatee, address source, uint256 timepoint)
-        internal
-        view
-        returns (uint256)
-    {
-        return _delegateSourceCheckpoints[delegatee][source].upperLookupRecent(uint48(timepoint));
-    }
-
-    function _liveLegacyEligibleVotes(address delegatee) private view returns (uint256 votes) {
-        EnumerableSet.AddressSet storage sources = _delegateSources[delegatee];
-        uint256 sourceCount = sources.length();
-        if (sourceCount > MAX_DELEGATE_SOURCES) {
-            revert LegacyDelegateSourceIndexCorrupted(delegatee, sourceCount, MAX_DELEGATE_SOURCES);
-        }
-        for (uint256 i; i < sourceCount;) {
-            address source = sources.at(i);
-            if (delegates(source) == delegatee && _isSourceEligibleNow(source)) {
-                votes += balanceOf(source);
-            }
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _pastLegacyEligibleVotes(address delegatee, uint256 timepoint) private view returns (uint256 votes) {
-        EnumerableSet.AddressSet storage sources = _historicalDelegateSources[delegatee];
-        uint256 sourceCount = sources.length();
-        if (sourceCount > MAX_DELEGATE_SOURCES) {
-            revert LegacyDelegateSourceIndexCorrupted(delegatee, sourceCount, MAX_DELEGATE_SOURCES);
-        }
-        for (uint256 i; i < sourceCount;) {
-            address source = sources.at(i);
-            uint256 sourceVotes = _delegateSourcePastVotes(delegatee, source, timepoint);
-            if (sourceVotes != 0 && _isAllowedAt(source, timepoint) && !_wasBlockedAt(source, timepoint)) {
-                votes += sourceVotes;
-            }
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _isSourceEligibleNow(address source) private view returns (bool) {
-        SourceEligibility memory eligibility = _sourceEligibility(source, address(0), false);
-        return eligibility.allowlisted && !eligibility.blocked;
-    }
-
-    function _isDelegateeEligibleNow(address delegatee) private view returns (bool) {
-        address blocklist_ = _blocklist;
-        if (blocklist_ != address(0)) {
-            try IBlocklist(blocklist_).isBlocked(delegatee) returns (bool blocked) {
-                if (blocked) return false;
-            } catch {
-                revert InvalidBlocklist(blocklist_);
-            }
-        }
-        return true;
-    }
-
-    function _isDelegateeEligibleAt(address delegatee, uint256 timepoint) private view returns (bool) {
-        return !_wasBlockedAt(delegatee, timepoint);
-    }
-
-    function _rememberVestingBeneficiary(address source) private returns (address beneficiary_) {
-        (bool systemAccount_, address registeredBeneficiary) = _currentVestingSourceRegistration(source, allowlist());
-        if (!systemAccount_ || registeredBeneficiary == address(0)) return address(0);
-        if (_readVestingBeneficiary(source) != registeredBeneficiary) revert IAllowlist.AllowlistUnavailable();
-        address previous = _vestingBeneficiaryBySource[source];
-        if (previous == address(0)) {
-            _delegateStateModule(
-                abi.encodeCall(ForageTokenStateModule.rememberVestingBeneficiary, (source, registeredBeneficiary))
-            );
-        } else if (previous != registeredBeneficiary) {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-        return registeredBeneficiary;
-    }
-
-    function _isUnindexedLegacyVestingSource(address source) private view returns (bool) {
-        if (_vestingBeneficiaryBySource[source] != address(0)) return false;
-        address allowlist_ = allowlist();
-        (bool systemAccount_, address registeredBeneficiary) = _currentVestingSourceRegistration(source, allowlist_);
-        if (!systemAccount_ || registeredBeneficiary != address(0)) return false;
-        address beneficiary_ = _readVestingBeneficiary(source);
-        if (beneficiary_ == address(0)) return false;
-        return true;
-    }
-
-    function _legacyVestingBeneficiary(address source) private view returns (address beneficiary_) {
-        beneficiary_ = _vestingBeneficiaryBySource[source];
-        if (beneficiary_ != address(0) || source.code.length == 0) return beneficiary_;
-        address allowlist_ = allowlist();
-        beneficiary_ = _registeredVestingSourceBeneficiary(allowlist_, source);
-        if (beneficiary_ != address(0)) return beneficiary_;
-        return _readVestingBeneficiary(source);
-    }
-
-    function _currentVestingSourceRegistration(address source, address allowlist_)
-        private
-        view
-        returns (bool systemAccount_, address beneficiary_)
-    {
-        if (source.code.length == 0) return (false, address(0));
-        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IAllowlist(allowlist_).isSystemAccount(source) returns (bool currentSystemAccount) {
-            systemAccount_ = currentSystemAccount;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-        if (!systemAccount_) return (false, address(0));
-        beneficiary_ = _registeredVestingSourceBeneficiary(allowlist_, source);
-    }
-
-    function _registeredVestingSourceBeneficiary(address allowlist_, address source)
-        private
-        view
-        returns (address beneficiary_)
-    {
-        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IAllowlistVestingSourceRegistry(allowlist_).vestingSourceBeneficiary(source) returns (
-            address registeredBeneficiary
-        ) {
-            return registeredBeneficiary;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-    }
-
-    function _readVestingBeneficiary(address source) private view returns (address beneficiary_) {
-        (bool ok, bytes memory data) =
-            source.staticcall(abi.encodeWithSelector(IVestingBeneficiarySource.beneficiary.selector));
-        if (!ok || data.length != 32) return address(0);
+    function _readVestingBeneficiary(address source) private view returns (address beneficiary) {
+        uint32 selector = uint32(IVestingBeneficiarySource.beneficiary.selector);
         uint256 encoded;
+        bool ok;
+        uint256 returnSize;
         assembly ("memory-safe") {
-            encoded := mload(add(data, 32))
+            let pointer := mload(0x40)
+            mstore(pointer, shl(224, selector))
+            ok := staticcall(gas(), source, pointer, 4, pointer, 32)
+            returnSize := returndatasize()
+            if and(ok, eq(returnSize, 32)) { encoded := mload(pointer) }
         }
-        if (encoded > type(uint160).max) return address(0);
+        if (!ok || returnSize != 32 || encoded > type(uint160).max) return address(0);
         return address(uint160(encoded));
     }
 
-    function _syncVestingSources(address beneficiary_) private {
-        EnumerableSet.AddressSet storage sources = _vestingSourcesByBeneficiary[beneficiary_];
-        uint256 sourceCount = sources.length();
-        if (sourceCount == 0) return;
-        uint256 maximum = _maxVestingSourcesPerBeneficiary();
-        if (sourceCount > maximum) revert TooManyVestingSources(beneficiary_, sourceCount, maximum);
-        for (uint256 i = sourceCount; i > 0; --i) {
-            _syncDelegateSourceContribution(sources.at(i - 1));
-        }
-    }
-
-    function _syncInitialVestingSources() private {
-        address teamSource = _initialTeamVestingSource;
-        if (teamSource != address(0)) _syncDelegateSourceContribution(teamSource);
-
-        address treasurySource = _initialTreasurySource;
-        if (treasurySource != address(0) && treasurySource != teamSource) {
-            _syncDelegateSourceContribution(treasurySource);
-        }
-    }
-
-    function _maxVestingSourcesPerBeneficiary() private view returns (uint256 maximum) {
-        address allowlist_ = allowlist();
-        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IAllowlistVestingSourceLimit(allowlist_).maxVestingSourcesPerBeneficiary() returns (uint256 value) {
-            maximum = value;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-    }
-
-    function _isAllowedAt(address account, uint256 timepoint) private view returns (bool) {
-        if (!_isAllowlistedAt(account, timepoint)) return false;
-        if (!_isSystemAccountAt(account, timepoint)) return true;
-        address beneficiary_ = _vestingBeneficiaryBySource[account];
-        if (beneficiary_ == address(0)) beneficiary_ = _legacyVestingBeneficiary(account);
-        return beneficiary_ == address(0) || _isAllowlistedAt(beneficiary_, timepoint);
-    }
-
-    function _isSystemAccountAt(address account, uint256 timepoint) private view returns (bool) {
-        address allowlist_ = allowlist();
-        try IAllowlistVoteEligibility(allowlist_).isSystemAccountAt(account, timepoint) returns (bool systemAccount_) {
-            return systemAccount_;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-    }
-
-    function _isAllowlistedAt(address account, uint256 timepoint) private view returns (bool) {
-        address allowlist_ = allowlist();
-        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IAllowlistVoteEligibility(allowlist_).isAllowedAt(account, timepoint) returns (bool allowed) {
-            return allowed;
-        } catch {
-            if (_supportsAllowlistVoteEligibility(allowlist_)) revert IAllowlist.AllowlistUnavailable();
-            return _isAllowedNow(account);
-        }
-    }
-
-    function _isAllowedNow(address account) private view returns (bool) {
-        address allowlist_ = allowlist();
-        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IAllowlist(allowlist_).isAllowed(account) returns (bool allowed) {
-            return allowed;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-    }
-
-    function _wasBlockedAt(address account, uint256 timepoint) private view returns (bool) {
-        address blocklist_ = _blocklist;
-        if (blocklist_ == address(0)) return false;
-        if (_wasEffectivelyBlockedAt(blocklist_, account, timepoint)) return true;
-        if (!_isSystemAccountAt(account, timepoint)) return false;
-        address beneficiary_ = _vestingBeneficiaryBySource[account];
-        if (beneficiary_ == address(0)) beneficiary_ = _legacyVestingBeneficiary(account);
-        return beneficiary_ != address(0) && _wasEffectivelyBlockedAt(blocklist_, beneficiary_, timepoint);
-    }
-
-    function _wasEffectivelyBlockedAt(address blocklist_, address account, uint256 timepoint)
+    function _wasCheckpointBlockedAt(address blocklist_, address account, uint256 timepoint)
         private
         view
         returns (bool)
     {
-        return
-            _readHistoricalBlocklistBoolean(blocklist_, account, timepoint, IBlocklist.wasEffectivelyBlockedAt.selector);
+        return _readHistoricalBlocklistBoolean(blocklist_, account, timepoint, IBlocklist.wasBlockedAt.selector);
     }
 
     function _readHistoricalBlocklistBoolean(address blocklist_, address account, uint256 timepoint, bytes4 selector)
@@ -1032,6 +813,23 @@ contract ForageToken is
             abi.encodeWithSelector(IAllowlistVoteEligibility.supportsVoteEligibilityObserver.selector)
         );
         return ok && data.length >= 32 && abi.decode(data, (bool));
+    }
+
+    function _isSystemAccountAt(address account, uint256 timepoint) private view returns (bool) {
+        address allowlist_ = allowlist();
+        try IAllowlistVoteEligibility(allowlist_).isSystemAccountAt(account, timepoint) returns (bool systemAccount_) {
+            return systemAccount_;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+    }
+
+    function _wasBlockedAt(address account, uint256 timepoint, address provider) private view returns (bool) {
+        if (provider == address(0)) return false;
+        if (_wasCheckpointBlockedAt(provider, account, timepoint)) return true;
+        if (!_isSystemAccountAt(account, timepoint)) return false;
+        address beneficiary = _vestingBeneficiaryBySource[account];
+        return beneficiary != address(0) && _wasCheckpointBlockedAt(provider, beneficiary, timepoint);
     }
 
     function _registerAllowlistObserver(address allowlist_) private {
@@ -1057,13 +855,16 @@ contract ForageToken is
         IBlocklistVoteEligibility(blocklist_).registerVoteEligibilityObserver();
     }
 
-    function _unregisterBlocklistObserver(address blocklist_) private {
+    function _unregisterBlocklistObserverStrict(address blocklist_) private {
         if (blocklist_ == address(0)) return;
-        (bool ok, bytes memory data) = blocklist_.staticcall(
-            abi.encodeWithSelector(IBlocklistVoteEligibility.supportsVoteEligibilityObserver.selector)
-        );
-        if (ok && data.length >= 32 && abi.decode(data, (bool))) {
-            IBlocklistVoteEligibility(blocklist_).unregisterVoteEligibilityObserver();
+        try IBlocklistVoteEligibility(blocklist_).supportsVoteEligibilityObserver() returns (bool supported) {
+            if (!supported) revert InvalidBlocklist(blocklist_);
+        } catch {
+            revert InvalidBlocklist(blocklist_);
+        }
+        try IBlocklistVoteEligibility(blocklist_).unregisterVoteEligibilityObserver() {}
+        catch {
+            revert InvalidBlocklist(blocklist_);
         }
     }
 }

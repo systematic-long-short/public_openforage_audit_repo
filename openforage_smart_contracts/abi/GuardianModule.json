@@ -1269,6 +1269,17 @@
   },
   {
     "type": "error",
+    "name": "GuardianFreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "observedVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InsufficientPermissions",
     "inputs": []
   },
@@ -1332,6 +1343,17 @@
     "type": "error",
     "name": "RotationNotReady",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RoutineRotationIdOccupied",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
   },
   {
     "type": "error",

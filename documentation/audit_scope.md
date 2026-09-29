@@ -1,63 +1,43 @@
-# Audit Scope
+# Audit scope
 
-## Snapshot under review
+## Candidate and source map
 
-The review target is the public production-source snapshot in `openforage_smart_contracts/`. The copied public history starts at PR 9 head `bd005bad4fe3432401a6e4ae920830e267369e38`, based on public commit `6fbbc51c4da48fce46f7119d1053088ba119d7bf`.
+This candidate continues PR #9 from public head `fbcdda4fc95adc6d345786787ce4ea7557df86a4`. The candidate has one parent, the recorded public parent. This review does not update the remote branch or PR.
 
-The prepared overlay contains 62 mapped paths: 30 Solidity sources, 18 ABI artifacts, two public status documents, two Semgrep manifest/exception files, and ten scripts or interfaces. `README.md` is an additional required path. `documentation/review_commands.md` remains unchanged. The 91 source files counted by the Semgrep import manifest are dependency inputs, not Gitlinks.
+The direct map remains 59 files: 33 production source, interface, and module files; 18 ABI artifacts; and 8 selected deployment-script and interface files. It includes the three paths previously added to PR #9. C9 changes the already-mapped `RISKUSDVault.sol`; no mapped ABI or selected script changed, and no new first-party source/interface/module/ABI mapping was added. Every mapped byte is checked against the exact source. The two root Gitlinks and all nine recursive pins stay unchanged.
 
-## Source and artifact scope
+Only the eight selected script/interface paths in the explicit map are copied. All other private scripts and tools, audit records, packet text, run logs, credentials, deployment records, and unlisted paths remain excluded. No first-party contract test path is copied.
 
-The source overlay includes candidate changes to governance payload bounds and Guardian behavior; historical vote eligibility; vault claim, cap, and loss accounting; Queue admission, FIFO, and expiry rules; Bridge NAV, intent, return, and loss accounting; Registry totals; Treasury claim funding and fee remainders; and deployment initialization order. It also includes existing deployment and scanner controls needed to review those sources.
+## Finding scope and review status
 
-The saved final compiler pair binds 125 Solidity inputs under both profiles. Its shared source map is retained outside this public repository. The pair is evidence for this source snapshot only. The checker and manifest updates change no Solidity input, and this update did not run a build. The default profile produced no compiler errors but exited 1 on six runtime-size overages and one `atRISKUSD` initcode overage. The Deploy profile exited 0 and fit all 20 reported size pairs. Compiler warnings remain in both profiles.
+The historical record preserves all 155 analysis 1–8 identities and their original counts. Warning 28 keeps its dated missing-capture gap. Analysis 9 remains separate, with 21 findings and 11 related cases. Its saved acknowledgements remain `Other`; no finding is marked resolved.
 
-The saved ABI comparison matches all 17 source-backed artifacts. `FoundationTreasury.json` remains an orphan without a source match. The bounded layout comparison covers 19 nonempty raw targets out of 20 selected targets. The historical storage checker remains red at 14 passes and five divergences. Neither comparison proves old-proxy state, migration, or upgrade safety.
+The latest source reviews accept the Treasury helper-readiness guard only as a bounded source correction; A9-02 is not fully closed. A9-03 remains `ACCEPT_BOUNDED` for net-basis accounting. Its related case is `ACCEPT_BOUNDED` at source level: ordinary redemption no longer refunds active-window public mint use. A redeemed position can leave shared daily/weekly mint headroom occupied until the corresponding active window resets; no fairness or risk-acceptance guarantee is claimed. A9-6 is bounded but cross-tier fairness and collectibility remain open. A9-9 is accepted only for cash-backed pricing. A9-10 and A9-14 are bounded to the reviewed fresh-state settlement and exact-nonce paths. A9-19 and A9-20 remain bounded source findings, not live-state proof. A9-21 whole-query gas remains unmeasured. No legacy-proxy, deployment, or current Octane proof exists.
 
-## Finding and disclosure scope
+The earlier static-triage record classifies 28 Queue rows and 44 Token rows individually; its per-row source dispositions remain separate from the later analyzer-row review. `SL-28` still needs a current `RISKUSDVault.sol` source rebind. A separate independent review agrees with 187 introduced analyzer-row dispositions at their stated source-bounded scope. One scanner-coverage issue remains under private repair, so the final Semgrep evidence is not accepted as exact-bound. Pre-existing Slither and Semgrep rows remain separate and open; none of these dispositions is a new scan or a full static pass.
 
-The public remediation record carries all 155 captured `(analysis, UUID)` pairs from analyses 1–8. The counts are 55, 11, 9, 14, 9, 5, 28, and 24. The row codes and UUIDs remain exact. Source dispositions are cross-referenced by mechanism family; they do not change Octane labels.
+## Policy boundaries
 
-The latest completed analysis in this evidence set is analysis 8, with all 24 rows acknowledged. An acknowledgement affects later automation reports only. This snapshot does not mark any row resolved because it was acknowledged or absent from a later report.
+- Only fresh deployments are supported. New code must refuse pre-fresh state before changing it. No legacy migration engine is supported.
+- The first upgrade is authorized by the implementation already installed. A source guard in the new implementation cannot prove the first upgrade path.
+- The Blocklist's legacy importer and interval-translation path are removed. Fresh initialization establishes its layout version, and each state-changing entrypoint requires that version before effects. The historical lookup uses checkpoint-only `wasBlockedAt`; the retained pre-checkpoint mapping is inert layout storage. Completed review 0645 accepts this fresh-only source repair at source level only; it proves no deployed or old-proxy state.
+- Holders at recognition own profit. Unpaid profit remains a separate claim and is payable only after cash arrives.
+- Withdrawal share pricing uses cash-backed value. Withdrawals pay available cash only and promise no payment date.
+- A reported custodian loss belongs to holders at report time. Transfers and exits that could avoid it stay frozen through settlement.
+- Loss settlement uses the configured keeper and existing checked return path. Reserve-covered loss does not use the depositor-tier loss-rate cap.
+- Fractional fee remainders carry across payments. Queue demotion keeps its original ID and standard-queue position.
+- One designated Guardian keeps one proposal slot under ordinary voting and timelock controls. It cannot veto its own authority change.
+- Only automatic expiry return from a higher tier is exempt from the Tier 0 admission cap. New admissions and manual reversions remain capped.
+- External vesting recipients need renewable approval and remain registered. Payment grants no system-account status.
+- The distributor is the trusted payer, not the recipient. A recipient gains no restricted-call permission.
+- Two Windows CLI rows remain failed. No Visual Studio license or toolchain was installed, purchased, or accepted.
 
-Warning 28 retains UUID `3c2ba48b-3798-4f57-beba-90dc904af4d8`. A later description capture is identified. The original 2026-09-24 capture bytes are unavailable, so this record does not reconstruct them.
+These policy choices do not prove that every path follows them. The disposition record lists the source paths and remaining evidence gaps.
 
-The public pages contain no private workspace, packet, guide, run, infrastructure, or credential references. The inventory retains the public dependency Gitlinks, dated public audit history, and scanner configuration. The dated 2026-06-09 log files are historical records; their names do not show that this packet ran those commands. No private raw audit capture or run log is included.
+## Build, ABI, storage, and proof limits
 
-## Dependencies and imported sources
+Forge 1.3.5 and Solc 0.8.24 compiled 130 inputs in both profiles with the first-party test tree excluded. Default code generation completed with zero compiler errors, but its child exited 1 on three EIP-170 runtime overages: ForageGovernor (27,458 bytes), StakingQueue (27,382 bytes), USDCTreasury (27,671 bytes). Default initcode has no overage; CustodianRegistry is 1 byte below EIP-170 and atRISKUSD initcode is 48,156 bytes, 996 bytes below EIP-3860. Deploy exited 0 with all 22 first-party runtime/initcode pairs fitting; USDCTreasury is 24,168 runtime bytes, 408 bytes below EIP-170. The complete table is in [`review_commands.md`](review_commands.md).
 
-The two top-level Solidity dependency Gitlinks are Chainlink CCIP `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441` and OpenZeppelin upgradeable contracts `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`. The recursive tree has nine pinned Gitlinks. The copied Git metadata resolves these pins without changing them. The 91 dependency-source-file count is distinct from the nine recursive pins.
+All 18 ABI files match the mapped source; 17 have compiler source definitions and `FoundationTreasury.json` remains source-less. The historical storage check remains red at 14 OK and 7 divergences; no baseline changed.
 
-Initialize the public dependencies before a later build:
-
-```bash
-git submodule update --init --recursive
-```
-
-## Test and deployment inventory
-
-`make -C openforage_smart_contracts no-tests` returned `NO_TESTS_INVENTORY_PASS` on this candidate tree. The target checks whether the first-party `test/` tree and named test-only scripts or campaign configuration files exist, then checks their tracked paths. It is an inventory result, not a contract-test pass.
-
-The pinned upstream submodules contain their own test-looking files. They are vendor files under dependency Gitlinks, not first-party tests in this repository. The no-tests target does not inspect the contents of every upstream Gitlink. The dated 2026-06-09 audit record retains historical log files, including earlier test-named logs; this packet did not execute, refresh, or treat them as current evidence. Deployment scripts remain reviewable controls and were not run.
-
-## Accepted economic and authority boundaries
-
-| Topic | Policy represented in source | Limit |
-|---|---|---|
-| Distributor payments | The configured trusted distributor may pay a non-allow-listed recipient if that recipient is not blocklisted. Direct claims retain self-call and eligibility checks. | A paid recipient gains no system-account status or restricted-call permission. |
-| External vesting recipients | A distinct recipient may receive finite, renewable approval through the vesting system. | Approval does not grant distributor or restricted-operation authority. |
-| Profit recognition | Holders at the recognition point own that tier's claim. Ordinary share transfers carry the claim. | A source/accounting statement is not deployed-state proof. |
-| Withdrawals | A redemption pays only available funded cash. | A queue or cooldown does not reserve cash or promise a date. |
-| Guardian recovery | One designated Guardian may use its reserved proposal slot under normal proposal, voting, and timelock rules. | A Guardian cannot veto its own authority change outside the normal process. |
-| Keeper reconciliation | Reconciliation uses the existing narrow, checked return route. | No arbitrary balance credit or broader keeper authority is implied. |
-| Fees and losses | Fractional fee remainders carry per vault. Only loss charged to a tier consumes that tier's loss-rate budget. | Full loss settlement and reserve accounting remain; this is not a loss guarantee. |
-| Queue priority | Failed revalidation demotes the same queue ID to standard FIFO at its original position. | The operation does not refund or create a new queue entry. |
-| Expired positions | Only authorized automatic processing of an expired higher-tier position bypasses the Tier 0 admission cap. | New Tier 0 admissions and manual reversion remain capped. Other caller and safety guards remain. |
-
-## Exclusions and result limits
-
-- No first-party contract test, fuzz or formal campaign, Forge test, Anvil run, runtime, gas simulation, RPC observation, deployment, or chain action was run for this packet.
-- No full Octane audit, new Octane analysis, public push, pull-request mutation, or public `main` change was performed.
-- Static output is not clean. The saved Slither, Semgrep, suppression, source-layout, and size findings remain visible in the remediation record.
-- A8-14 remains `Other` and open. Its conditional calculation of 31,555,113 required and 29,061,962 spent is not measured gas or a complete transaction-envelope proof against a current cap. Arbitrary providers and legacy funded proxies remain unresolved.
-- Static checks, retained compiler artifacts, documentation, and no-tests inventory do not establish public source acceptance, old-proxy applicability, production safety, or finding resolution.
+Full Slither, configured Semgrep, the static-audit route, and the full gate table did not run on this public candidate. The 187 introduced analyzer-row dispositions are source-bounded and independently reviewed row by row; a scanner-coverage issue remains, and pre-existing analyzer rows remain separate and open. Two Windows CLI rows remain failed. No first-party test, EVM/runtime/gas simulation, RPC, chain, deployment, or Octane action ran. No live-proxy or deployed-state claim is made.

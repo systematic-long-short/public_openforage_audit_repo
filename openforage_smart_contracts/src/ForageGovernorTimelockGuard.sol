@@ -11,6 +11,282 @@ library GovernancePayloadBudget {
         uint256 nestedVisits;
         uint256 actionBytes;
     }
+
+    struct OperationPayload {
+        address target;
+        bytes data;
+    }
+
+    struct ScheduleBatchHeader {
+        uint256 targetsOffset;
+        uint256 targetsLength;
+        uint256 targetsElementsHead;
+        uint256 targetsEnd;
+    }
+
+    struct ScheduleBatchPayload {
+        address[] targets;
+        bytes[] calldatas;
+    }
+
+    function tryDecodeRelay(bytes memory data) internal pure returns (bool, OperationPayload memory) {
+        return _tryDecodeOperation(data, 96, true);
+    }
+
+    function tryDecodeSchedule(bytes memory data) internal pure returns (bool, OperationPayload memory) {
+        return _tryDecodeOperation(data, 192, false);
+    }
+
+    function _tryDecodeOperation(bytes memory data, uint256 headLength, bool readValue)
+        private
+        pure
+        returns (bool, OperationPayload memory decoded)
+    {
+        if (data.length < 4 || data.length - 4 < headLength) return (false, decoded);
+        (bool targetOk, address target) = _tryReadAddress(data, 4);
+        if (!targetOk) return (false, decoded);
+        if (readValue && !_hasRange(data, 36, 32)) return (false, decoded);
+        (bool offsetOk, uint256 dataOffset) = _tryReadWord(data, 68);
+        if (!offsetOk) return (false, decoded);
+        (bool dataOk, bytes memory nestedData) = _tryReadDynamicBytes(data, 4, data.length - 4, dataOffset, headLength);
+        if (!dataOk) return (false, decoded);
+        decoded.target = target;
+        decoded.data = nestedData;
+        return (true, decoded);
+    }
+
+    function tryReadScheduleBatchHeader(bytes memory data)
+        internal
+        pure
+        returns (bool, ScheduleBatchHeader memory header)
+    {
+        if (data.length < 196) return (false, header);
+        (bool offsetOk, uint256 targetsOffset) = _tryReadWord(data, 4);
+        if (!offsetOk) return (false, header);
+        (bool arrayOk, uint256 targetsLength, uint256 elementsHead, uint256 targetsEnd) =
+            _tryReadArray(data, data.length - 4, targetsOffset, 192);
+        if (!arrayOk) return (false, header);
+        header.targetsOffset = targetsOffset;
+        header.targetsLength = targetsLength;
+        header.targetsElementsHead = elementsHead;
+        header.targetsEnd = targetsEnd;
+        return (true, header);
+    }
+
+    function tryReadScheduleBatchTargets(bytes memory data, ScheduleBatchHeader memory header)
+        internal
+        pure
+        returns (bool, address[] memory targets)
+    {
+        uint256 payloadLength = data.length - 4;
+        if (
+            header.targetsEnd > payloadLength
+                || header.targetsLength > (payloadLength - header.targetsElementsHead) / 32
+        ) {
+            return (false, targets);
+        }
+        targets = new address[](header.targetsLength);
+        for (uint256 i; i < header.targetsLength;) {
+            (bool targetOk, address target) = _tryReadAddress(data, 4 + header.targetsElementsHead + i * 32);
+            if (!targetOk) return (false, targets);
+            targets[i] = target;
+            unchecked {
+                ++i;
+            }
+        }
+        return (true, targets);
+    }
+
+    function tryDecodeScheduleBatch(bytes memory data, ScheduleBatchHeader memory header, address[] memory targets)
+        internal
+        pure
+        returns (bool, ScheduleBatchPayload memory batch)
+    {
+        if (data.length < 196 || targets.length != header.targetsLength) return (false, batch);
+        (bool arraysOk, bytes[] memory calldatas) = _tryReadScheduleBatchArrays(data, header);
+        if (!arraysOk) return (false, batch);
+        batch.targets = targets;
+        batch.calldatas = calldatas;
+        return (true, batch);
+    }
+
+    function _tryReadScheduleBatchArrays(bytes memory data, ScheduleBatchHeader memory header)
+        private
+        pure
+        returns (bool, bytes[] memory calldatas)
+    {
+        uint256 payloadLength = data.length - 4;
+        (bool valuesOk, uint256 valuesEnd) = _tryReadScheduleBatchValues(data, payloadLength, header);
+        if (!valuesOk) return (false, calldatas);
+        (bool offsetOk, uint256 calldatasOffset) = _tryReadWord(data, 68);
+        if (!offsetOk) return (false, calldatas);
+        return _tryReadScheduleBatchCalldatas(data, payloadLength, calldatasOffset, valuesEnd, header.targetsLength);
+    }
+
+    function _tryReadScheduleBatchValues(bytes memory data, uint256 payloadLength, ScheduleBatchHeader memory header)
+        private
+        pure
+        returns (bool, uint256 valuesEnd)
+    {
+        (bool offsetOk, uint256 valuesOffset) = _tryReadWord(data, 36);
+        if (!offsetOk) return (false, 0);
+        (bool arrayOk, uint256 valuesLength,, uint256 end) = _tryReadArray(data, payloadLength, valuesOffset, 192);
+        if (!arrayOk || valuesLength != header.targetsLength || valuesOffset < header.targetsEnd) return (false, 0);
+        return (true, end);
+    }
+
+    function _tryReadScheduleBatchCalldatas(
+        bytes memory data,
+        uint256 payloadLength,
+        uint256 calldatasOffset,
+        uint256 valuesEnd,
+        uint256 expectedLength
+    ) private pure returns (bool, bytes[] memory calldatas) {
+        (bool arrayOk, uint256 count, uint256 elementsHead,) = _tryReadArray(data, payloadLength, calldatasOffset, 192);
+        if (
+            !arrayOk || count != expectedLength || calldatasOffset < valuesEnd
+                || !_tryValidateBytesArray(data, payloadLength, elementsHead, count)
+        ) {
+            return (false, calldatas);
+        }
+        calldatas = new bytes[](count);
+        for (uint256 i; i < count;) {
+            (bool itemOk, bytes memory item) = _tryReadBytesArrayElement(data, payloadLength, elementsHead, i);
+            if (!itemOk) return (false, calldatas);
+            calldatas[i] = item;
+            unchecked {
+                ++i;
+            }
+        }
+        return (true, calldatas);
+    }
+
+    function _tryReadArray(bytes memory data, uint256 payloadLength, uint256 offset, uint256 minimumTail)
+        private
+        pure
+        returns (bool, uint256 count, uint256 elementsHead, uint256 end)
+    {
+        if (!_validDynamicOffset(offset, payloadLength, minimumTail)) return (false, 0, 0, 0);
+        elementsHead = offset + 32;
+        (bool countOk, uint256 decodedCount) = _tryReadWord(data, 4 + offset);
+        if (!countOk || elementsHead > payloadLength || decodedCount > (payloadLength - elementsHead) / 32) {
+            return (false, 0, 0, 0);
+        }
+        count = decodedCount;
+        end = elementsHead + count * 32;
+        return (true, count, elementsHead, end);
+    }
+
+    function _tryValidateBytesArray(bytes memory data, uint256 payloadLength, uint256 elementsHead, uint256 count)
+        private
+        pure
+        returns (bool)
+    {
+        if (elementsHead > payloadLength || count > (payloadLength - elementsHead) / 32) return false;
+        uint256 available = payloadLength - elementsHead;
+        uint256 previousEnd = count * 32;
+        for (uint256 i; i < count;) {
+            (bool offsetOk, uint256 relativeOffset) = _tryReadWord(data, 4 + elementsHead + i * 32);
+            if (
+                !offsetOk || relativeOffset < previousEnd || relativeOffset % 32 != 0 || relativeOffset > available
+                    || available - relativeOffset < 32
+            ) {
+                return false;
+            }
+            (bool itemOk, uint256 itemLength, uint256 paddedLength) =
+                _tryDynamicBytesLength(data, 4 + elementsHead + relativeOffset, available - relativeOffset);
+            if (!itemOk) return false;
+            previousEnd = relativeOffset + 32 + paddedLength;
+            if (itemLength > paddedLength) return false;
+            unchecked {
+                ++i;
+            }
+        }
+        return true;
+    }
+
+    function _tryReadBytesArrayElement(bytes memory data, uint256 payloadLength, uint256 elementsHead, uint256 index)
+        private
+        pure
+        returns (bool, bytes memory item)
+    {
+        uint256 elementHead = 4 + elementsHead + index * 32;
+        (bool offsetOk, uint256 relativeOffset) = _tryReadWord(data, elementHead);
+        if (!offsetOk || elementsHead + relativeOffset > payloadLength) return (false, item);
+        uint256 lengthHead = elementsHead + relativeOffset;
+        (bool lengthOk, uint256 itemLength) = _tryReadWord(data, 4 + lengthHead);
+        if (!lengthOk || itemLength > payloadLength - lengthHead - 32) return (false, item);
+        item = _copyBytes(data, 4 + lengthHead + 32, itemLength);
+        return (true, item);
+    }
+
+    function _tryReadDynamicBytes(
+        bytes memory data,
+        uint256 baseOffset,
+        uint256 payloadLength,
+        uint256 offset,
+        uint256 minimumTail
+    ) private pure returns (bool, bytes memory value) {
+        if (!_validDynamicOffset(offset, payloadLength, minimumTail)) return (false, value);
+        uint256 lengthHead = baseOffset + offset;
+        (bool lengthOk, uint256 byteLength) = _tryReadWord(data, lengthHead);
+        if (!lengthOk) return (false, value);
+        uint256 dataOffset = offset + 32;
+        uint256 available = payloadLength - dataOffset;
+        if (byteLength > available) return (false, value);
+        uint256 padding = (32 - (byteLength % 32)) % 32;
+        if (padding > available - byteLength) return (false, value);
+        value = _copyBytes(data, baseOffset + dataOffset, byteLength);
+        return (true, value);
+    }
+
+    function _tryDynamicBytesLength(bytes memory data, uint256 lengthHead, uint256 available)
+        private
+        pure
+        returns (bool, uint256 byteLength, uint256 paddedLength)
+    {
+        (bool lengthOk, uint256 decodedLength) = _tryReadWord(data, lengthHead);
+        if (!lengthOk || decodedLength > available - 32) return (false, 0, 0);
+        uint256 padding = (32 - (decodedLength % 32)) % 32;
+        if (padding > available - 32 - decodedLength) return (false, 0, 0);
+        return (true, decodedLength, decodedLength + padding);
+    }
+
+    function _tryReadAddress(bytes memory data, uint256 offset) private pure returns (bool, address account) {
+        (bool wordOk, uint256 encoded) = _tryReadWord(data, offset);
+        if (!wordOk || encoded > type(uint160).max) return (false, address(0));
+        return (true, address(uint160(encoded)));
+    }
+
+    function _tryReadWord(bytes memory data, uint256 offset) private pure returns (bool, uint256 word) {
+        if (!_hasRange(data, offset, 32)) return (false, 0);
+        assembly ("memory-safe") {
+            word := mload(add(add(data, 0x20), offset))
+        }
+        return (true, word);
+    }
+
+    function _validDynamicOffset(uint256 offset, uint256 payloadLength, uint256 minimumTail)
+        private
+        pure
+        returns (bool)
+    {
+        return offset >= minimumTail && offset % 32 == 0 && offset <= payloadLength && payloadLength - offset >= 32;
+    }
+
+    function _hasRange(bytes memory data, uint256 offset, uint256 length) private pure returns (bool) {
+        return offset <= data.length && length <= data.length - offset;
+    }
+
+    function _copyBytes(bytes memory data, uint256 offset, uint256 length) private pure returns (bytes memory value) {
+        value = new bytes(length);
+        for (uint256 i; i < length;) {
+            value[i] = data[offset + i];
+            unchecked {
+                ++i;
+            }
+        }
+    }
 }
 
 contract ForageGovernorTimelockGuard {
@@ -25,29 +301,6 @@ contract ForageGovernorTimelockGuard {
         uint256 delayFloor;
         uint256 nestingBound;
         uint256 depth;
-    }
-
-    struct TimelockArray {
-        uint256 offset;
-        uint256 length;
-        uint256 end;
-    }
-
-    struct TimelockSchedulePayload {
-        address target;
-        bytes data;
-    }
-
-    struct TimelockBatchPayload {
-        bytes data;
-        TimelockArray targets;
-        TimelockArray values;
-        TimelockArray calldatas;
-    }
-
-    struct TimelockRelayPayload {
-        address target;
-        bytes data;
     }
 
     enum PolicyKind {
@@ -140,16 +393,15 @@ contract ForageGovernorTimelockGuard {
         if (data.length < 4) return;
         bytes4 selector = _operationSelector(data);
         if (target == context.allowedProposer && selector == _governorRelaySelector()) {
-            address relayedTarget = _readAddress(data, 4);
-            TimelockGuardContext memory nestedContext = context;
-            if (relayedTarget == context.executor || relayedTarget == context.allowedProposer) {
-                nestedContext = _nestedTimelockContext(context);
-            }
             _consumeNestedVisits(budget, 1);
-            TimelockRelayPayload memory relayed = _decodeTimelockRelay(data);
+            (bool valid, GovernancePayloadBudget.OperationPayload memory relayed) =
+                GovernancePayloadBudget.tryDecodeRelay(data);
+            if (!valid) revert MalformedTimelockCalldata();
             if (relayed.data.length >= data.length) revert MalformedTimelockCalldata();
             if (relayed.target == context.executor || relayed.target == context.allowedProposer) {
-                _collectTimelockPolicies(nestedContext, relayed.target, relayed.data, budget, policies);
+                _collectTimelockPolicies(
+                    _nestedTimelockContext(context), relayed.target, relayed.data, budget, policies
+                );
             }
             return;
         }
@@ -164,59 +416,69 @@ contract ForageGovernorTimelockGuard {
             return;
         }
         if (selector == _timelockScheduleSelector()) {
-            address scheduledTarget = _readAddress(data, 4);
-            TimelockGuardContext memory nestedContext = context;
-            if (scheduledTarget == context.executor || scheduledTarget == context.allowedProposer) {
-                nestedContext = _nestedTimelockContext(context);
-            }
             _consumeNestedVisits(budget, 1);
-            TimelockSchedulePayload memory scheduled = _decodeTimelockSchedule(data);
+            (bool valid, GovernancePayloadBudget.OperationPayload memory scheduled) =
+                GovernancePayloadBudget.tryDecodeSchedule(data);
+            if (!valid) revert MalformedTimelockCalldata();
             if (scheduled.data.length >= data.length) revert MalformedTimelockCalldata();
             if (scheduled.target == context.executor || scheduled.target == context.allowedProposer) {
-                _collectTimelockPolicies(nestedContext, scheduled.target, scheduled.data, budget, policies);
+                _collectTimelockPolicies(
+                    _nestedTimelockContext(context), scheduled.target, scheduled.data, budget, policies
+                );
             }
             return;
         }
         if (selector == _timelockScheduleBatchSelector()) {
-            uint256 childCount = _timelockBatchTargetCount(data);
-            _consumeNestedVisits(budget, childCount);
-            uint256 targetsOffset = _readWord(data, 4);
-            uint256 targetsHead = 4 + targetsOffset + 32;
-            for (uint256 i; i < childCount; ++i) {
-                address nestedTarget = _readAddress(data, targetsHead + i * 32);
-                if (
-                    (nestedTarget == context.executor || nestedTarget == context.allowedProposer)
-                        && context.depth >= context.nestingBound
-                ) {
-                    revert MalformedTimelockCalldata();
-                }
-            }
-            TimelockBatchPayload memory batch = _decodeTimelockBatch(data);
-            for (uint256 i; i < batch.targets.length; ++i) {
-                address scheduledTarget = _readAddress(batch.data, batch.targets.offset + i * 32);
-                if (scheduledTarget == context.executor || scheduledTarget == context.allowedProposer) {
-                    bytes memory scheduledData = _readBytesArrayElement(batch.data, batch.calldatas, i);
-                    if (scheduledData.length >= data.length) revert MalformedTimelockCalldata();
-                    _collectTimelockPolicies(
-                        _nestedTimelockContext(context), scheduledTarget, scheduledData, budget, policies
-                    );
-                }
+            _collectTimelockBatchPolicies(context, data, budget, policies);
+        }
+    }
+
+    function _collectTimelockBatchPolicies(
+        TimelockGuardContext memory context,
+        bytes memory data,
+        GovernancePayloadBudget.Budget memory budget,
+        TimelockPolicyCollection memory policies
+    ) private pure {
+        (bool headerOk, GovernancePayloadBudget.ScheduleBatchHeader memory header) =
+            GovernancePayloadBudget.tryReadScheduleBatchHeader(data);
+        if (!headerOk) revert MalformedTimelockCalldata();
+        _consumeNestedVisits(budget, header.targetsLength);
+        (bool targetsOk, address[] memory targets) = GovernancePayloadBudget.tryReadScheduleBatchTargets(data, header);
+        if (!targetsOk) revert MalformedTimelockCalldata();
+        _requireBatchRecursionDepth(context, targets);
+        (bool batchOk, GovernancePayloadBudget.ScheduleBatchPayload memory batch) =
+            GovernancePayloadBudget.tryDecodeScheduleBatch(data, header, targets);
+        if (!batchOk) revert MalformedTimelockCalldata();
+        _collectTimelockBatchChildren(context, data, batch, budget, policies);
+    }
+
+    function _requireBatchRecursionDepth(TimelockGuardContext memory context, address[] memory targets) private pure {
+        for (uint256 i; i < targets.length; ++i) {
+            if (
+                (targets[i] == context.executor || targets[i] == context.allowedProposer)
+                    && context.depth >= context.nestingBound
+            ) {
+                revert MalformedTimelockCalldata();
             }
         }
     }
 
-    function _timelockBatchTargetCount(bytes memory data) private pure returns (uint256 count) {
-        if (data.length < 196) revert MalformedTimelockCalldata();
-        uint256 offset = _readWord(data, 4);
-        if (offset < 192 || offset % 32 != 0 || offset > data.length - 4) {
-            revert MalformedTimelockCalldata();
-        }
-        uint256 arrayHead = 4 + offset;
-        if (arrayHead > data.length || data.length - arrayHead < 32) revert MalformedTimelockCalldata();
-        count = _readWord(data, arrayHead);
-        uint256 elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) {
-            revert MalformedTimelockCalldata();
+    function _collectTimelockBatchChildren(
+        TimelockGuardContext memory context,
+        bytes memory data,
+        GovernancePayloadBudget.ScheduleBatchPayload memory batch,
+        GovernancePayloadBudget.Budget memory budget,
+        TimelockPolicyCollection memory policies
+    ) private pure {
+        for (uint256 i; i < batch.targets.length; ++i) {
+            address scheduledTarget = batch.targets[i];
+            if (scheduledTarget == context.executor || scheduledTarget == context.allowedProposer) {
+                bytes memory scheduledData = batch.calldatas[i];
+                if (scheduledData.length >= data.length) revert MalformedTimelockCalldata();
+                _collectTimelockPolicies(
+                    _nestedTimelockContext(context), scheduledTarget, scheduledData, budget, policies
+                );
+            }
         }
     }
 
@@ -270,125 +532,6 @@ contract ForageGovernorTimelockGuard {
         nested = TimelockGuardContext(
             context.executor, context.allowedProposer, context.delayFloor, context.nestingBound, context.depth + 1
         );
-    }
-
-    function _decodeTimelockSchedule(bytes memory data)
-        private
-        pure
-        returns (TimelockSchedulePayload memory scheduled)
-    {
-        bytes memory payload = _operationPayload(data);
-        if (payload.length < 192) revert MalformedTimelockCalldata();
-        scheduled.target = _readAddress(payload, 0);
-        uint256 dataOffset = _validatedDynamicOffset(payload, 64, 192);
-        scheduled.data = _readDynamicBytes(payload, dataOffset);
-    }
-
-    function _decodeTimelockRelay(bytes memory data) private pure returns (TimelockRelayPayload memory relayed) {
-        bytes memory payload = _operationPayload(data);
-        if (payload.length < 128) revert MalformedTimelockCalldata();
-        relayed.target = _readAddress(payload, 0);
-        _readWord(payload, 32);
-        uint256 dataOffset = _validatedDynamicOffset(payload, 64, 96);
-        relayed.data = _readDynamicBytes(payload, dataOffset);
-    }
-
-    function _decodeTimelockBatch(bytes memory data) private pure returns (TimelockBatchPayload memory batch) {
-        batch.data = _operationPayload(data);
-        if (batch.data.length < 192) revert MalformedTimelockCalldata();
-
-        uint256 targetsArrayOffset = _validatedDynamicOffset(batch.data, 0, 192);
-        uint256 valuesArrayOffset = _validatedDynamicOffset(batch.data, 32, 192);
-        uint256 calldatasArrayOffset = _validatedDynamicOffset(batch.data, 64, 192);
-        batch.targets = _decodeTimelockArray(batch.data, targetsArrayOffset);
-        batch.values = _decodeTimelockArray(batch.data, valuesArrayOffset);
-        batch.calldatas = _decodeTimelockArray(batch.data, calldatasArrayOffset);
-
-        if (
-            batch.targets.length != batch.values.length || batch.targets.length != batch.calldatas.length
-                || batch.values.offset < batch.targets.end || batch.calldatas.offset < batch.values.end
-        ) {
-            revert MalformedTimelockCalldata();
-        }
-        _validateTimelockAddressArray(batch.data, batch.targets);
-        _validateTimelockBytesArray(batch.data, batch.calldatas);
-    }
-
-    function _decodeTimelockArray(bytes memory payload, uint256 arrayOffset)
-        private
-        pure
-        returns (TimelockArray memory array)
-    {
-        array.length = _readWord(payload, arrayOffset);
-        array.offset = arrayOffset + 32;
-        uint256 available = payload.length - array.offset;
-        if (array.length > available / 32) revert MalformedTimelockCalldata();
-        array.end = array.offset + array.length * 32;
-    }
-
-    function _validateTimelockAddressArray(bytes memory payload, TimelockArray memory array) private pure {
-        for (uint256 i; i < array.length; ++i) {
-            _readAddress(payload, array.offset + i * 32);
-        }
-    }
-
-    function _validateTimelockBytesArray(bytes memory payload, TimelockArray memory array) private pure {
-        uint256 available = payload.length - array.offset;
-        uint256 previousEnd = array.length * 32;
-        for (uint256 i; i < array.length; ++i) {
-            uint256 relativeOffset = _readWord(payload, array.offset + i * 32);
-            if (
-                relativeOffset < previousEnd || relativeOffset % 32 != 0 || relativeOffset > available
-                    || available - relativeOffset < 32
-            ) {
-                revert MalformedTimelockCalldata();
-            }
-            (,, uint256 paddedLength) = _validateDynamicBytes(payload, array.offset + relativeOffset);
-            previousEnd = relativeOffset + 32 + paddedLength;
-        }
-    }
-
-    function _readBytesArrayElement(bytes memory payload, TimelockArray memory array, uint256 index)
-        private
-        pure
-        returns (bytes memory)
-    {
-        if (index >= array.length) revert MalformedTimelockCalldata();
-        uint256 relativeOffset = _readWord(payload, array.offset + index * 32);
-        return _readDynamicBytes(payload, array.offset + relativeOffset);
-    }
-
-    function _validatedDynamicOffset(bytes memory payload, uint256 headOffset, uint256 headLength)
-        private
-        pure
-        returns (uint256 offset)
-    {
-        offset = _readWord(payload, headOffset);
-        if (offset < headLength || offset % 32 != 0 || offset > payload.length || payload.length - offset < 32) {
-            revert MalformedTimelockCalldata();
-        }
-    }
-
-    function _readDynamicBytes(bytes memory payload, uint256 offset) private pure returns (bytes memory value) {
-        (uint256 length, uint256 dataOffset,) = _validateDynamicBytes(payload, offset);
-        value = new bytes(length);
-        for (uint256 i; i < length; ++i) {
-            value[i] = payload[dataOffset + i];
-        }
-    }
-
-    function _validateDynamicBytes(bytes memory payload, uint256 offset)
-        private
-        pure
-        returns (uint256 length, uint256 dataOffset, uint256 paddedLength)
-    {
-        length = _readWord(payload, offset);
-        dataOffset = offset + 32;
-        uint256 available = payload.length - dataOffset;
-        if (length > available) revert MalformedTimelockCalldata();
-        uint256 padding = (32 - (length % 32)) % 32;
-        if (padding > available - length) revert MalformedTimelockCalldata();
-        paddedLength = length + padding;
     }
 
     function _readAddress(bytes memory data, uint256 offset) private pure returns (address account) {

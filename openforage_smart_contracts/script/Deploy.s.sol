@@ -20,8 +20,11 @@ import "../src/USDCTreasury.sol";
 import "../src/VaultRegistry.sol";
 import "../src/atRISKUSD.sol";
 import "../src/hyperliquid/HLTradingBridge.sol";
+import {ForageTokenRotationStatus} from "../src/modules/ForageTokenStateModule.sol";
 import "../src/modules/RISKUSDVaultModule.sol";
 import "../src/modules/StakingQueueModule.sol";
+import "../src/modules/AtRiskUSDProfitModule.sol";
+import "../src/modules/USDCTreasuryAccountingModule.sol";
 import {IAllowlistSettable} from "./interfaces/IAllowlistSettable.sol";
 
 interface IForageGovernorWiredTarget {
@@ -110,12 +113,14 @@ contract Deploy is Script {
     address public implRiskusdVault;
     address public implRiskusdVaultModule;
     address public implVaultRegistry;
+    address public implAtRiskUSDProfitModule;
     address public implAtRiskUSD;
     address public implStakingQueue;
     address public implStakingQueueModule;
     address public implUSDCTreasury;
     address public implForageGovernor;
     address public implHLTradingBridge;
+    address public implUSDCTreasuryAccountingModule;
 
     address public cfgUsdc;
     address public cfgDeployer;
@@ -153,7 +158,7 @@ contract Deploy is Script {
 
     struct AddressLedger {
         address[19] proxies;
-        address[16] impls;
+        address[18] impls;
         address[11] configs;
     }
 
@@ -312,12 +317,14 @@ contract Deploy is Script {
             implRiskusdVault,
             implRiskusdVaultModule,
             implVaultRegistry,
+            implAtRiskUSDProfitModule,
             implAtRiskUSD,
             implStakingQueue,
             implStakingQueueModule,
             implUSDCTreasury,
             implForageGovernor,
-            implHLTradingBridge
+            implHLTradingBridge,
+            implUSDCTreasuryAccountingModule
         ];
         ledger.configs = [
             cfgUsdc,
@@ -450,9 +457,11 @@ contract Deploy is Script {
         implRiskusdVault = address(new RISKUSDVault());
         implRiskusdVaultModule = address(new RISKUSDVaultModule());
         implVaultRegistry = address(new VaultRegistry());
-        implAtRiskUSD = address(new atRISKUSD());
+        implAtRiskUSDProfitModule = address(new AtRiskUSDProfitModule());
+        implAtRiskUSD = address(new atRISKUSD(implAtRiskUSDProfitModule));
         implStakingQueue = address(new StakingQueue());
         implStakingQueueModule = address(new StakingQueueModule());
+        implUSDCTreasuryAccountingModule = address(new USDCTreasuryAccountingModule());
         implUSDCTreasury = address(new USDCTreasury());
         implForageGovernor = address(new ForageGovernor());
         implHLTradingBridge = address(new HLTradingBridge());
@@ -484,8 +493,7 @@ contract Deploy is Script {
         deployedAllowlist = _proxy(
             implAllowlist,
             abi.encodeCall(
-                Allowlist.initialize,
-                (cfg.deployer, guardians[0], uint64(Allowlist(implAllowlist).FINALIZE_DELAY()))
+                Allowlist.initialize, (cfg.deployer, guardians[0], uint64(Allowlist(implAllowlist).FINALIZE_DELAY()))
             )
         );
         Allowlist registry = Allowlist(deployedAllowlist);
@@ -511,9 +519,8 @@ contract Deploy is Script {
         );
         _requirePredicted(deployedVestingWallet, predicted.vestingWallet);
 
-        deployedFORAGETreasury = _proxy(
-            implFORAGETreasury, abi.encodeCall(FORAGETreasury.initialize, (predicted.forageToken, cfg.deployer))
-        );
+        deployedFORAGETreasury =
+            _proxy(implFORAGETreasury, abi.encodeCall(FORAGETreasury.initialize, (predicted.forageToken, cfg.deployer)));
         _requirePredicted(deployedFORAGETreasury, predicted.forageTreasury);
 
         deployedForageToken = _proxy(
@@ -576,7 +583,8 @@ contract Deploy is Script {
     function _deployRiskStack(DeployConfig memory cfg, PredictedAddresses memory predicted) internal {
         deployedRiskusd = _proxy(implRiskusd, abi.encodeCall(RISKUSD.initialize, (cfg.deployer)));
         _requirePredicted(deployedRiskusd, predicted.riskusd);
-        deployedVaultRegistry = _proxy(implVaultRegistry, abi.encodeCall(VaultRegistry.initialize, (cfg.deployer)));
+        deployedVaultRegistry =
+            _proxy(implVaultRegistry, abi.encodeCall(VaultRegistry.initialize, (cfg.deployer, predicted.riskusdVault)));
         _requirePredicted(deployedVaultRegistry, predicted.vaultRegistry);
 
         deployedUSDCTreasury = _proxy(
@@ -591,7 +599,8 @@ contract Deploy is Script {
                     cfg.foundationPrimary,
                     cfg.foundationBackup,
                     cfg.protocolPrimary,
-                    cfg.protocolBackup
+                    cfg.protocolBackup,
+                    implUSDCTreasuryAccountingModule
                 )
             )
         );
@@ -625,7 +634,14 @@ contract Deploy is Script {
             implRiskusdVault,
             abi.encodeCall(
                 RISKUSDVault.initializeTarget,
-                (cfg.usdc, deployedRiskusd, cfg.deployer, deployedHLTradingBridge, deployedUSDCTreasury)
+                (
+                    cfg.usdc,
+                    deployedRiskusd,
+                    deployedVaultRegistry,
+                    cfg.deployer,
+                    deployedHLTradingBridge,
+                    deployedUSDCTreasury
+                )
             )
         );
         _requirePredicted(deployedRiskusdVault, predicted.riskusdVault);
@@ -664,30 +680,37 @@ contract Deploy is Script {
         TimelockController(payable(deployedTimelock)).grantRole(CANCELLER_ROLE, deployedForageGovernor);
         TimelockController(payable(deployedTimelock)).grantRole(EXECUTOR_ROLE, deployedForageGovernor);
 
-        ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);
+        ForageToken forageToken = ForageToken(deployedForageToken);
+        forageToken.setBlocklist(deployedBlocklist);
+        ForageTokenRotationStatus memory rotation = forageToken.blocklistRotationStatus();
+        while (
+            rotation.rotationActive
+                && (
+                    rotation.cursor != rotation.inventoryLength || rotation.processed != rotation.inventoryLength
+                        || rotation.dirty != 0
+                )
+        ) {
+            forageToken.processBlocklistRotation();
+            rotation = forageToken.blocklistRotationStatus();
+        }
+        if (rotation.rotationActive) forageToken.activateBlocklistRotation();
 
         DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);
         DelegatingVestingWallet(deployedVestingWallet).precommitForageToken(deployedForageToken);
         DelegatingVestingWallet(deployedVestingWallet).setForageToken(deployedForageToken);
 
-        VaultRegistry(deployedVaultRegistry).initializeV2(deployedRiskusdVault);
-        VaultRegistry(deployedVaultRegistry).initializeV3();
-        RISKUSDVault(deployedRiskusdVault).initializeV2(deployedVaultRegistry);
-
         address[4] memory tierVaults =
             [deployedAtRiskTier0, deployedAtRiskTier1, deployedAtRiskTier2, deployedAtRiskTier3];
-        uint256 targetVaultId = VaultRegistry(deployedVaultRegistry)
-            .addVault(
-                "OpenForage Target Vault",
-                "OF-TARGET",
-                tierVaults,
-                deployedStakingQueue,
-                CAPACITY_CAP,
-                LOCKUP_PERIODS,
-                YIELD_SPLITS_BPS,
-                FUNDING_BPS
-            );
-        VaultRegistry(deployedVaultRegistry).initializeV4();
+        uint256 targetVaultId = VaultRegistry(deployedVaultRegistry).addVault(
+            "OpenForage Target Vault",
+            "OF-TARGET",
+            tierVaults,
+            deployedStakingQueue,
+            CAPACITY_CAP,
+            LOCKUP_PERIODS,
+            YIELD_SPLITS_BPS,
+            FUNDING_BPS
+        );
         StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);
         StakingQueue(deployedStakingQueue).setVaultId(targetVaultId);
 
@@ -729,13 +752,15 @@ contract Deploy is Script {
 
         CustodianRegistry.CustodianConfig memory config = CustodianRegistry(deployedCustodianRegistry)
             .hyperLiquidLaunchConfig(
-                deployedHLTradingBridge,
-                cfg.custodianExecutor,
-                uint32(block.chainid),
-                cfg.hyperliquidSourceAccount,
-                CAPACITY_CAP
-            );
-        CustodianRegistry(deployedCustodianRegistry).proposeCustodianConfig(config);
+            deployedHLTradingBridge,
+            cfg.custodianExecutor,
+            uint32(block.chainid),
+            cfg.hyperliquidSourceAccount,
+            CAPACITY_CAP
+        );
+        CustodianRegistry(deployedCustodianRegistry).proposeCustodianConfig(
+            config, vm.envUint("HYPERLIQUID_INITIAL_NAV")
+        );
         _afterInitialCustodianConfigProposed();
 
         _registerPausableTarget(deployedRiskusd);
@@ -828,7 +853,6 @@ contract Deploy is Script {
 
     function _wireAtRisk(address tierVault) internal {
         atRISKUSD(tierVault).setBlocklist(deployedBlocklist);
-        atRISKUSD(tierVault).initializeV2();
     }
 
     function _afterInitialCustodianConfigProposed() internal virtual {}
@@ -1019,6 +1043,7 @@ contract Deploy is Script {
 
         console.log("implRiskusdVaultModule:", implRiskusdVaultModule);
         console.log("implStakingQueueModule:", implStakingQueueModule);
+        console.log("implUSDCTreasuryAccountingModule:", implUSDCTreasuryAccountingModule);
 
         if (bytes(manifestPath).length == 0) return;
 

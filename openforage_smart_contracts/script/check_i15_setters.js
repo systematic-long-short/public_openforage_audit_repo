@@ -142,6 +142,8 @@ const DOCUMENTED_NON_TRUST_BOUNDARY_SETTERS = {
     "two-step setDistributor/acceptDistributor handoff: the owner stages _pendingDistributor and only that address can acceptDistributor, bounded by the tightening-only per-day distributor cap in shrinkDistributorDailyCap (DEC-1046 KYC-15).",
   "USDCTreasury.sol:setDistributor":
     "two-step setDistributor/acceptDistributor handoff: the owner stages _pendingDistributor and only that address can acceptDistributor, bounded by the per-day distributor cap (DEC-1046 KYC-15).",
+  "USDCTreasury.sol:setLossRateCapBps":
+    "numeric loss-rate policy parameter, not a recipient, role, or provider writer; onlyOwner sets the cap while the guardian path can only tighten it. DEC-10 measures depositor-tier loss and excludes reserve-absorbed loss.",
   "RISKUSDVault.sol:setMinimumFirstDeposit":
     "KYC-03 basis floor: onlyAllowedCaller + onlyOwner writes the per-basis minimum first deposit the deposit path enforces; it moves no funds and no custody, so the caller gate plus owner authority is the control.",
   "RISKUSDVault.sol:setAllowlist":
@@ -990,7 +992,7 @@ function checkForageInitialization(source, filePath, failures) {
   if (!initialize) return;
   setupHeader(
     initialize,
-    "function initialize(address teamVestingAddress_, address forageTreasuryAddress_, address initialOwner_) external initializer",
+    "function initialize(address teamVestingAddress_, address forageTreasuryAddress_, address initialOwner_) external onlyDuringConstructionBeforeInitialization initializer",
     filePath,
     "SETUP-FORAGE-BOOTSTRAP",
     failures,
@@ -1002,10 +1004,14 @@ function checkForageInitialization(source, filePath, failures) {
     "address",
     "ZeroAddress",
     "__ERC20_init",
-    "__EIP712_init",
+    "__ERC20Permit_init",
     "__ERC20Votes_init",
     "__Ownable_init",
     "__Ownable2Step_init",
+    "_delegateStateModuleInitialization",
+    "abi",
+    "encodeCall",
+    "initializeSourceInventory",
     "_mint",
   ]);
   const unexpected = calls.filter((name) => !allowed.has(name));
@@ -1013,12 +1019,23 @@ function checkForageInitialization(source, filePath, failures) {
     "_mint(teamVestingAddress_, TEAM_VESTING_ALLOCATION);",
     "_mint(forageTreasuryAddress_, FORAGE_TREASURY_ALLOCATION);",
   ];
-  if (unexpected.length > 0 || /\bassembly\b|\bdelegatecall\b|\bstaticcall\b|\.\s*[A-Za-z_]\w*\s*\(/.test(initialize.body)) {
+  const inventoryCallSource = "_delegateStateModuleInitialization(abi.encodeCall(ForageTokenStateModule.initializeSourceInventory, ()));";
+  const initializationWithoutInventoryCall = initialize.body.replace(inventoryCallSource, "");
+  if (
+    unexpected.length > 0 ||
+    /\bassembly\b|\bdelegatecall\b|\bstaticcall\b|\.\s*[A-Za-z_]\w*\s*\(/.test(initializationWithoutInventoryCall)
+  ) {
     setupFailure(failures, filePath, "SETUP-PARSER-UNSUPPORTED", `bootstrap initializer call graph changed: ${unexpected.join(", ") || "external-call shape"}.`);
   }
   const mintPositions = genesisMints.map((mint) => code.indexOf(compactSolidity(mint)));
+  const inventoryCall = compactSolidity(inventoryCallSource);
+  const inventoryPosition = code.indexOf(inventoryCall);
+  const inventoryCallCount = code.match(new RegExp(escapeRegex(inventoryCall), "g")) || [];
   const mintCounts = genesisMints.map((mint) => code.match(new RegExp(escapeRegex(compactSolidity(mint)), "g")) || []);
   const mintCalls = code.match(/\b_mint\s*\(/g) || [];
+  if (inventoryPosition < 0 || inventoryCallCount.length !== 1 || inventoryPosition > mintPositions[0]) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY", "fresh inventory marker must be initialized before the first genesis mint.");
+  }
   if (mintCalls.length !== genesisMints.length) {
     setupFailure(failures, filePath, "SETUP-FORAGE-BOOTSTRAP", `expected exactly two initializer mint calls, found ${mintCalls.length}.`);
   }
@@ -1078,9 +1095,73 @@ function runSetupControls() {
     "missing second genesis mint");
   controls.push(expectSetupRefusal("missing-genesis-mint", (failures) => checkForageInitialization(mintCount, tokenPath, failures)));
 
-  const tokenOrder = replaceSetupText(deploy,
-    "        ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);\n\n        DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);",
-    "        DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);\n\n        ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);",
+  const missingActivationCallerGate = replaceSetupText(token,
+    "function activateBlocklistRotation() external onlyAllowedCaller onlyOwner",
+    "function activateBlocklistRotation() external onlyOwner",
+    "rotation activation caller gate");
+  controls.push(expectSetupRefusal("rotation-activation-caller-gate", (failures) => checkForageSetterGates(missingActivationCallerGate, tokenPath, failures)));
+
+  const earlyRotationPointer = replaceSetupText(token,
+    "ForageTokenStateModule.beginBlocklistRotation, (blocklist_)",
+    "ForageTokenStateModule.activateBlocklistRotation, ()",
+    "active pointer switch before staging");
+  controls.push(expectSetupRefusal("rotation-pointer-switch-before-reconciliation", (failures) => checkForageSetterGates(earlyRotationPointer, tokenPath, failures)));
+
+  const openEligibilityBridge = replaceSetupText(token,
+    "        if (msg.sender != address(this)) revert UnauthorizedTokenQuery(msg.sender);\n",
+    "",
+    "public provider-eligibility helper");
+  controls.push(expectSetupRefusal("eligibility-bridge-self-caller", (failures) => checkForageSetterGates(openEligibilityBridge, tokenPath, failures)));
+
+  const rotationModulePath = path.join(MODULES_DIR, "ForageTokenStateModule.sol");
+  const rotationModule = fs.readFileSync(rotationModulePath, "utf8");
+  const pastVotesFallback = replaceSetupText(token,
+    "if (_wasBlockedAt(account, timepoint, projection.blocklist)) return 0;\n        uint256 trackedVotes = projection.indexedVotes;",
+    "if (_wasBlockedAt(account, timepoint, projection.blocklist)) return 0;\n        uint256 trackedVotes = projection.indexedVotes + _pastLegacyEligibleVotes(account, timepoint, projection.blocklist);",
+    "past legacy-source query fallback");
+  controls.push(expectSetupRefusal("fresh-only-past-votes-legacy-fallback", (failures) =>
+    checkForageFreshOnly(pastVotesFallback, rotationModule, tokenPath, rotationModulePath, failures)));
+
+  const missingFreshRefusal = replaceSetupText(token,
+    "if (!status.inventorySupported || status.epochCount == 0) {\n            revert LegacySourceInventoryUnavailable(_blocklist, address(0));\n        }",
+    "",
+    "fresh inventory refusal");
+  controls.push(expectSetupRefusal("fresh-only-pre-fresh-refusal", (failures) =>
+    checkForageFreshOnly(missingFreshRefusal, rotationModule, tokenPath, rotationModulePath, failures)));
+
+  const beneficiaryFallback = replaceSetupText(token,
+    "if (_readVestingBeneficiary(source) != address(0)) {\n                revert UnsupportedLegacyVestingBeneficiary(source);\n            }",
+    "if (_readVestingBeneficiary(source) != address(0)) { beneficiary = _readVestingBeneficiary(source); }",
+    "legacy beneficiary eligibility fallback");
+  controls.push(expectSetupRefusal("fresh-only-beneficiary-fallback", (failures) =>
+    checkForageFreshOnly(beneficiaryFallback, rotationModule, tokenPath, rotationModulePath, failures)));
+
+  const unboundedRotationPage = replaceSetupText(rotationModule,
+    "uint256 pageLength = remaining > BLOCKLIST_ROTATION_PAGE_SIZE ? BLOCKLIST_ROTATION_PAGE_SIZE : remaining;",
+    "uint256 pageLength = remaining;",
+    "unbounded rotation page");
+  controls.push(expectSetupRefusal("unbounded-rotation-page", (failures) => checkForageRotationModule(unboundedRotationPage, rotationModulePath, failures)));
+
+  const incompleteRotationActivation = replaceSetupText(rotationModule,
+    "state.cursor != length || state.processed != length || state.dirty != 0",
+    "state.cursor != length || state.dirty != 0",
+    "incomplete rotation acceptance");
+  controls.push(expectSetupRefusal("rotation-activation-with-unprocessed-source", (failures) => checkForageRotationModule(incompleteRotationActivation, rotationModulePath, failures)));
+
+  const missingPendingProjection = replaceSetupText(rotationModule,
+    "        _syncPendingProjection(rotation, sync);\n",
+    "",
+    "pending projection write");
+  controls.push(expectSetupRefusal("missing-pending-projection-write",
+    (failures) => checkForageRotationModule(missingPendingProjection, rotationModulePath, failures)));
+
+  const tokenOrderWithoutDelegate = replaceSetupText(deploy,
+    "        DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);\n",
+    "",
+    "initial delegation before Token Blocklist");
+  const tokenOrder = replaceSetupText(tokenOrderWithoutDelegate,
+    "        forageToken.setBlocklist(deployedBlocklist);\n",
+    "        DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);\n        forageToken.setBlocklist(deployedBlocklist);\n",
     "Token Blocklist wiring order");
   controls.push(expectSetupRefusal("token-blocklist-order", (failures) => checkDeploySetup(tokenOrder, deployPath, failures)));
 
@@ -1153,7 +1234,7 @@ function runAllowlistRotationControls() {
     {name: "selected-system-registrar-finalize-apply", target: {path: "src/Allowlist.sol", function: "Allowlist.finalizeSystemRegistrar()"},
       predicateReached: true, accepted: true},
   ];
-  const indexedReadMarker = "    function isAllowed(address account) external view returns (bool) {";
+  const indexedReadMarker = "    function isAllowed(address account) external view freshOnly returns (bool) {";
   const indexedReadSource = source.replace(indexedReadMarker,
     "    function _readSystemRegistrarValue(bool selected) internal pure returns (bool) { return selected; }\n\n" +
     "    function _indexedSystemRegistrarRead() private view returns (bool) {\n" +
@@ -1189,9 +1270,9 @@ function runAllowlistRotationControls() {
       "mapping(address => bool) private _pendingVestingSourceRegistration;\n    address private _admissionController;")
     .replace("if (msg.sender != _registrar) revert NotRegistrar();",
       "if (msg.sender != _registrar && msg.sender != _admissionController) revert NotRegistrar();")
-    .replace("    function isAllowed(address account) external view returns (bool) {",
+    .replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
       "    function setAdmissionController(address account) external onlyOwner { _admissionController = account; }\n\n" +
-      "    function isAllowed(address account) external view returns (bool) {");
+      "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (exactAdmission === source) throw new Error("I-15 E5 admission-controller mutation did not reach its three source fragments");
   const admissionController = rejectsI15SemanticControl("0483-E5-admission-controller-exact-counterexample",
     {path: "src/Allowlist.sol", field: "_admissionController", writer: "setAdmissionController(address)",
@@ -1204,9 +1285,9 @@ function runAllowlistRotationControls() {
       "mapping(address => bool) private _pendingVestingSourceRegistration;\n    address private routeLatch;")
     .replace("if (msg.sender != _registrar) revert NotRegistrar();",
       "if (msg.sender != _registrar && msg.sender != routeLatch) revert NotRegistrar();")
-    .replace("    function isAllowed(address account) external view returns (bool) {",
+    .replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
       "    function bindRoute(address account) external { routeLatch = account; }\n\n" +
-      "    function isAllowed(address account) external view returns (bool) {");
+      "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (renamedRole === source) throw new Error("I-15 naming/modifier mutation did not reach its source fragments");
   const renamedAuthority = rejectsI15SemanticControl("unusual-role-and-writer-name-without-owner-modifier",
     {path: "src/Allowlist.sol", field: "routeLatch", writer: "bindRoute(address)",
@@ -1220,11 +1301,11 @@ function runAllowlistRotationControls() {
     .replace("    modifier onlyEligibleOwner() {",
       "    modifier relayAdmission() { if (msg.sender != dispatchMark) revert NotRegistrar(); _; }\n\n" +
       "    modifier onlyEligibleOwner() {")
-    .replace("function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external {",
-      "function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external relayAdmission {")
-    .replace("    function isAllowed(address account) external view returns (bool) {",
+    .replace("function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external freshOnly {",
+      "function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external freshOnly relayAdmission {")
+    .replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
       "    function updateRelay(address account) external { dispatchMark = account; }\n\n" +
-      "    function isAllowed(address account) external view returns (bool) {");
+      "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (modifierRole === source) throw new Error("I-15 custom-modifier mutation did not reach its source fragments");
   const modifierAuthority = rejectsI15SemanticControl("custom-modifier-and-unknown-writer",
     {path: "src/Allowlist.sol", field: "dispatchMark", writer: "updateRelay(address)",
@@ -1232,65 +1313,65 @@ function runAllowlistRotationControls() {
     "unclassified caller authority field dispatchMark", modifierRole,
     () => allowlistPendingMutationFailures(modifierRole, filePath));
 
-  const addedConsumer = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const addedConsumer = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function reviewRegistrarState() external view returns (bool) {\n" +
     "        if (msg.sender != _registrar) revert NotRegistrar();\n" +
     "        return true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (addedConsumer === source) throw new Error("I-15 caller-consumer mutation did not reach its source fragments");
   const consumerChange = rejectsI15SemanticControl("new-caller-consumer-of-existing-registrar-role",
     {path: "src/Allowlist.sol", field: "_registrar", consumer: "reviewRegistrarState()"},
     "caller-authority consumer inventory changed for _registrar", addedConsumer,
     () => allowlistPendingMutationFailures(addedConsumer, filePath));
 
-  const renamedWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const renamedWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function rerouteAdmission(address account) external { _registrar = account; }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (renamedWriter === source) throw new Error("I-15 authority-writer mutation did not reach its source fragment");
   const writerChange = rejectsI15SemanticControl("new-authority-writer-independent-of-set-prefix",
     {path: "src/Allowlist.sol", field: "_registrar", writer: "rerouteAdmission(address)"},
     "I-15 staged-role storage writer inventory changed for _registrar", renamedWriter,
     () => allowlistPendingMutationFailures(renamedWriter, filePath));
 
-  const aliasWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const aliasWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function grantSystemRegistrar(address account) external onlyOwner {\n" +
     "        mapping(address => bool) storage roleIndex = _systemRegistrars;\n" +
     "        roleIndex[account] = true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (aliasWriter === source) throw new Error("I-15 local storage-alias control was not applied");
   const aliasWriterRefusal = rejectsI15SemanticControl("0492-local-storage-alias-system-registrar-writer",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "grantSystemRegistrar(address)", alias: "roleIndex"},
     "I-15 staged-role storage writer inventory changed for _systemRegistrars", aliasWriter,
     () => allowlistPendingMutationFailures(aliasWriter, filePath));
 
-  const chainedAliasWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const chainedAliasWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function attachRole(address account) external {\n" +
     "        mapping(address => bool) storage firstIndex = _systemRegistrars;\n" +
     "        mapping(address => bool) storage secondIndex = (firstIndex);\n" +
     "        secondIndex[account] = true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (chainedAliasWriter === source) throw new Error("I-15 chained storage-alias control was not applied");
   const chainedAliasRefusal = rejectsI15SemanticControl("chained-storage-alias-system-registrar-writer",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "attachRole(address)", aliases: ["firstIndex", "secondIndex"]},
     "I-15 staged-role storage writer inventory changed for _systemRegistrars", chainedAliasWriter,
     () => allowlistPendingMutationFailures(chainedAliasWriter, filePath));
 
-  const reboundAliasWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const reboundAliasWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function assignRole(address account) external {\n" +
     "        mapping(address => bool) storage roleIndex = _systemAccounts;\n" +
     "        roleIndex = _systemRegistrars;\n" +
     "        roleIndex[account] = true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (reboundAliasWriter === source) throw new Error("I-15 storage-alias rebinding control was not applied");
   const reboundAliasRefusal = rejectsI15SemanticControl("storage-alias-rebound-to-system-registrars",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "assignRole(address)", alias: "roleIndex"},
     "I-15 staged-role storage writer inventory changed for _systemRegistrars", reboundAliasWriter,
     () => allowlistPendingMutationFailures(reboundAliasWriter, filePath));
-  const helperAliasWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const helperAliasWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function grantSystemRegistrar(address account) external onlyOwner {\n" +
     "        mapping(address => bool) storage roleIndex = _systemRegistrars;\n" +
     "        _setSystemRegistrarFromAlias(roleIndex, account);\n" +
@@ -1298,28 +1379,28 @@ function runAllowlistRotationControls() {
     "    function _setSystemRegistrarFromAlias(mapping(address => bool) storage roleIndex, address account) internal {\n" +
     "        roleIndex[account] = true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (helperAliasWriter === source) throw new Error("exact 0500 storage-helper alias mutation was not applied");
   const helperAliasRefusal = rejectsI15SemanticControl("0500-selected-storage-alias-passed-to-helper",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "grantSystemRegistrar(address)", helper: "_setSystemRegistrarFromAlias"},
     "I-15 staged-role storage writer inventory changed for _systemRegistrars", helperAliasWriter,
     () => allowlistPendingMutationFailures(helperAliasWriter, filePath));
 
-  const directReferenceWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const directReferenceWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function grantSystemRegistrarDirect(address account) external onlyOwner {\n" +
     "        _setSystemRegistrarDirect(_systemRegistrars, account);\n" +
     "    }\n\n" +
     "    function _setSystemRegistrarDirect(mapping(address => bool) storage selectedRole, address account) internal {\n" +
     "        selectedRole[account] = true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (directReferenceWriter === source) throw new Error("direct selected mapping-reference mutation was not applied");
   const directReferenceRefusal = rejectsI15SemanticControl("direct-selected-mapping-passed-to-helper",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "grantSystemRegistrarDirect(address)", helper: "_setSystemRegistrarDirect"},
     "I-15 staged-role storage writer inventory changed for _systemRegistrars", directReferenceWriter,
     () => allowlistPendingMutationFailures(directReferenceWriter, filePath));
 
-  const chainedReferenceWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const chainedReferenceWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function grantSystemRegistrarChain(address account) external onlyOwner {\n" +
     "        _setSystemRegistrarThroughChain(_systemRegistrars, account);\n" +
     "    }\n\n" +
@@ -1329,14 +1410,14 @@ function runAllowlistRotationControls() {
     "    function _finishSystemRegistrarWrite(mapping(address => bool) storage renamedBinding, address account) internal {\n" +
     "        renamedBinding[account] = true;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (chainedReferenceWriter === source) throw new Error("helper-chain selected mapping-reference mutation was not applied");
   const chainedReferenceRefusal = rejectsI15SemanticControl("helper-chain-renamed-storage-parameters",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "grantSystemRegistrarChain(address)", parameters: ["firstBinding", "renamedBinding"]},
     "I-15 staged-role storage writer inventory changed for _systemRegistrars", chainedReferenceWriter,
     () => allowlistPendingMutationFailures(chainedReferenceWriter, filePath));
 
-  const returnedReferenceWriter = source.replace("    function isAllowed(address account) external view returns (bool) {",
+  const returnedReferenceWriter = source.replace("    function isAllowed(address account) external view freshOnly returns (bool) {",
     "    function grantSystemRegistrarFromReference(address account) external onlyOwner {\n" +
     "        mapping(address => bool) storage returnedRoles = _selectedSystemRegistrarReference();\n" +
     "        returnedRoles[account] = true;\n" +
@@ -1344,7 +1425,7 @@ function runAllowlistRotationControls() {
     "    function _selectedSystemRegistrarReference() internal view returns (mapping(address => bool) storage) {\n" +
     "        return _systemRegistrars;\n" +
     "    }\n\n" +
-    "    function isAllowed(address account) external view returns (bool) {");
+    "    function isAllowed(address account) external view freshOnly returns (bool) {");
   if (returnedReferenceWriter === source) throw new Error("returned storage-reference mutation was not applied");
   const returnedReferenceRefusal = rejectsI15SemanticControl("selected-storage-reference-returned-from-helper",
     {path: "src/Allowlist.sol", field: "_systemRegistrars", writer: "grantSystemRegistrarFromReference(address)", helper: "_selectedSystemRegistrarReference"},
@@ -1395,8 +1476,8 @@ function checkForageNormalCalls(source, filePath, failures) {
   const transferFrom = setupFunction(source, "transferFrom", filePath, "open transferFrom path", failures);
   const update = setupFunction(source, "_update", filePath, "open transfer path", failures);
   if (!approve || !transferFrom || !update) return;
-  setupHeader(approve, "function approve(address spender, uint256 value) public override returns (bool)", filePath, "SETUP-FORAGE-OPEN-APPROVAL", failures);
-  setupHeader(transferFrom, "function transferFrom(address from, address to, uint256 value) public override returns (bool)", filePath, "SETUP-FORAGE-OPEN-TRANSFERFROM", failures);
+  setupHeader(approve, "function approve(address spender, uint256 value) public override freshInventoryReady returns (bool)", filePath, "SETUP-FORAGE-OPEN-APPROVAL", failures);
+  setupHeader(transferFrom, "function transferFrom(address from, address to, uint256 value) public override freshInventoryReady returns (bool)", filePath, "SETUP-FORAGE-OPEN-TRANSFERFROM", failures);
   const approveCode = compactSolidity(approve.body);
   const transferCode = compactSolidity(transferFrom.body);
   const updateCode = compactSolidity(update.body);
@@ -1413,7 +1494,7 @@ function checkForageNormalCalls(source, filePath, failures) {
   if (solidityFunctionDeclarations(source, "transfer").length !== 0) {
     setupFailure(failures, filePath, "SETUP-FORAGE-OPEN-TRANSFER", "transfer must remain on the inherited ERC20 update path.");
   }
-  const initializationTail = "super._update(from,to,value);if(!_isInitializing()){_syncDelegateSourceContribution(from);_syncDelegateSourceContribution(to);}";
+  const initializationTail = "super._update(from,to,value);if(!_isInitializing()){if(from!=address(0)){_delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken,(from)));}if(to!=address(0)){_delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken,(to)));}}";
   if (!updateCode.endsWith(initializationTail)) {
     setupFailure(failures, filePath, "SETUP-FORAGE-BOOTSTRAP", "vote-source synchronization must remain outside Initializable initialization.");
   }
@@ -1422,12 +1503,169 @@ function checkForageNormalCalls(source, filePath, failures) {
 function checkForageSetterGates(source, filePath, failures) {
   const blocklist = setupFunction(source, "setBlocklist", filePath, "Blocklist setter", failures);
   const allowlist = setupFunction(source, "setAllowlist", filePath, "Allowlist setter", failures);
+  const progress = setupFunction(source, "processBlocklistRotation", filePath, "Blocklist rotation progress", failures);
+  const activation = setupFunction(source, "activateBlocklistRotation", filePath, "Blocklist rotation activation", failures);
+  const eligibility = setupFunction(source, "sourceEligibilityForBlocklist", filePath, "module eligibility bridge", failures);
   setupHeader(blocklist, "function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner", filePath, "SETUP-FORAGE-SETTER-GATE", failures);
-  setupHeader(allowlist, "function setAllowlist(address allowlist_) external onlyOwner", filePath, "SETUP-FORAGE-SETTER-GATE", failures);
+  setupHeader(allowlist, "function setAllowlist(address allowlist_) external freshInventoryReady onlyOwner", filePath, "SETUP-FORAGE-SETTER-GATE", failures);
+  setupHeader(progress, "function processBlocklistRotation() external freshInventoryReady onlyAllowedCaller onlyOwner", filePath, "SETUP-FORAGE-ROTATION-GATE", failures);
+  setupHeader(activation, "function activateBlocklistRotation() external onlyAllowedCaller onlyOwner", filePath, "SETUP-FORAGE-ROTATION-GATE", failures);
+  if (!blocklist || !progress || !activation || !eligibility) return;
+  const blocklistCode = compactSolidity(blocklist.body);
+  const progressCode = compactSolidity(progress.body);
+  const activationCode = compactSolidity(activation.body);
+  const beginAt = blocklistCode.indexOf("ForageTokenStateModule.beginBlocklistRotation");
+  const registerPositions = [...blocklistCode.matchAll(/_registerBlocklistObserver\(blocklist_\)/g)].map((match) => match.index);
+  const validateAt = blocklistCode.indexOf("_requireValidBlocklist(blocklist_);");
+  const sameBranchAt = blocklistCode.indexOf("if(oldBlocklist==blocklist_){");
+  const freshBranchAt = blocklistCode.indexOf("if(freshEmptyInventory){");
+  const bindAt = blocklistCode.indexOf("ForageTokenStateModule.bindInitialBlocklist");
+  if (
+    validateAt < 0 || registerPositions.length !== 3 || sameBranchAt < 0 || freshBranchAt < 0 ||
+    beginAt < 0 || bindAt < registerPositions[1] || registerPositions[0] < validateAt ||
+    registerPositions[1] <= freshBranchAt || registerPositions[1] >= bindAt ||
+    bindAt >= beginAt || registerPositions[2] <= beginAt
+  ) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-ORDER", "candidate validation must precede observer registration; fresh binding and staged observer registration must remain distinct.");
+  }
+  if (/_blocklist\s*=(?!=)/.test(blocklist.body) || !progressCode.includes("ForageTokenStateModule.processBlocklistRotation")) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-ACTIVATION", "the setter must not switch the live pointer and progress must use the bounded module page.");
+  }
+  if (
+    !activationCode.includes("_unregisterBlocklistObserverStrict(status.activeBlocklist);") ||
+    !activationCode.includes("ForageTokenStateModule.activateBlocklistRotation")
+  ) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-ACTIVATION", "activation must unregister only after reconciliation and switch through the guarded module path.");
+  }
+  if (!compactSolidity(eligibility.body).startsWith("if(msg.sender!=address(this))revertUnauthorizedTokenQuery(msg.sender);")) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ELIGIBILITY-BRIDGE", "the provider-eligibility bridge must be Token-self-only.");
+  }
+  const modulePath = path.join(MODULES_DIR, "ForageTokenStateModule.sol");
+  const moduleSource = fs.readFileSync(modulePath, "utf8");
+  checkForageRotationModule(moduleSource, modulePath, failures);
+  checkForageFreshOnly(source, moduleSource, filePath, modulePath, failures);
+}
+
+function checkForageRotationModule(source, filePath, failures) {
+  const start = setupFunction(source, "beginBlocklistRotation", filePath, "rotation start", failures);
+  const page = setupFunction(source, "processBlocklistRotation", filePath, "rotation page", failures);
+  const activate = setupFunction(source, "activateBlocklistRotation", filePath, "rotation activation", failures);
+  const sync = setupFunction(source, "_prepareSourceSync", filePath, "source inventory writer", failures);
+  const sourceSync = setupFunction(source, "_syncSource", filePath, "source update router", failures);
+  const beginCode = compactSolidity(start?.body || "");
+  const pageCode = compactSolidity(page?.body || "");
+  const activationCode = compactSolidity(activate?.body || "");
+  const syncCode = compactSolidity(sync?.body || "");
+  const inventoryGuard = beginCode.indexOf("if(state.inventoryVersion!=1)revertLegacySourceInventoryUnavailable(_blocklist,blocklist);");
+  const pendingWrite = beginCode.indexOf("state.pendingBlocklist=blocklist;");
+  const inventoryAppend = syncCode.indexOf("_recordVoteSource(rotation,source);");
+  const beneficiaryWrite = syncCode.indexOf("_rememberRegisteredBeneficiary(source,sync.registeredBeneficiary);");
+  const sourceSyncCode = compactSolidity(sourceSync?.body || "");
+  const activeProjection = sourceSyncCode.indexOf("_syncActiveProjection(rotation,sync);");
+  const pendingProjection = sourceSyncCode.indexOf("_syncPendingProjection(rotation,sync);");
+  const registeredMembership = sourceSyncCode.indexOf("_updateRegisteredSourceMembership(");
+  const pendingProjectionCalls = sourceSyncCode.match(/_syncPendingProjection\(rotation,sync\);/g) || [];
+  if (!source.includes("uint256 private constant BLOCKLIST_ROTATION_PAGE_SIZE = 8;") || !pageCode.includes("remaining>BLOCKLIST_ROTATION_PAGE_SIZE")) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-PAGE", "staging must process a source-fixed bounded page.");
+  }
+  if (inventoryGuard < 0 || pendingWrite < inventoryGuard) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-LEGACY-REFUSAL", "legacy inventory must typed-refuse before pending provider mutation.");
+  }
+  if (inventoryAppend < 0 || beneficiaryWrite < inventoryAppend) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY-ORDER", "each source must enter the unique inventory before beneficiary or projection writes.");
+  }
+  if (sourceSyncCode.indexOf("_prepareSourceSync(") < 0 || sourceSyncCode.indexOf("_prepareSourceSync(") > sourceSyncCode.indexOf("_syncActiveProjection(")) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY-ORDER", "source inventory preparation must precede active and pending projection updates.");
+  }
+  if (
+    activeProjection < 0 || pendingProjection <= activeProjection || registeredMembership <= pendingProjection ||
+    pendingProjectionCalls.length !== 1
+  ) {
+    setupFailure(
+      failures,
+      filePath,
+      "SETUP-FORAGE-ROTATION-DUAL-WRITE",
+      "exactly one pending projection sync must follow the active sync and precede registered-source membership updates."
+    );
+  }
+  if (
+    !activationCode.includes("state.cursor!=length") ||
+    !activationCode.includes("state.processed!=length") ||
+    !activationCode.includes("state.dirty!=0")
+  ) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-COMPLETENESS", "activation must require the complete cursor, processed count, and clean delta state.");
+  }
+}
+
+function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, failures) {
+  const inventory = setupFunction(tokenSource, "_requireFreshInventory", tokenPath, "fresh-only guard", failures);
+  const liveVotes = setupFunction(tokenSource, "getVotes", tokenPath, "live vote query", failures);
+  const pastVotes = setupFunction(tokenSource, "getPastVotes", tokenPath, "historical vote query", failures);
+  const transferUpdate = setupFunction(tokenSource, "_update", tokenPath, "fresh-only token update", failures);
+  const legacySync = solidityFunctionDeclarations(tokenSource, "syncDelegateSources");
+  const sourceEligibility = setupFunction(tokenSource, "sourceEligibilityForBlocklist", tokenPath, "registered-beneficiary eligibility", failures);
+  const historicalBlock = setupFunction(tokenSource, "_wasBlockedAt", tokenPath, "registered historical beneficiary", failures);
+  const liveProjection = setupFunction(moduleSource, "_liveIndexedEligibleVotes", modulePath, "fresh live projection", failures);
+  const pastProjection = setupFunction(moduleSource, "_pastIndexedEligibleVotes", modulePath, "fresh historical projection", failures);
+  const epoch = setupFunction(moduleSource, "_epochAt", modulePath, "fresh epoch selection", failures);
+  const sourceSync = setupFunction(moduleSource, "_prepareSourceSync", modulePath, "fresh source inventory", failures);
+  if (!inventory || !liveVotes || !pastVotes || !transferUpdate || !sourceEligibility || !historicalBlock ||
+      !liveProjection || !pastProjection || !epoch || !sourceSync) return;
+  const inventoryCode = compactSolidity(inventory.body);
+  const liveCode = compactSolidity(liveVotes.body);
+  const pastCode = compactSolidity(pastVotes.body);
+  const updateCode = compactSolidity(transferUpdate.body);
+  const liveProjectionCode = compactSolidity(liveProjection.body);
+  const pastProjectionCode = compactSolidity(pastProjection.body);
+  const epochCode = compactSolidity(epoch.body);
+  const sourceSyncCode = compactSolidity(sourceSync.body);
+  if (!inventoryCode.includes("!status.inventorySupported||status.epochCount==0") ||
+      !inventoryCode.includes("revertLegacySourceInventoryUnavailable(_blocklist,address(0))")) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "pre-fresh storage must typed-refuse before new behavior.");
+  }
+  if (!liveCode.includes("projection.indexedVotes") || liveCode.includes("_liveLegacyEligibleVotes")) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "live votes must not translate legacy source mappings.");
+  }
+  if (!pastCode.includes("projection.indexedVotes") || pastCode.includes("_pastLegacyEligibleVotes")) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "past votes must preserve snapshots without a legacy-source loop.");
+  }
+  if (!updateCode.startsWith("if(!_isInitializing())_requireFreshInventory();") ||
+      updateCode.indexOf("_requireFreshInventory()") > updateCode.indexOf("super._update(")) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "token mutations must reject unsupported legacy state before balance effects.");
+  }
+  if (legacySync.length !== 0) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "legacy delegate-source synchronization entrypoint must be absent.");
+  }
+  if (!compactSolidity(sourceEligibility.body).includes("revertUnsupportedLegacyVestingBeneficiary(source);") ||
+      compactSolidity(sourceEligibility.body).includes("beneficiary=_readVestingBeneficiary(source)")) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "unregistered vesting beneficiaries must refuse, not fall back.");
+  }
+  if (!compactSolidity(historicalBlock.body).includes("addressbeneficiary=_vestingBeneficiaryBySource[account];") ||
+      compactSolidity(historicalBlock.body).includes("_legacyVestingBeneficiary")) {
+    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "historical beneficiary checks must use the registered source mapping only.");
+  }
+  if (!liveProjectionCode.includes("projections[generation]") || liveProjectionCode.includes("_eligibleDelegateVotes") ||
+      !pastProjectionCode.includes("projections[generation]") || pastProjectionCode.includes("_eligibleDelegateVotes")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "all generations must read their own isolated projection.");
+  }
+  if (!epochCode.includes("state.inventoryVersion!=1||length==0") ||
+      !epochCode.includes("revertLegacySourceInventoryUnavailable(_blocklist,address(0))") ||
+      epochCode.includes("return(0,_blocklist)")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "historical epoch queries must fail closed without a fresh epoch.");
+  }
+  const reject = sourceSyncCode.indexOf("_rejectUnregisteredVestingSource(");
+  const inventoryWrite = sourceSyncCode.indexOf("_recordVoteSource(rotation,source);");
+  if (reject < 0 || inventoryWrite < reject || sourceSyncCode.includes("unindexedLegacy")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "unregistered vesting sources must refuse before inventory and projection writes.");
+  }
+  if (moduleSource.includes("function legacySourceEligibleNow") || moduleSource.includes("_historicalDelegateSources[")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "legacy source translation paths must be absent from the fresh-only module.");
+  }
 }
 
 function checkDeploySetup(source, filePath, failures) {
   const deploy = setupFunction(source, "_deployWithConfig", filePath, "deployment call graph", failures);
+  const riskStackDeployment = setupFunction(source, "_deployRiskStack", filePath, "fresh Vault initialization", failures);
   const wiring = setupFunction(source, "_wireTargetStack", filePath, "target-stack wiring", failures);
   const modules = setupFunction(source, "_wireModules", filePath, "module wiring", failures);
   const allowlist = setupFunction(source, "_wireSharedAllowlist", filePath, "shared Allowlist wiring", failures);
@@ -1442,7 +1680,9 @@ function checkDeploySetup(source, filePath, failures) {
   setupCallOrder(wiring, [
     "_wireSharedAllowlist(cfg);",
     "_wireModules();",
-    "ForageToken(deployedForageToken).setBlocklist(deployedBlocklist);",
+    "forageToken.setBlocklist(deployedBlocklist);",
+    "forageToken.processBlocklistRotation();",
+    "forageToken.activateBlocklistRotation();",
     "DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);",
     "DelegatingVestingWallet(deployedVestingWallet).precommitForageToken(deployedForageToken);",
     "DelegatingVestingWallet(deployedVestingWallet).setForageToken(deployedForageToken);",
@@ -1451,15 +1691,17 @@ function checkDeploySetup(source, filePath, failures) {
     "StakingQueue(deployedStakingQueue).setBlocklist(deployedBlocklist);",
     "StakingQueue(deployedStakingQueue).setVaultId(targetVaultId);",
   ], filePath, "SETUP-QUEUE-BLOCKLIST-ORDER", failures);
-  setupCallOrder(wiring, [
-    "_wireSharedAllowlist(cfg);",
-    "_wireModules();",
-    "VaultRegistry(deployedVaultRegistry).initializeV2(deployedRiskusdVault);",
-    "VaultRegistry(deployedVaultRegistry).initializeV3();",
-    "RISKUSDVault(deployedRiskusdVault).initializeV2(deployedVaultRegistry);",
-    "RISKUSD(deployedRiskusd).setMinter(deployedRiskusdVault);",
-    "_afterRiskusdMinterProposed();",
-  ], filePath, "SETUP-BASIS2-FLOOR-ORDER", failures);
+  if (!compactSolidity(riskStackDeployment?.body || "").includes(
+    "VaultRegistry.initialize,(cfg.deployer,predicted.riskusdVault)")) {
+    setupFailure(failures, filePath, "SETUP-FRESH-REGISTRY-INITIALIZATION", "fresh Registry initialization must establish its Vault pointer.");
+  }
+  if (!compactSolidity(riskStackDeployment?.body || "").includes(
+    "RISKUSDVault.initializeTarget,(cfg.usdc,deployedRiskusd,deployedVaultRegistry,cfg.deployer,deployedHLTradingBridge,deployedUSDCTreasury)")) {
+    setupFailure(failures, filePath, "SETUP-FRESH-VAULT-INITIALIZATION", "fresh Vault initialization must establish reciprocal Registry wiring.");
+  }
+  if (/\.(?:initializeV2|initializeV3)\s*\(/.test(maskSolidityNonCode(source))) {
+    setupFailure(failures, filePath, "SETUP-FRESH-INITIALIZATION", "legacy post-deployment reinitializer calls must be absent.");
+  }
   checkModuleFloor(source, modules, filePath, failures);
   checkSharedAllowlist(source, allowlist, targets, filePath, failures);
 }

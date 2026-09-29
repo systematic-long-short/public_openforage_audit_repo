@@ -5,6 +5,7 @@ import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
+import "@openzeppelin/contracts/utils/StorageSlot.sol";
 import "./FinalizeDelayProfile.sol";
 import "./interfaces/IAllowlist.sol";
 
@@ -32,6 +33,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     error TooManyVestingSources(address beneficiary, uint256 count, uint256 maximum);
     error VestingSourceRegistrationUnderflow(address beneficiary);
     error TimestampOutOfRange(uint256 timestamp);
+    error AllowlistFreshDeploymentRequired(uint256 layoutVersion);
+    error FreshInitializationOnExistingState(
+        uint256 layoutVersion, address currentOwner, address registrar, address guardian, bool historyInitialized
+    );
+    error CurrentOwnerMustRemainEligible(address account);
 
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
 
@@ -96,7 +102,13 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _;
     }
 
+    modifier freshOnly() {
+        _requireFreshLayout();
+        _;
+    }
+
     function initialize(address owner_, address guardian_, uint64 finalizeDelay_) external initializer {
+        _requireFreshInitializationState();
         if (owner_ == address(0)) revert ZeroAddress();
         if (guardian_ == address(0)) revert ZeroAddress();
         require(finalizeDelay_ == _finalizeDelay());
@@ -109,12 +121,59 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _ensureEligibilityHistory();
         _approveOperator(owner_);
         if (guardian_ != owner_) _approveOperator(guardian_);
+        _setFreshLayoutVersion();
     }
 
-    function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external {
+    function _requireFreshInitializationState() private view {
+        uint256 layoutVersion = _freshLayoutVersion();
+        address currentOwner = super.owner();
+        if (
+            address(this).code.length != 0 || layoutVersion != 0 || currentOwner != address(0)
+                || _registrar != address(0) || _guardian != address(0) || _approvalsPerDayCap != 0
+                || _eligibilityHistoryInitialized || _pendingRegistrar != address(0) || _pendingRegistrarProposedAt != 0
+                || _pendingGuardian != address(0) || _pendingGuardianProposedAt != 0
+                || _pendingSystemRegistrar != address(0) || _pendingSystemRegistrarIsSystem
+                || _pendingSystemRegistrarProposedAt != 0 || _approvalsDay != 0 || _approvalsTodayCount != 0
+                || _eligibilityHistoryStart != 0 || _voteEligibilityObserver != address(0)
+        ) {
+            revert FreshInitializationOnExistingState(
+                layoutVersion, currentOwner, _registrar, _guardian, _eligibilityHistoryInitialized
+            );
+        }
+    }
+
+    function _requireFreshLayout() private view {
+        uint256 layoutVersion = _freshLayoutVersion();
+        if (layoutVersion != 1) {
+            revert AllowlistFreshDeploymentRequired(layoutVersion);
+        }
+    }
+
+    function _freshLayoutVersion() private view returns (uint256) {
+        return StorageSlot.getUint256Slot(_freshLayoutSlot()).value;
+    }
+
+    function _setFreshLayoutVersion() private {
+        StorageSlot.getUint256Slot(_freshLayoutSlot()).value = 1;
+    }
+
+    function _freshLayoutSlot() private pure returns (bytes32) {
+        return bytes32(
+            uint256(keccak256(abi.encode(uint256(keccak256("openforage.storage.AllowlistFreshLayout")) - 1)))
+                & ~uint256(0xff)
+        );
+    }
+
+    function owner() public view override returns (address) {
+        _requireFreshLayout();
+        return super.owner();
+    }
+
+    function approve(address account, uint64 until, uint8 basis_, bytes32 caseRef_) external freshOnly {
         if (msg.sender != _registrar) revert NotRegistrar();
         if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
         if (account == address(0)) revert ZeroAddress();
+        if (account == owner()) revert CurrentOwnerMustRemainEligible(account);
         if (until > uint64(block.timestamp + APPROVAL_TERM_LIMIT)) revert ExpiryTooFar();
         _countApproval();
         _captureEligibilityBaseline(account);
@@ -133,6 +192,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     function approveVestingBeneficiary(address account) external onlyEligibleOwner {
         if (account == address(0)) revert ZeroAddress();
+        if (account == owner()) revert CurrentOwnerMustRemainEligible(account);
         if (block.timestamp > uint256(type(uint64).max) - APPROVAL_TERM_LIMIT) {
             revert TimestampOutOfRange(block.timestamp);
         }
@@ -146,26 +206,34 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _recordEligibilityChange(account);
     }
 
-    function revoke(address account) external {
+    function revoke(address account) external freshOnly {
         if (msg.sender != _registrar && msg.sender != _guardian) revert NotGuardianOrRegistrar();
         if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
+        bool currentOwner = account == owner();
+        if (
+            currentOwner
+                && (_vestingSourceBeneficiary[account] != address(0) || _pendingVestingSourceRegistration[account])
+        ) {
+            revert CurrentOwnerMustRemainEligible(account);
+        }
 
         _captureEligibilityBaseline(account);
-        _allowedUntil[account] = 0;
+        _allowedUntil[account] = currentOwner ? type(uint64).max : 0;
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
 
-        if (account == owner() && _systemAccounts[account]) {
+        if (currentOwner && _systemAccounts[account]) {
             _updateVestingSourceRegistration(account, false);
             _systemAccounts[account] = false;
             emit SystemAccountSet(account, false);
         }
 
+        if (currentOwner) emit OperatorApproved(account);
         emit Revoked(account, msg.sender);
         _recordEligibilityChange(account);
     }
 
-    function shrinkApprovalsPerDayCap(uint32 newCap) external {
+    function shrinkApprovalsPerDayCap(uint32 newCap) external freshOnly {
         if (msg.sender != owner() && msg.sender != _guardian) revert NotOwnerOrGuardian();
         if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
         if (newCap >= _approvalsPerDayCap) revert CapNotShrunk();
@@ -176,10 +244,13 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit ApprovalsPerDayCapShrunk(previous, newCap);
     }
 
-    function setSystemAccount(address account, bool isSystem) external {
+    function setSystemAccount(address account, bool isSystem) external freshOnly {
         if (msg.sender != owner() && !_systemRegistrars[msg.sender]) revert NotSystemRegistrar();
         if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
         if (account == address(0)) revert ZeroAddress();
+        if (account == owner() && !isSystem && _allowedUntil[account] != type(uint64).max) {
+            revert CurrentOwnerMustRemainEligible(account);
+        }
 
         _captureEligibilityBaseline(account);
         _updateVestingSourceRegistration(account, isSystem);
@@ -285,36 +356,36 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit SystemRegistrarProposalCancelled(account);
     }
 
-    function registrar() external view returns (address) {
+    function registrar() external view freshOnly returns (address) {
         return _registrar;
     }
 
-    function guardian() external view returns (address) {
+    function guardian() external view freshOnly returns (address) {
         return _guardian;
     }
 
-    function isSystemRegistrar(address account) external view returns (bool) {
+    function isSystemRegistrar(address account) external view freshOnly returns (bool) {
         return _systemRegistrars[account];
     }
 
-    function approvalsPerDayCap() external view returns (uint32) {
+    function approvalsPerDayCap() external view freshOnly returns (uint32) {
         return _approvalsPerDayCap;
     }
 
-    function approvalsToday() external view returns (uint32) {
+    function approvalsToday() external view freshOnly returns (uint32) {
         if (_approvalsDay != uint64(block.timestamp / 1 days)) return 0;
         return _approvalsTodayCount;
     }
 
-    function caseRefOf(address account) external view returns (bytes32) {
+    function caseRefOf(address account) external view freshOnly returns (bytes32) {
         return _caseRef[account];
     }
 
-    function isAllowed(address account) external view returns (bool) {
+    function isAllowed(address account) external view freshOnly returns (bool) {
         return _isAllowed(account);
     }
 
-    function isAllowedAt(address account, uint256 timepoint) external view returns (bool) {
+    function isAllowedAt(address account, uint256 timepoint) external view freshOnly returns (bool) {
         if (timepoint > type(uint48).max) return false;
         if (!_eligibilityHistoryInitialized || timepoint < _eligibilityHistoryStart) return true;
 
@@ -322,7 +393,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return _isAllowedStateAt(allowedUntil_, systemAccount_, timepoint);
     }
 
-    function isSystemAccountAt(address account, uint256 timepoint) external view returns (bool) {
+    function isSystemAccountAt(address account, uint256 timepoint) external view freshOnly returns (bool) {
         if (timepoint > type(uint48).max) return false;
         if (!_eligibilityHistoryInitialized || timepoint < _eligibilityHistoryStart) return _systemAccounts[account];
 
@@ -334,7 +405,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return true;
     }
 
-    function registerVoteEligibilityObserver() external {
+    function registerVoteEligibilityObserver() external freshOnly {
         if (msg.sender.code.length == 0 || !_systemAccounts[msg.sender]) revert NotSystemRegistrar();
         address previous = _voteEligibilityObserver;
         if (previous != address(0) && previous != msg.sender) revert VotingTokenAlreadyRegistered(previous);
@@ -344,7 +415,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit VoteEligibilityObserverSet(previous, msg.sender);
     }
 
-    function unregisterVoteEligibilityObserver() external {
+    function unregisterVoteEligibilityObserver() external freshOnly {
         if (_voteEligibilityObserver == address(0)) return;
         if (msg.sender != _voteEligibilityObserver) revert NotVoteEligibilityObserver();
 
@@ -353,7 +424,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         emit VoteEligibilityObserverSet(previous, address(0));
     }
 
-    function allowedUntil(address account) external view returns (uint64) {
+    function allowedUntil(address account) external view freshOnly returns (uint64) {
         return _allowedUntil[account];
     }
 
@@ -361,19 +432,19 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return MAX_VESTING_SOURCES_PER_BENEFICIARY;
     }
 
-    function basisOf(address account) external view returns (uint8) {
+    function basisOf(address account) external view freshOnly returns (uint8) {
         return _basis[account];
     }
 
-    function isSystemAccount(address account) external view returns (bool) {
+    function isSystemAccount(address account) external view freshOnly returns (bool) {
         return _systemAccounts[account];
     }
 
-    function vestingSourceBeneficiary(address source) external view returns (address) {
+    function vestingSourceBeneficiary(address source) external view freshOnly returns (address) {
         return _vestingSourceBeneficiary[source];
     }
 
-    function isVestingSourceRegistrationPending(address source) external view returns (bool) {
+    function isVestingSourceRegistrationPending(address source) external view freshOnly returns (bool) {
         return _pendingVestingSourceRegistration[source];
     }
 
@@ -513,8 +584,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override {
+    function acceptOwnership() public override freshOnly {
         if (!_isAllowed(msg.sender)) revert IAllowlist.CallerNotAllowed(msg.sender);
+        if (!_systemAccounts[msg.sender] && _allowedUntil[msg.sender] != type(uint64).max) {
+            revert CurrentOwnerMustRemainEligible(msg.sender);
+        }
         super.acceptOwnership();
     }
 

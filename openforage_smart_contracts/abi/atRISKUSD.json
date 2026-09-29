@@ -1,7 +1,13 @@
 [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "profitModule_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -263,6 +269,19 @@
   },
   {
     "type": "function",
+    "name": "claimUnpaidProfit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "clearPendingForageGovernor",
     "inputs": [],
     "outputs": [],
@@ -506,26 +525,6 @@
   },
   {
     "type": "function",
-    "name": "initializeV2",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV3",
-    "inputs": [
-      {
-        "name": "abbreviation_",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "isLockupExpired",
     "inputs": [
       {
@@ -682,24 +681,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "migratePendingWithdrawalLayout",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "sourceLayout",
-        "type": "uint8",
-        "internalType": "enum atRISKUSD.PendingWithdrawalLayout"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1066,6 +1047,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recognizeUnpaidProfit",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1559,6 +1553,19 @@
   },
   {
     "type": "function",
+    "name": "writeDownUnpaidProfit",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "yieldSource",
     "inputs": [],
     "outputs": [
@@ -1927,44 +1934,6 @@
   },
   {
     "type": "event",
-    "name": "PendingWithdrawalLayoutMigrated",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "cooldownPeriod",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PendingWithdrawalSharesRecovered",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "StakingQueueProposed",
     "inputs": [
       {
@@ -2019,6 +1988,63 @@
       },
       {
         "name": "value",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnpaidProfitClaimed",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnpaidProfitRecognized",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnpaidProfitWrittenDown",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remaining",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2286,17 +2312,6 @@
     "type": "error",
     "name": "AllowlistUnavailable",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "AmbiguousPendingWithdrawalLayout",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
   },
   {
     "type": "error",
@@ -2655,6 +2670,17 @@
   },
   {
     "type": "error",
+    "name": "FreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "observedVersion",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InsufficientAllowlistDuration",
     "inputs": [
       {
@@ -2714,6 +2740,11 @@
   {
     "type": "error",
     "name": "ModuleReturnDataInvalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoFundedProfit",
     "inputs": []
   },
   {
@@ -2786,55 +2817,44 @@
   },
   {
     "type": "error",
-    "name": "PendingWithdrawalMigrationAlreadyConfirmed",
+    "name": "ProfitClaimInvariant",
     "inputs": [
       {
-        "name": "requester",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "PendingWithdrawalMigrationRequired",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "PendingWithdrawalShareRecoveryNotNeeded",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "PendingWithdrawalShareRecoveryUnavailable",
-    "inputs": [
-      {
-        "name": "requester",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "shares",
+        "name": "expected",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "escrowed",
+        "name": "actual",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProfitIndexPrecisionExhausted",
+    "inputs": [
+      {
+        "name": "outstanding",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "scale",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProfitModuleUnavailable",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -2919,12 +2939,17 @@
   },
   {
     "type": "error",
-    "name": "UnsupportedPendingWithdrawalLayout",
+    "name": "UnpaidProfitUnavailable",
     "inputs": [
       {
-        "name": "sourceLayout",
-        "type": "uint8",
-        "internalType": "uint8"
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "outstanding",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

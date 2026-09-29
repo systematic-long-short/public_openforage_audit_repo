@@ -564,15 +564,13 @@
         "name": "protocolBackup_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "accountingModule_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV2LossRate",
-    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -983,7 +981,18 @@
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
+    "outputs": [
+      {
+        "name": "complete",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "originalLoss",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1355,6 +1364,37 @@
   },
   {
     "type": "event",
+    "name": "LossSettlementProgressed",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lossNonce",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remaining",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferStarted",
     "inputs": [
       {
@@ -1489,6 +1529,17 @@
   },
   {
     "type": "error",
+    "name": "AccountingModuleUnavailable",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AddressEmptyCode",
     "inputs": [
       {
@@ -1605,6 +1656,11 @@
   },
   {
     "type": "error",
+    "name": "LegacyTreasuryStateUnsupported",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "LossNonceMismatch",
     "inputs": [
       {
@@ -1646,6 +1702,17 @@
       },
       {
         "name": "current",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "LossSettlementBasisUnavailable",
+    "inputs": [
+      {
+        "name": "lossNonce",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1795,6 +1862,17 @@
         "name": "actual",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SettlementVersionRequired",
+    "inputs": [
+      {
+        "name": "observedVersion",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },

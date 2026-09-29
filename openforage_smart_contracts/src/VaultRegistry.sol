@@ -79,6 +79,10 @@ contract VaultRegistry is
     error TierVaultSystemCallerRequired(address tierVault, address allowlist);
     error TierVaultRegistrationInvariant(address tierVault, uint256 expectedVaultId, uint256 actualVaultId);
     error TierVaultAggregateInvariant(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket);
+    error VaultRegistryFreshDeploymentRequired(uint8 layoutVersion);
+    error FreshInitializationOnExistingState(
+        uint8 layoutVersion, uint256 nextVaultId, uint256 vaultCount, uint256 activeVaultCount, address currentOwner
+    );
 
     // ── Events ──
     event VaultAdded(uint256 indexed vaultId, string name, string abbreviation);
@@ -101,7 +105,6 @@ contract VaultRegistry is
     event CapacityCapProposed(uint256 indexed vaultId, uint256 newCap); // OF-13-028
     event RISKUSDVaultProposed(address indexed current, address indexed pending); // OF-15-004
     event RISKUSDVaultUpdated(address indexed oldVault, address indexed newVault); // OF-15-004
-    event LossResolutionBlockMigrated(uint256 oldValue, uint256 newValue);
     event TierVaultAssetsUpdated(
         address indexed tierVault, uint256 indexed vaultId, uint256 previousF, uint256 currentF
     );
@@ -116,7 +119,6 @@ contract VaultRegistry is
     mapping(address => bool) private _tierVaultUsed;
 
     /// @dev OF-14-001: RISKUSDVault reference for lossPending query in startWindDown.
-    /// Set via reinitializer(2) at upgrade time.
     /// INVARIANT: Must point to the canonical RISKUSDVault used by target treasury and custodian accounting.
     address private _riskusdVault;
 
@@ -162,7 +164,21 @@ contract VaultRegistry is
     uint256 private _activeRegisteredTierAssets;
     uint256 private _inactiveRegisteredTierAssets;
 
-    uint256[39] private __gap;
+    struct TierVaultCacheMigration {
+        uint8 phase;
+        uint8 version;
+        uint256 snapshotVaultCount;
+        uint256 clearCursor;
+        uint256 rebuildCursor;
+        uint256 activeAssets;
+        uint256 inactiveAssets;
+        uint256 activeVaultCount;
+    }
+
+    TierVaultCacheMigration private _tierVaultCacheMigration;
+    uint8 private _freshLayoutVersion;
+    uint256[31] private __gap;
+    uint8 private constant _FRESH_LAYOUT_VERSION = 1;
 
     // ── Constructor (disable initializers on implementation) ──
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -170,19 +186,54 @@ contract VaultRegistry is
         _disableInitializers();
     }
 
+    modifier freshOnly() {
+        _requireFreshLayout();
+        _;
+    }
+
     // ── Initializer ──
-    function initialize(address initialOwner_) external initializer {
+    function initialize(address initialOwner_, address riskusdVault_) external initializer {
+        _requireFreshInitializationState();
         if (initialOwner_ == address(0)) revert ZeroAddress();
+        if (riskusdVault_ == address(0)) revert ZeroAddress();
 
         __Ownable_init(initialOwner_);
         __Ownable2Step_init();
         // OF-I02: UUPSUpgradeable has no init in OZ 5.x (stateless)
 
         _nextVaultId = 1;
+        _riskusdVault = riskusdVault_;
+        _freshLayoutVersion = _FRESH_LAYOUT_VERSION;
+        emit RISKUSDVaultUpdated(address(0), riskusdVault_);
     }
 
-    function setAllowlist(address allowlist_) external onlyOwner {
+    function setAllowlist(address allowlist_) external freshOnly onlyOwner {
         _transitionAllowlist(allowlist_);
+    }
+
+    function _requireFreshInitializationState() private view {
+        address currentOwner = owner();
+        if (
+            address(this).code.length != 0 || _freshLayoutVersion != 0 || _nextVaultId != 0
+                || _deprecated_vaultCount != 0 || _allVaultIds.length != 0 || _activeVaultIds.length != 0
+                || _riskusdVault != address(0) || _pendingRISKUSDVault != address(0) || _pendingRISKUSDVaultTimestamp != 0
+                || _lastLossResolutionBlock != 0 || allowlist() != address(0) || _activeRegisteredTierAssets != 0
+                || _inactiveRegisteredTierAssets != 0 || _tierVaultCacheMigration.phase != 0
+                || _tierVaultCacheMigration.version != 0 || _tierVaultCacheMigration.snapshotVaultCount != 0
+                || _tierVaultCacheMigration.clearCursor != 0 || _tierVaultCacheMigration.rebuildCursor != 0
+                || _tierVaultCacheMigration.activeAssets != 0 || _tierVaultCacheMigration.inactiveAssets != 0
+                || _tierVaultCacheMigration.activeVaultCount != 0 || currentOwner != address(0)
+        ) {
+            revert FreshInitializationOnExistingState(
+                _freshLayoutVersion, _nextVaultId, _allVaultIds.length, _activeVaultIds.length, currentOwner
+            );
+        }
+    }
+
+    function _requireFreshLayout() private view {
+        if (_freshLayoutVersion != _FRESH_LAYOUT_VERSION) {
+            revert VaultRegistryFreshDeploymentRequired(_freshLayoutVersion);
+        }
     }
 
     // ── Vault Registration ──
@@ -195,7 +246,7 @@ contract VaultRegistry is
         uint256[4] calldata lockupDurations_,
         uint16[4] calldata yieldSplitsBps_,
         uint16[4] calldata fundingBps_
-    ) external onlyAllowedCaller onlyOwner returns (uint256) {
+    ) external freshOnly onlyAllowedCaller onlyOwner returns (uint256) {
         uint256 vaultId;
         {
             if (bytes(name_).length == 0) revert EmptyName();
@@ -283,7 +334,7 @@ contract VaultRegistry is
     }
 
     // ── Vault Lifecycle ──
-    function pauseVault(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function pauseVault(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
@@ -296,7 +347,7 @@ contract VaultRegistry is
     }
 
     // OF-L01: Resume a paused vault
-    function resumeVault(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function resumeVault(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Paused) revert VaultNotPaused();
@@ -320,7 +371,7 @@ contract VaultRegistry is
     /// @dev OF-16-002: Added loss resolution cooldown. startWindDown reverts if a loss was
     /// resolved within LOSS_COOLDOWN_BLOCKS to prevent same-block TOCTOU race between
     /// lossPending check and status transition.
-    function startWindDown(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function startWindDown(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status == VaultStatus.WindingDown) revert VaultAlreadyWindingDown();
@@ -347,7 +398,7 @@ contract VaultRegistry is
         emit VaultWindingDown(vaultId);
     }
 
-    function releaseAbbreviation(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function releaseAbbreviation(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
@@ -364,7 +415,7 @@ contract VaultRegistry is
     /// @notice Release only empty tier vault addresses for a winding-down vault.
     /// @dev Tier vaults with live share supply remain globally reserved to prevent
     /// legacy holder state from being reused under a new vault identity.
-    function releaseTierVaults(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function releaseTierVaults(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
@@ -404,13 +455,14 @@ contract VaultRegistry is
 
     // ── Vault Configuration Updates ──
     /// @notice OF-15-006: setCapacityCap now delegates to proposeCapacityCap (no instant effect).
-    function setCapacityCap(uint256 vaultId, uint256 capacityCap_) external onlyAllowedCaller onlyOwner {
+    function setCapacityCap(uint256 vaultId, uint256 capacityCap_) external freshOnly onlyAllowedCaller onlyOwner {
         proposeCapacityCap(vaultId, capacityCap_);
     }
 
     /// @notice OF-15-006: setYieldSplits now delegates to proposeYieldSplits (no instant effect).
     function setYieldSplits(uint256 vaultId, uint16[4] calldata yieldSplitsBps_, uint16[4] calldata fundingBps_)
         external
+        freshOnly
         onlyAllowedCaller
         onlyOwner
     {
@@ -421,6 +473,7 @@ contract VaultRegistry is
     /// @dev OF-16-009: Require Active vault for defense-in-depth (WindingDown config has no effect).
     function proposeYieldSplits(uint256 vaultId, uint16[4] calldata yieldSplitsBps_, uint16[4] calldata fundingBps_)
         public
+        freshOnly
         onlyAllowedCaller
         onlyOwner
     {
@@ -444,7 +497,7 @@ contract VaultRegistry is
 
     /// @notice OF-13-010: Finalize proposed yield splits after FINALIZE_DELAY.
     /// @dev OF-21-048: Re-validate vault status at finalize time.
-    function finalizeYieldSplits(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function finalizeYieldSplits(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         PendingYieldSplits storage pending = _pendingYieldSplits[vaultId];
         if (pending.proposedAt == 0) revert NoPendingYieldSplits();
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -463,7 +516,7 @@ contract VaultRegistry is
 
     /// @notice OF-13-028: Propose a new capacity cap with FINALIZE_DELAY.
     /// @dev OF-16-009: Require Active vault for defense-in-depth.
-    function proposeCapacityCap(uint256 vaultId, uint256 capacityCap_) public onlyAllowedCaller onlyOwner {
+    function proposeCapacityCap(uint256 vaultId, uint256 capacityCap_) public freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
@@ -476,7 +529,7 @@ contract VaultRegistry is
 
     /// @notice OF-13-028: Finalize proposed capacity cap after FINALIZE_DELAY.
     /// @dev OF-21-048: Re-validate vault status at finalize time.
-    function finalizeCapacityCap(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function finalizeCapacityCap(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         PendingCapacityCap storage pending = _pendingCapacityCap[vaultId];
         if (pending.proposedAt == 0) revert NoPendingCapacityCap();
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -494,19 +547,20 @@ contract VaultRegistry is
     }
 
     // ── View functions ──
-    function getVault(uint256 vaultId) external view returns (VaultConfig memory) {
+    function getVault(uint256 vaultId) external view freshOnly returns (VaultConfig memory) {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         return vault;
     }
 
-    function getActiveVaults() external view returns (uint256[] memory) {
+    function getActiveVaults() external view freshOnly returns (uint256[] memory) {
         return _activeVaultIds;
     }
 
     function getActiveVaultsPage(uint256 offset, uint256 limit)
         external
         view
+        freshOnly
         returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
     {
         total = _activeVaultIds.length;
@@ -529,13 +583,14 @@ contract VaultRegistry is
         nextOffset = end;
     }
 
-    function getAllVaults() external view returns (uint256[] memory) {
+    function getAllVaults() external view freshOnly returns (uint256[] memory) {
         return _allVaultIds;
     }
 
     function getVaultsPage(uint256 offset, uint256 limit)
         external
         view
+        freshOnly
         returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
     {
         total = _allVaultIds.length;
@@ -558,22 +613,22 @@ contract VaultRegistry is
         nextOffset = end;
     }
 
-    function activeRegisteredTierAssets() external view returns (uint256) {
+    function activeRegisteredTierAssets() external view freshOnly returns (uint256) {
         return _activeRegisteredTierAssets;
     }
 
-    function vaultCount() external view returns (uint256) {
+    function vaultCount() external view freshOnly returns (uint256) {
         return _allVaultIds.length;
     }
 
-    function getVaultByAbbreviation(string calldata abbreviation_) external view returns (uint256) {
+    function getVaultByAbbreviation(string calldata abbreviation_) external view freshOnly returns (uint256) {
         uint256 vaultId = _abbreviationToVaultId[keccak256(bytes(abbreviation_))];
         if (vaultId == 0) revert VaultNotFound();
         return vaultId;
     }
 
     // ── Deposit Status ──
-    function isDepositOpen(uint256 vaultId) external view returns (bool) {
+    function isDepositOpen(uint256 vaultId) external view freshOnly returns (bool) {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) return false;
         return vault.status == VaultStatus.Active;
@@ -581,56 +636,8 @@ contract VaultRegistry is
 
     // ── RISKUSDVault Wiring (OF-15-004 + CODEX-001) ──
 
-    /// @notice OF-15-004: Wire _riskusdVault on deployed proxies. Called once after UUPS upgrade.
-    /// @dev CODEX-R1: onlyOwner prevents front-running if upgrade and init are not atomic.
-    function initializeV2(address riskusdVault_) external onlyAllowedCaller onlyOwner reinitializer(2) {
-        if (riskusdVault_ == address(0)) revert ZeroAddress();
-        _riskusdVault = riskusdVault_;
-        emit RISKUSDVaultUpdated(address(0), riskusdVault_);
-    }
-
-    /// @notice Migrates the retired loss-resolution timestamp slot to block-number semantics.
-    /// @dev Existing upgraded proxies may hold a Unix timestamp in this slot from older code.
-    /// Such values are greater than block.number and would keep wind-down cooldown active
-    /// indefinitely. Fresh deployments and already-migrated block values are left unchanged.
-    function initializeV3() external onlyAllowedCaller onlyOwner reinitializer(3) {
-        uint256 oldValue = _lastLossResolutionBlock;
-        if (oldValue > block.number) {
-            _lastLossResolutionBlock = 0;
-            emit LossResolutionBlockMigrated(oldValue, 0);
-        }
-    }
-
-    /// @notice Rebuilds the active-vault pagination index for upgraded registries.
-    /// @dev Fresh deployments maintain the index from add/pause/resume/wind-down.
-    function initializeV4() external onlyAllowedCaller onlyOwner reinitializer(4) {
-        _rebuildActiveVaultIndex();
-    }
-
-    function _rebuildActiveVaultIndex() internal {
-        uint256 activeLen = _activeVaultIds.length;
-        for (uint256 i; i < activeLen;) {
-            delete _activeVaultIndexPlusOne[_activeVaultIds[i]];
-            unchecked {
-                ++i;
-            }
-        }
-        delete _activeVaultIds;
-
-        uint256 len = _allVaultIds.length;
-        for (uint256 i; i < len;) {
-            uint256 vaultId = _allVaultIds[i];
-            if (_vaults[vaultId].status == VaultStatus.Active) {
-                _addActiveVaultId(vaultId);
-            }
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     /// @notice OF-15-004: Propose a new RISKUSDVault address. Takes effect after FINALIZE_DELAY.
-    function proposeRISKUSDVault(address newVault_) external onlyAllowedCaller onlyOwner {
+    function proposeRISKUSDVault(address newVault_) external freshOnly onlyAllowedCaller onlyOwner {
         if (newVault_ == address(0)) revert ZeroAddress();
         _pendingRISKUSDVault = newVault_;
         _pendingRISKUSDVaultTimestamp = uint48(block.timestamp);
@@ -639,7 +646,7 @@ contract VaultRegistry is
 
     /// @notice OF-15-004: Finalize the proposed RISKUSDVault after FINALIZE_DELAY.
     /// @dev OF-21-061: Verify reciprocal wiring — new vault must reference this registry.
-    function finalizeRISKUSDVault() external onlyAllowedCaller onlyOwner {
+    function finalizeRISKUSDVault() external freshOnly onlyAllowedCaller onlyOwner {
         if (_pendingRISKUSDVault == address(0)) revert NoPendingRISKUSDVault();
         if (block.timestamp < uint256(_pendingRISKUSDVaultTimestamp) + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -660,19 +667,19 @@ contract VaultRegistry is
     }
 
     /// @notice OF-15-004: Clear a pending RISKUSDVault proposal without finalizing.
-    function clearPendingRISKUSDVault() external onlyAllowedCaller onlyOwner {
+    function clearPendingRISKUSDVault() external freshOnly onlyAllowedCaller onlyOwner {
         _pendingRISKUSDVault = address(0);
         _pendingRISKUSDVaultTimestamp = 0;
     }
 
     /// @notice OF-16-002: Called by RISKUSDVault after loss is resolved.
     /// Records timestamp to enforce cooldown before wind-down.
-    function notifyLossResolved() external onlyAllowedCaller {
+    function notifyLossResolved() external freshOnly onlyAllowedCaller {
         if (msg.sender != _riskusdVault) revert NotRISKUSDVault(); // OF-21-002: dedicated auth error
         _lastLossResolutionBlock = block.number;
     }
 
-    function onTierVaultAssetsChanged() external onlyAllowedCaller {
+    function onTierVaultAssetsChanged() external freshOnly onlyAllowedCaller {
         RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[msg.sender];
         uint256 vaultId = cached.vaultId;
         if (vaultId == 0 || !_tierVaultUsed[msg.sender]) {
@@ -702,18 +709,18 @@ contract VaultRegistry is
     }
 
     /// @notice View the current RISKUSDVault address.
-    function riskusdVault() external view returns (address) {
+    function riskusdVault() external view freshOnly returns (address) {
         return _riskusdVault;
     }
 
-    function pendingRISKUSDVault() external view returns (address) {
+    function pendingRISKUSDVault() external view freshOnly returns (address) {
         return _pendingRISKUSDVault;
     }
 
     /// @notice OF-16-018: Cross-contract reference consistency check.
     /// Returns true only if VaultRegistry→RISKUSDVault and RISKUSDVault→VaultRegistry
     /// point to each other. Fails silently (returns false) on any call failure.
-    function verifyWiring() external view returns (bool) {
+    function verifyWiring() external view freshOnly returns (bool) {
         if (_riskusdVault == address(0)) return false;
         (bool ok, bytes memory data) = _riskusdVault.staticcall(abi.encodeWithSignature("vaultRegistry()"));
         if (!ok || data.length < 32) return false;
@@ -931,11 +938,11 @@ contract VaultRegistry is
     }
 
     // ── Ownership ──
-    function transferOwnership(address newOwner) public override onlyAllowedCaller onlyOwner {
+    function transferOwnership(address newOwner) public override freshOnly onlyAllowedCaller onlyOwner {
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshOnly onlyAllowedCaller {
         super.acceptOwnership();
     }
 
@@ -944,11 +951,17 @@ contract VaultRegistry is
     }
 
     // ── UUPS ──
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {
+    function _authorizeUpgrade(address) internal override freshOnly onlyOwner {
         // OF-15-004: Clear pending RISKUSDVault proposal on upgrade to prevent stale proposals
         _pendingRISKUSDVault = address(0);
         _pendingRISKUSDVaultTimestamp = 0;

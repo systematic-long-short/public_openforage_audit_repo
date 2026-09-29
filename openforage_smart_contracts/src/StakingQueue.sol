@@ -214,6 +214,7 @@ contract StakingQueue is
     );
     event QueueEntrySkippedBlocked(uint256 indexed entryId, address indexed depositor);
     event QueueEntrySkippedLapsed(uint8 indexed lane, address indexed depositor);
+    event QueueScanIncomplete(uint8 indexed tier, bool indexed priorityLane, uint256 nextQueueId);
     event QueueEntryBoundsUpdated(
         uint256 indexed queueId, address indexed depositor, uint256 minimumShares, uint256 deadline
     );
@@ -292,8 +293,10 @@ contract StakingQueue is
     mapping(uint256 => uint256) private _forageUnlockPendingWeightPerEntry;
     mapping(address => uint256) private _forageLockPendingUnlockWeightByDepositor;
     bool private _forageLockAggregateAccountingInitialized;
+    mapping(uint8 => uint256) private _tierStandardScanCursor;
+    mapping(uint8 => uint256) private _tierPriorityScanCursor;
 
-    uint256[20] private __gap; // reserved for future upgrades
+    uint256[18] private __gap; // reserved for future upgrades
 
     // -- Module delegation (ERC-7201 namespaced storage) --
     /// @custom:storage-location erc7201:openforage.storage.QueueModule
@@ -316,6 +319,11 @@ contract StakingQueue is
         _disableInitializers();
     }
 
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
     // -- Initializer --
     function initialize(
         address riskusd_,
@@ -323,7 +331,7 @@ contract StakingQueue is
         address[4] calldata tierVaults_,
         address vaultRegistry_,
         address initialOwner_
-    ) external initializer {
+    ) external onlyDuringConstructionBeforeInitialization initializer {
         if (riskusd_ == address(0)) revert ZeroAddress();
         if (forage_ == address(0)) revert ZeroAddress();
         if (vaultRegistry_ == address(0)) revert ZeroAddress();
@@ -377,6 +385,17 @@ contract StakingQueue is
         _;
     }
 
+    modifier onlyFreshQueue() {
+        _requireForageLockAccounting();
+        _;
+    }
+
+    function _requireForageLockAccounting() internal view {
+        if (!_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized) {
+            revert LegacyForageLockAccountingUnsupported();
+        }
+    }
+
     /// @dev OF-19-002: Check if caller is the GuardianModule via ForageGovernor query.
     function _isGuardianModule(address caller) internal view returns (bool) {
         if (_forageGovernor == address(0) || _forageGovernor.code.length == 0) return false;
@@ -408,7 +427,7 @@ contract StakingQueue is
     // -- Module delegation --
 
     /// @notice Points the queue at the delegatecall module that runs the moved selector cluster.
-    function setQueueModule(address module_) external onlyOwner onlyAllowedCaller {
+    function setQueueModule(address module_) external onlyFreshQueue onlyOwner onlyAllowedCaller {
         if (module_.code.length == 0) revert ModuleUnavailable();
         QueueModuleStorage storage $ = _getQueueModuleStorage();
         address previous = $.module;
@@ -427,9 +446,9 @@ contract StakingQueue is
         address depositor,
         uint256 amount,
         uint8 admissionMode
-    ) external onlyQueueSelfDuringGuard onlyAllowedCaller returns (bool) {
+    ) external onlyFreshQueue onlyQueueSelfDuringGuard onlyAllowedCaller returns (bool) {
         if (action == _FORAGE_LOCK_ADD) return _addForageLock(queueId, depositor, amount, admissionMode);
-        if (action == _FORAGE_LOCK_REVALIDATE) return _revalidateForageLock(queueId, depositor, amount);
+        if (action == _FORAGE_LOCK_REVALIDATE) return _revalidatePriorityForageLock(queueId, depositor, amount);
         if (action == _FORAGE_LOCK_REDUCE) {
             _reduceForageLock(queueId, depositor, amount);
             return true;
@@ -476,29 +495,29 @@ contract StakingQueue is
             _setForageLockRequirement(queueId, depositor, requiredLock);
             return true;
         }
-        uint256 entryWeight = state.entryWeight + state.pendingEntryWeight;
-        if (state.liveBalance == 0 && state.totalWeight > entryWeight) return false;
-        if (state.liveBalance == 0 && state.totalWeight != 0) {
-            _setForageLockWeight(queueId, depositor, 0);
-            _setForageLockPendingWeight(queueId, depositor, 0);
-            _setForageLockRequirement(queueId, depositor, 0);
-            state.entryWeight = 0;
-            state.pendingEntryWeight = 0;
-            state.totalWeight = 0;
-            state.pendingWeight = 0;
-            state.activeRequirements -= state.entryRequirement;
-            state.entryRequirement = 0;
-            state.activeBacking = 0;
-            state.availableBalance = 0;
-            state.backing = 0;
+        return false;
+    }
+
+    function _revalidatePriorityForageLock(uint256 queueId, address depositor, uint256 remainingRiskusd)
+        private
+        returns (bool)
+    {
+        uint256 requiredLock;
+        if (_priorityEntryAdmissionMode[queueId] == uint8(PriceMode.FIXED_PRICE) + 1) {
+            requiredLock = _forageLockRequirementPerEntry[queueId];
+        } else if (_priorityEntryAdmissionMode[queueId] == uint8(PriceMode.ORACLE) + 1) {
+            (bool sequencerReady, bytes4 reason) = _trySequencerUp();
+            if (!sequencerReady) _revertActiveForagePriceReason(reason);
+            uint256 price = _activeForagePriceUsd();
+            uint256 multiplier = _priorityMultiplier;
+            if (price == 0 || multiplier == 0) return false;
+            requiredLock = Math.ceilDiv(remainingRiskusd * 1e18, price * multiplier);
+            if (requiredLock < 1e15) requiredLock = 1e15;
+        } else {
+            revert LegacyForageLockAccountingUnsupported();
         }
-        uint256 topUp = requiredLock - state.activeBacking;
-        uint256 addedWeight = _additionalForageLockWeight(topUp, state);
-        if (addedWeight == 0) return false;
-        if (!_callForageToken(_SEL_LOCK, depositor, topUp)) return false;
-        _setForageLockWeight(queueId, depositor, state.entryWeight + addedWeight);
-        _setForageLockRequirement(queueId, depositor, requiredLock);
-        return true;
+        if (requiredLock == 0 || _forage.code.length == 0) revert PriorityLockUnavailable();
+        return _revalidateForageLock(queueId, depositor, requiredLock);
     }
 
     function _reduceForageLock(uint256 queueId, address depositor, uint256 lockToKeep) private {
@@ -524,6 +543,7 @@ contract StakingQueue is
 
     /// @dev General path for any module selector the queue does not declare.
     fallback() external {
+        _requireForageLockAccounting();
         _checkAllowedCaller();
         _delegateToModule();
         assembly {
@@ -548,12 +568,19 @@ contract StakingQueue is
 
     // -- State-changing functions --
 
-    function joinQueue(uint256 riskusdAmount, uint8 tier) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function joinQueue(uint256 riskusdAmount, uint8 tier)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        whenNotPaused
+        nonReentrant
+    {
         _delegateToModule();
     }
 
     function joinQueueWithBounds(uint256 riskusdAmount, uint8 tier, uint256 minimumShares, uint256 deadline)
         external
+        onlyFreshQueue
         onlyAllowedCaller
         whenNotPaused
         nonReentrant
@@ -563,6 +590,7 @@ contract StakingQueue is
 
     function setQueueEntryBounds(uint256 queueId, uint256 minimumShares, uint256 deadline)
         external
+        onlyFreshQueue
         onlyAllowedCaller
         whenNotPaused
         nonReentrant
@@ -576,67 +604,21 @@ contract StakingQueue is
         if (entry.cancelled) revert QueueEntryAlreadyCancelled();
         if (_isExpired(entry)) revert InvalidQueueEntry();
         _requireNotBlocked(msg.sender);
-        if (entry.priority) {
-            _delegateToModule();
-            return;
-        }
-        bool demoted = _isDemotedStandardEntry(entry.tier, queueId);
-        _storeQueueEntryBounds(queueId, entry, minimumShares, deadline, !demoted);
+        _delegateToModule();
     }
 
-    /// @notice Migration-only owner backfill for upgraded standard entries that predate depositor bounds.
-    /// @dev Restricted to missing-bound non-priority entries so owner cannot silently alter active user slippage.
-    function adminBackfillQueueEntryBounds(uint256 queueId, uint256 minimumShares, uint256 deadline)
+    function cancelQueue(uint256 queueId) external onlyFreshQueue onlyAllowedCaller nonReentrant {
+        _delegateToModule();
+    }
+
+    function processQueue(uint8 tier, uint256 maxEntries)
         external
+        onlyFreshQueue
         onlyAllowedCaller
-        onlyOwner
+        whenNotPaused
+        nonReentrant
     {
-        if (minimumShares == 0) revert ZeroAmount();
-        if (deadline < block.timestamp) revert InvalidQueueEntry();
-        QueueEntry storage entry = _queueEntries[queueId];
-        if (entry.depositor == address(0)) revert InvalidQueueEntry();
-        if (entry.processed) revert QueueEntryAlreadyProcessed();
-        if (entry.cancelled) revert QueueEntryAlreadyCancelled();
-        if (entry.priority) revert InvalidQueueEntry();
-        if (_hasDepositorBounds(entry)) revert InvalidQueueEntry();
-        bool demoted = _isDemotedStandardEntry(entry.tier, queueId);
-        _storeQueueEntryBounds(queueId, entry, minimumShares, deadline, !demoted);
-    }
-
-    function cancelQueue(uint256 queueId) external onlyAllowedCaller nonReentrant {
         _delegateToModule();
-    }
-
-    function processQueue(uint8 tier, uint256 maxEntries) external onlyAllowedCaller whenNotPaused nonReentrant {
-        _delegateToModule();
-    }
-
-    function _storeQueueEntryBounds(
-        uint256 queueId,
-        QueueEntry storage entry,
-        uint256 minimumShares,
-        uint256 deadline,
-        bool rewindHead
-    ) internal {
-        uint256 laneIndex;
-        if (rewindHead) laneIndex = _standardQueueEntryIndex(entry.tier, queueId);
-        QueueEntryProgress memory progress = _queueProgress(queueId, entry);
-        uint256 remainingMinimumShares = _remainingMinimumShares(minimumShares, progress.sharesMinted);
-        uint256 maxPreviewShares = _minimumDepositShares(_tierVaults[entry.tier], progress.remainingRiskusd);
-        if (remainingMinimumShares > maxPreviewShares) {
-            revert MinimumSharesUnreachable(remainingMinimumShares, maxPreviewShares);
-        }
-        uint256 storedDeadline = _deadlineWithinCeiling(deadline, progress.deadlineCeiling);
-        entry.minimumShares = minimumShares;
-        entry.deadline = storedDeadline;
-        QueueEntryProgress storage storedProgress = _queueEntryProgress[queueId];
-        storedProgress.remainingRiskusd = progress.remainingRiskusd;
-        storedProgress.remainingMinimumShares = remainingMinimumShares;
-        storedProgress.sharesMinted = progress.sharesMinted;
-        storedProgress.deadlineCeiling = progress.deadlineCeiling;
-        storedProgress.initialized = true;
-        if (rewindHead) _rewindStandardHeadToIndex(entry.tier, laneIndex);
-        emit QueueEntryBoundsUpdated(queueId, entry.depositor, minimumShares, storedDeadline);
     }
 
     function _queueProgress(uint256 queueId, QueueEntry storage entry)
@@ -645,10 +627,7 @@ contract StakingQueue is
         returns (QueueEntryProgress memory progress)
     {
         progress = _queueEntryProgress[queueId];
-        if (!progress.initialized) {
-            progress.remainingRiskusd = entry.riskusdAmount;
-            progress.remainingMinimumShares = entry.minimumShares;
-        }
+        if (!progress.initialized && entry.depositor != address(0)) revert LegacyForageLockAccountingUnsupported();
     }
 
     function _remainingQueueRiskusd(uint256 queueId, QueueEntry storage entry) internal view returns (uint256) {
@@ -663,60 +642,9 @@ contract StakingQueue is
         progress.initialized = true;
     }
 
-    function _remainingMinimumShares(uint256 totalMinimumShares, uint256 sharesMinted)
-        internal
-        pure
-        returns (uint256)
-    {
-        if (totalMinimumShares <= sharesMinted) return 0;
-        return totalMinimumShares - sharesMinted;
-    }
-
-    function _deadlineWithinCeiling(uint256 deadline, uint256 deadlineCeiling) internal pure returns (uint256) {
-        if (deadlineCeiling == 0 || deadline <= deadlineCeiling) return deadline;
-        return deadlineCeiling;
-    }
-
-    function _standardQueueEntryIndex(uint8 tier, uint256 queueId) internal view returns (uint256 index) {
-        uint256[] storage lane = _tierStandardQueue[tier];
-        uint256 length = lane.length;
-        uint256 low;
-        uint256 high = length;
-        while (low < high) {
-            uint256 middle = low + (high - low) / 2;
-            _requireStandardLaneOrder(lane, middle);
-            if (lane[middle] < queueId) {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        if (low >= length || lane[low] != queueId) revert InvalidQueueEntry();
-        _requireStandardLaneOrder(lane, low);
-        return low;
-    }
-
-    function _isDemotedStandardEntry(uint8 tier, uint256 queueId) internal view returns (bool demoted) {
-        uint256 indexPlusOne = _demotedStandardHeapIndexPlusOne[queueId];
-        if (indexPlusOne == 0) return false;
-        uint256[] storage heap = _demotedStandardHeap[tier];
-        uint256 index = indexPlusOne - 1;
-        if (index >= heap.length || heap[index] != queueId) revert InvalidQueueEntry();
-        return true;
-    }
-
-    function _requireStandardLaneOrder(uint256[] storage lane, uint256 index) internal view {
-        uint256 length = lane.length;
-        if (index > 0 && lane[index - 1] >= lane[index]) revert InvalidQueueEntry();
-        if (index < length - 1 && lane[index] >= lane[index + 1]) revert InvalidQueueEntry();
-    }
-
-    function _rewindStandardHeadToIndex(uint8 tier, uint256 index) internal {
-        if (index < _tierStandardHead[tier]) _tierStandardHead[tier] = index;
-    }
-
     function upgradeTier(uint8 fromTier, uint8 toTier, uint256 atriskusdAmount)
         external
+        onlyFreshQueue
         onlyAllowedCaller
         whenNotPaused
         nonReentrant
@@ -732,6 +660,7 @@ contract StakingQueue is
     /// batches into multiple transactions as needed.
     function processExpiredLockups(address[] calldata depositors, uint8 tier)
         external
+        onlyFreshQueue
         onlyAllowedCaller
         whenNotPaused
         nonReentrant
@@ -739,7 +668,12 @@ contract StakingQueue is
         _delegateToModule();
     }
 
-    function setExpiredLockupProcessor(address processor, bool authorized) external onlyAllowedCaller onlyOwner {
+    function setExpiredLockupProcessor(address processor, bool authorized)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        onlyOwner
+    {
         _delegateToModule();
     }
 
@@ -750,6 +684,7 @@ contract StakingQueue is
     /// depositors continue processing. This prevents one bad lockup from blocking the entire batch.
     function _processOneExpiredLockup(address depositor, uint8 tier, address tierVaultAddr, address vault0Addr)
         external
+        onlyFreshQueue
         onlyAllowedCaller
     {
         _delegateToModule();
@@ -757,7 +692,7 @@ contract StakingQueue is
 
     // -- Configuration --
 
-    function setVaultId(uint256 vaultId_) external onlyAllowedCaller onlyOwner {
+    function setVaultId(uint256 vaultId_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (_vaultId != 0) revert VaultIdAlreadySet();
         // OF-017: Prevent setting vault ID to zero
         if (vaultId_ == 0) revert ZeroAmount();
@@ -771,15 +706,15 @@ contract StakingQueue is
     /// price_ == 0 disables priority lane. The primary defense against trivially cheap
     /// priority is the minimum forageToLock threshold (1e15) in joinQueue, not a price floor.
     /// OF-008/CHAIN-W37: Bounded to the 6-decimal USD scale used by oracle pricing.
-    function setForagePriceUsd(uint256 price_) external onlyAllowedCaller onlyOwner {
+    function setForagePriceUsd(uint256 price_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _proposeForagePriceUsd(price_);
     }
 
-    function proposeForagePriceUsd(uint256 price_) external onlyAllowedCaller onlyOwner {
+    function proposeForagePriceUsd(uint256 price_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _proposeForagePriceUsd(price_);
     }
 
-    function finalizeForagePriceUsd() external onlyAllowedCaller onlyOwner {
+    function finalizeForagePriceUsd() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (!_pendingForagePriceUsdExists) revert NoPendingForagePriceUsd();
         _validatePendingDelay(_pendingForagePriceUsdProposedAt);
         uint256 old = _foragePriceUsd;
@@ -791,7 +726,7 @@ contract StakingQueue is
         emit ForagePriceUsdUpdated(old, _foragePriceUsd);
     }
 
-    function clearPendingForagePriceUsd() external onlyAllowedCaller onlyOwner {
+    function clearPendingForagePriceUsd() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _pendingForagePriceUsd = 0;
         _pendingForagePriceUsdProposedAt = 0;
         _pendingForagePriceUsdExists = false;
@@ -805,15 +740,15 @@ contract StakingQueue is
         emit ForagePriceUsdProposed(_foragePriceUsd, price_);
     }
 
-    function setForagePriceMode(PriceMode mode_) external onlyAllowedCaller onlyOwner {
+    function setForagePriceMode(PriceMode mode_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _proposeForagePriceMode(mode_);
     }
 
-    function proposeForagePriceMode(PriceMode mode_) external onlyAllowedCaller onlyOwner {
+    function proposeForagePriceMode(PriceMode mode_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _proposeForagePriceMode(mode_);
     }
 
-    function finalizeForagePriceMode() external onlyAllowedCaller onlyOwner {
+    function finalizeForagePriceMode() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (!_pendingForagePriceModeExists) revert NoPendingForagePriceMode();
         _validatePendingDelay(_pendingForagePriceModeProposedAt);
         PriceMode mode_ = PriceMode(_pendingForagePriceMode);
@@ -826,7 +761,7 @@ contract StakingQueue is
         emit ForagePriceModeUpdated(oldMode, mode_);
     }
 
-    function clearPendingForagePriceMode() external onlyAllowedCaller onlyOwner {
+    function clearPendingForagePriceMode() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _pendingForagePriceMode = 0;
         _pendingForagePriceModeProposedAt = 0;
         _pendingForagePriceModeExists = false;
@@ -840,15 +775,25 @@ contract StakingQueue is
         emit ForagePriceModeProposed(PriceMode(_priceMode), mode_);
     }
 
-    function setForagePriceOracle(address oracle_, uint256 maxStaleness_) external onlyAllowedCaller onlyOwner {
+    function setForagePriceOracle(address oracle_, uint256 maxStaleness_)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        onlyOwner
+    {
         _proposeForagePriceOracle(oracle_, maxStaleness_);
     }
 
-    function proposeForagePriceOracle(address oracle_, uint256 maxStaleness_) external onlyAllowedCaller onlyOwner {
+    function proposeForagePriceOracle(address oracle_, uint256 maxStaleness_)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        onlyOwner
+    {
         _proposeForagePriceOracle(oracle_, maxStaleness_);
     }
 
-    function finalizeForagePriceOracle() external onlyAllowedCaller onlyOwner {
+    function finalizeForagePriceOracle() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         address oracle_ = _pendingForagePriceOracle;
         if (oracle_ == address(0)) revert NoPendingForagePriceOracle();
         _validatePendingDelay(_pendingForagePriceOracleProposedAt);
@@ -865,7 +810,7 @@ contract StakingQueue is
         emit ForagePriceOracleUpdated(oldOracle, oracle_, oldMaxStaleness, _oraclePriceMaxStaleness, decimals_);
     }
 
-    function clearPendingForagePriceOracle() external onlyAllowedCaller onlyOwner {
+    function clearPendingForagePriceOracle() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _pendingForagePriceOracle = address(0);
         _pendingOraclePriceMaxStaleness = 0;
         _pendingForagePriceOracleDecimals = 0;
@@ -900,12 +845,12 @@ contract StakingQueue is
     /// @notice CODEX-002: Sync cached tier vault addresses from VaultRegistry.
     /// @dev Reads authoritative addresses from VaultRegistry to prevent routing divergence.
     /// Previously accepted arbitrary addresses (OF-13-027); now validates against registry.
-    function syncTierVaults() external onlyAllowedCaller onlyOwner {
+    function syncTierVaults() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _delegateToModule();
     }
 
     /// @notice OF-008: Bounded to 1e12 to prevent overflow in priority calculation.
-    function setPriorityMultiplier(uint256 multiplier_) external onlyAllowedCaller onlyOwner {
+    function setPriorityMultiplier(uint256 multiplier_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (multiplier_ > 1e12) revert ParameterTooLarge();
         uint256 old = _priorityMultiplier;
         _priorityMultiplier = multiplier_;
@@ -915,7 +860,12 @@ contract StakingQueue is
     /// @notice R-9: Governance sets a per-tier deposit cap.
     /// @dev If proposedCap_ is below the current effective cap, it is applied immediately as a shrink.
     /// Widening no longer auto-ramps over time; owner/governance changes apply atomically.
-    function proposeTierDepositCap(uint8 tier, uint256 proposedCap_) external onlyAllowedCaller onlyOwner {
+    function proposeTierDepositCap(uint8 tier, uint256 proposedCap_)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        onlyOwner
+    {
         _validateTier(tier);
         uint256 vaultCap = combinedCapacity();
         _requireTierCapWithinVaultCapacity(proposedCap_, vaultCap);
@@ -940,7 +890,12 @@ contract StakingQueue is
 
     /// @notice R-9: Guardian/governance shrink-only authority for emergency tier throttling.
     /// @dev Cannot widen; guardians may only reduce the current effective cap.
-    function shrinkTierDepositCap(uint8 tier, uint256 newCap_) external onlyAllowedCaller onlyTierCapShrinker {
+    function shrinkTierDepositCap(uint8 tier, uint256 newCap_)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        onlyTierCapShrinker
+    {
         _validateTier(tier);
         uint256 vaultCap = combinedCapacity();
         _requireTierCapWithinVaultCapacity(newCap_, vaultCap);
@@ -958,7 +913,7 @@ contract StakingQueue is
 
     /// @notice OF-L07: Any Allowlist-eligible caller can compact the queue.
     /// @dev Compaction only reorganizes arrays and transfers no tokens.
-    function compactQueue(uint8 tier, bool priority) external onlyAllowedCaller nonReentrant {
+    function compactQueue(uint8 tier, bool priority) external onlyFreshQueue onlyAllowedCaller nonReentrant {
         if (tier >= 4) revert InvalidTier();
 
         uint256[] storage lane = priority ? _tierPriorityQueue[tier] : _tierStandardQueue[tier];
@@ -997,16 +952,21 @@ contract StakingQueue is
         } else {
             _tierStandardHead[tier] = 0;
         }
+        _tierStandardScanCursor[tier] = 0;
+        _tierPriorityScanCursor[tier] = 0;
 
         emit QueueCompacted(tier, priority, removedCount);
     }
 
     /// @notice OF-L10: Admin can cancel a queue entry and return RISKUSD to a recipient
     /// @dev OF-M01/L03: nonReentrant added + CEI ordering fixed (state updates before external calls)
-    function adminCancelQueue(uint256 entryId, address recipient) external onlyAllowedCaller onlyOwner nonReentrant {
-        if (!_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized) {
-            revert LegacyForageLockAccountingUnsupported();
-        }
+    function adminCancelQueue(uint256 entryId, address recipient)
+        external
+        onlyFreshQueue
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
         if (recipient == address(0)) revert ZeroAddress();
         QueueEntry storage entry = _queueEntries[entryId];
         if (entry.processed || entry.cancelled) revert InvalidQueueEntry();
@@ -1034,20 +994,20 @@ contract StakingQueue is
 
     /// @notice OF-16-020: Allow depositors to manually trigger their own reversion when
     /// processExpiredLockups fails. Tier 0 redeposit failures revert so the source lockup remains retryable.
-    function selfRevert(uint8 tier) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function selfRevert(uint8 tier) external onlyFreshQueue onlyAllowedCaller whenNotPaused nonReentrant {
         if (tier == 0 || tier >= 4) revert InvalidTier();
         _delegateToModule();
     }
 
     /// @notice Retry a processed or cancelled entry's failed FORAGE unlock.
     /// @dev Any Allowlist-eligible caller may retry; the unlock remains credited to the depositor.
-    function retryForageUnlock(uint256 queueId) external onlyAllowedCaller nonReentrant {
+    function retryForageUnlock(uint256 queueId) external onlyFreshQueue onlyAllowedCaller nonReentrant {
         _delegateToModule();
     }
 
     /// @notice OF-15-005: setForageGovernor now only proposes — no instant effect.
     /// Use finalizeForageGovernor() to complete the change after FINALIZE_DELAY.
-    function setForageGovernor(address forageGovernor_) external onlyAllowedCaller onlyOwner {
+    function setForageGovernor(address forageGovernor_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (forageGovernor_ == address(0)) revert ZeroAddress();
         _pendingForageGovernor = forageGovernor_;
         _pendingForageGovernorProposedAt = block.timestamp;
@@ -1055,7 +1015,7 @@ contract StakingQueue is
     }
 
     /// @notice OF-15-005: Finalize the pending ForageGovernor after FINALIZE_DELAY.
-    function finalizeForageGovernor() external onlyAllowedCaller onlyOwner {
+    function finalizeForageGovernor() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (_pendingForageGovernor == address(0)) revert NoPendingForageGovernor();
         if (block.timestamp < _pendingForageGovernorProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingForageGovernorProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -1067,50 +1027,56 @@ contract StakingQueue is
     }
 
     /// @notice OF-15-005: Clear pending ForageGovernor to prevent stale proposals.
-    function clearPendingForageGovernor() external onlyAllowedCaller onlyOwner {
+    function clearPendingForageGovernor() external onlyFreshQueue onlyAllowedCaller onlyOwner {
         _pendingForageGovernor = address(0);
         _pendingForageGovernorProposedAt = 0;
     }
 
-    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
+    function setBlocklist(address blocklist_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         address oldBlocklist = _blocklist;
         _blocklist = blocklist_;
         emit BlocklistSet(oldBlocklist, blocklist_);
     }
 
-    function setSequencerUptimeFeed(address feed_) external onlyAllowedCaller onlyOwner {
+    function setSequencerUptimeFeed(address feed_) external onlyFreshQueue onlyAllowedCaller onlyOwner {
         if (feed_ == address(0)) revert ZeroAddress();
         address oldFeed = _sequencerUptimeFeed;
         _sequencerUptimeFeed = feed_;
         emit SequencerUptimeFeedSet(oldFeed, feed_);
     }
 
-    function setAllowlist(address allowlist_) external onlyOwner {
+    function setAllowlist(address allowlist_) external onlyFreshQueue onlyOwner {
         _transitionAllowlist(allowlist_);
     }
 
-    function pause() external onlyAllowedCaller onlyOwnerOrGovernor {
+    function pause() external onlyFreshQueue onlyAllowedCaller onlyOwnerOrGovernor {
         _pause();
     }
 
-    function unpause() external onlyAllowedCaller onlyOwnerOrGovernor {
+    function unpause() external onlyFreshQueue onlyAllowedCaller onlyOwnerOrGovernor {
         _unpause();
     }
 
-    function renounceOwnership() public override onlyAllowedCaller onlyOwner {
+    function renounceOwnership() public override onlyFreshQueue onlyAllowedCaller onlyOwner {
         revert RenounceOwnershipDisabled();
     }
 
-    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+    function transferOwnership(address newOwner) public override onlyFreshQueue onlyAllowedCaller {
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override onlyFreshQueue onlyAllowedCaller {
         super.acceptOwnership();
     }
 
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        onlyFreshQueue
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
@@ -1398,18 +1364,6 @@ contract StakingQueue is
         return abi.decode(data, (uint256));
     }
 
-    function _hasDepositorBounds(QueueEntry storage entry) internal view returns (bool) {
-        return entry.minimumShares != 0 && entry.deadline != 0;
-    }
-
-    function _minimumDepositShares(address vaultAddr, uint256 riskusdAmount) internal view returns (uint256) {
-        if (vaultAddr.code.length == 0) revert CapacityProbeFailed(vaultAddr);
-        (bool previewOk, bytes memory previewData) =
-            vaultAddr.staticcall(abi.encodeWithSelector(_SEL_PREVIEW_DEPOSIT, riskusdAmount));
-        if (!previewOk || previewData.length != 32) revert CapacityProbeFailed(vaultAddr);
-        return abi.decode(previewData, (uint256));
-    }
-
     function _isExpired(QueueEntry storage entry) internal view returns (bool) {
         return entry.deadline != 0 && block.timestamp > entry.deadline;
     }
@@ -1617,22 +1571,6 @@ contract StakingQueue is
         _demotedStandardHeapIndexPlusOne[queueId] = index + 1;
     }
 
-    // -- Reinitializer --
-    function reinitialize(uint256 multiplier_) external onlyAllowedCaller reinitializer(2) onlyOwner {
-        // Same bound as setPriorityMultiplier (OF-008): prevent overflow in priority calculation.
-        if (multiplier_ > 1e12) revert ParameterTooLarge();
-        uint256 old = _priorityMultiplier;
-        _priorityMultiplier = multiplier_;
-        emit PriorityMultiplierUpdated(old, multiplier_);
-    }
-
-    /// @notice V3 reinitializer for active FORAGE locking.
-    /// @dev No state changes needed — _forageLockedPerEntry mapping defaults to zero for all keys.
-    ///      Consumes reinitializer(3) slot.
-    function reinitializeV3() external onlyAllowedCaller reinitializer(3) onlyOwner {
-        // No-op: _forageLockedPerEntry mapping defaults to zero for all keys.
-    }
-
     /// @notice View function for per-entry FORAGE lock tracking.
     /// @dev Returns the amount of FORAGE locked on ForageToken for a given queue entry.
     function forageLockedPerEntry(uint256 queueId) external view returns (uint256) {
@@ -1702,9 +1640,7 @@ contract StakingQueue is
         view
         returns (ForageLockSnapshot memory state)
     {
-        if (!_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized) {
-            revert LegacyForageLockAccountingUnsupported();
-        }
+        _requireForageLockAccounting();
         state.entryWeight = _forageLockedPerEntry[queueId];
         state.pendingEntryWeight = _forageUnlockPendingWeightPerEntry[queueId];
         state.totalWeight = _forageLockWeightByDepositor[depositor];
@@ -1805,6 +1741,7 @@ contract StakingQueue is
     // -- UUPS --
     /// @dev OF-15-005: Auto-clear pending ForageGovernor on upgrade to prevent stale proposals.
     function _authorizeUpgrade(address) internal override onlyOwner {
+        _requireForageLockAccounting();
         _pendingForageGovernor = address(0);
         _pendingForageGovernorProposedAt = 0;
         _pendingForagePriceUsd = 0;

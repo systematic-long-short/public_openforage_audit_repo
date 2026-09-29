@@ -1020,6 +1020,17 @@
   },
   {
     "type": "error",
+    "name": "AllowlistFreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "layoutVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CallerNotAllowed",
     "inputs": [
       {
@@ -1038,6 +1049,17 @@
     "type": "error",
     "name": "CheckpointUnorderedInsertion",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CurrentOwnerMustRemainEligible",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1074,6 +1096,37 @@
     "type": "error",
     "name": "FinalizeDelayNotElapsed",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FreshInitializationOnExistingState",
+    "inputs": [
+      {
+        "name": "layoutVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentOwner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "registrar",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "guardian",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "historyInitialized",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ]
   },
   {
     "type": "error",

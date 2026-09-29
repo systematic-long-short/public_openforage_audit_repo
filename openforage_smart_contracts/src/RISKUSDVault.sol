@@ -44,6 +44,7 @@ library RISKUSDVaultRedemptionBufferStorage {
         uint256 weeklyMintAmount;
         uint256 dailyWindowStart;
         uint256 dailyMintAmount;
+        uint256 freshDeploymentVersion;
     }
 
     bytes32 private constant STORAGE_SLOT = keccak256(
@@ -134,6 +135,8 @@ contract RISKUSDVault is
     error DeploymentBufferEnumerationFailed(address target);
     error FirstDepositBelowMinimum(uint256 amount, uint256 minimum);
     error ModuleUnavailable();
+    error FreshDeploymentRequired(uint256 version);
+    error LegacyVaultRegistryInitializationUnsupported(bytes4 selector);
     error CustodianLossWriteDownFailed(address custodian, uint256 amount);
 
     // Events
@@ -196,6 +199,7 @@ contract RISKUSDVault is
     uint256 public constant WEEKLY_WINDOW = 7 days;
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
+    uint256 private constant FRESH_DEPLOYMENT_VERSION = 1;
     uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
     bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR = bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
@@ -327,12 +331,17 @@ contract RISKUSDVault is
         _;
     }
 
-    function initialize(address usdc_, address riskusd_, address initialOwner_)
+    modifier freshDeploymentOnly() {
+        _requireFreshDeployment();
+        _;
+    }
+
+    function initialize(address usdc_, address riskusd_, address vaultRegistry_, address initialOwner_)
         external
         onlyDuringConstructionBeforeInitialization
         initializer
     {
-        _initializeCore(usdc_, riskusd_, initialOwner_);
+        _initializeCore(usdc_, riskusd_, vaultRegistry_, initialOwner_);
     }
 
     /// @notice Fresh-deploy target initializer that sets the genesis custodian and loss reporter.
@@ -340,6 +349,7 @@ contract RISKUSDVault is
     function initializeTarget(
         address usdc_,
         address riskusd_,
+        address vaultRegistry_,
         address initialOwner_,
         address initialCustodian_,
         address initialLossReporter_
@@ -347,17 +357,25 @@ contract RISKUSDVault is
         if (initialCustodian_ == address(0) || initialLossReporter_ == address(0)) {
             revert ZeroAddress();
         }
-        _initializeCore(usdc_, riskusd_, initialOwner_);
+        _initializeCore(usdc_, riskusd_, vaultRegistry_, initialOwner_);
         _custodian = initialCustodian_;
         _lossReporter = initialLossReporter_;
         emit CustodianUpdated(address(0), initialCustodian_);
         emit LossReporterUpdated(address(0), initialLossReporter_);
     }
 
-    function _initializeCore(address usdc_, address riskusd_, address initialOwner_) internal {
+    function _initializeCore(address usdc_, address riskusd_, address vaultRegistry_, address initialOwner_) internal {
         if (usdc_ == address(0)) revert ZeroAddress();
         if (riskusd_ == address(0)) revert ZeroAddress();
+        if (vaultRegistry_ == address(0) || vaultRegistry_.code.length == 0) {
+            revert InvalidVaultRegistryInterface(vaultRegistry_);
+        }
         if (initialOwner_ == address(0)) revert ZeroAddress();
+        try IVaultRegistryWiringQuery(vaultRegistry_).riskusdVault() returns (address wiredVault) {
+            if (wiredVault != address(this)) revert InvalidVaultRegistryInterface(vaultRegistry_);
+        } catch {
+            revert InvalidVaultRegistryInterface(vaultRegistry_);
+        }
 
         __Ownable_init(initialOwner_);
         __Ownable2Step_init();
@@ -365,6 +383,7 @@ contract RISKUSDVault is
 
         _usdc = IERC20(usdc_);
         _riskusd = IRISKUSD(riskusd_);
+        _vaultRegistry = IVaultRegistry(vaultRegistry_);
         _weeklyRedemptionCapBps = 500; // R-31/F2: 5% launch default
         _maxDeploymentRatioBps = 9500; // R-31/F2: 95% launch default
         _weeklyMintCapBps = 20000; // R-28: max 2x start-window supply per 7 days
@@ -380,9 +399,10 @@ contract RISKUSDVault is
         _dailyRedemptionWindowStart = block.timestamp;
         // _minReserveRatioBps defaults to 0
         // _custodian and _lossReporter default to address(0) unless a genesis initializer sets them.
+        RISKUSDVaultRedemptionBufferStorage.layout().freshDeploymentVersion = FRESH_DEPLOYMENT_VERSION;
     }
 
-    function deposit(uint256 usdcAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function deposit(uint256 usdcAmount) external freshDeploymentOnly onlyAllowedCaller whenNotPaused nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
         _requirePublicAccountingRegistry();
         // OF-13-056: Block fresh user deposits during loss-pending window.
@@ -420,7 +440,7 @@ contract RISKUSDVault is
         _assertSolvency();
     }
 
-    function redeem(uint256 riskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function redeem(uint256 riskusdAmount) external freshDeploymentOnly onlyAllowedCaller whenNotPaused nonReentrant {
         if (riskusdAmount == 0) revert ZeroAmount();
         _requirePublicAccountingRegistry();
         // OF-NEW-01 (12th audit): Block redemptions while loss is pending
@@ -445,13 +465,12 @@ contract RISKUSDVault is
         _totalRedeemed += riskusdAmount;
         _weeklyRedemptionUsed += weeklyCapCharge;
         _dailyRedemptionUsed += dailyCapCharge;
-        _reduceWeeklyRedemptionBasis(riskusdAmount);
-        _reduceDailyRedemptionBasis(riskusdAmount);
+        _reduceWeeklyRedemptionBasis(weeklyCapCharge);
+        _reduceDailyRedemptionBasis(dailyCapCharge);
 
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
         _riskusd.burn(address(this), riskusdAmount);
-        _reduceMintActiveSupply(riskusdAmount);
         if (_publicRedemptionNettingEnabled()) {
             uint256 supplyAfterRedeem = _riskusd.totalSupply();
             if (_lastActiveSupply == 0 || supplyAfterRedeem < _lastActiveSupply) {
@@ -473,7 +492,7 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-    function returnCapital(uint256 usdcAmount) external onlyAllowedCaller nonReentrant {
+    function returnCapital(uint256 usdcAmount) external freshDeploymentOnly onlyAllowedCaller nonReentrant {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         _returnCapital(usdcAmount, true);
@@ -481,6 +500,7 @@ contract RISKUSDVault is
 
     function returnCapitalWithNAVBasis(uint256 usdcAmount, bool navAlreadyReduced)
         external
+        freshDeploymentOnly
         onlyAllowedCaller
         nonReentrant
     {
@@ -572,12 +592,6 @@ contract RISKUSDVault is
     // --- Admin Setters ---
 
     // ── VaultRegistry Wiring (OF-15-004 + CODEX-001) ──
-
-    /// @notice OF-15-004: Wire _vaultRegistry on deployed proxies. Called once after UUPS upgrade.
-    /// @dev CODEX-R1: onlyOwner prevents front-running if upgrade and init are not atomic.
-    function initializeV2(address vaultRegistry_) external onlyAllowedCaller onlyOwner reinitializer(2) {
-        _delegateToModule();
-    }
 
     /// @notice OF-15-004: Propose a new VaultRegistry address. Takes effect after FINALIZE_DELAY.
     function proposeVaultRegistry(address newRegistry_) external onlyAllowedCaller onlyOwner {
@@ -792,6 +806,7 @@ contract RISKUSDVault is
     }
 
     function setAllowlist(address allowlist_) external onlyOwner {
+        _requireFreshDeployment();
         if (allowlist() != address(0)) _checkAllowedCaller();
         _requireAllowlistCandidate(allowlist_, msg.sender);
         _setAllowlist(allowlist_);
@@ -1216,18 +1231,24 @@ contract RISKUSDVault is
         emit AttestedLossAmountRecomputed(_latestLossVaultId, _latestLossNonce, oldAmount, currentAmount);
     }
 
-    function _reduceDailyRedemptionBasis(uint256 redeemedAmount) internal {
+    function _reduceDailyRedemptionBasis(uint256 netCapCharge) internal {
         if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) return;
         uint256 basis = _dailyRedemptionWindowStartSupply;
         if (basis == 0) return;
-        _dailyRedemptionWindowStartSupply = redeemedAmount >= basis ? 0 : basis - redeemedAmount;
+        _dailyRedemptionWindowStartSupply = netCapCharge >= basis ? 0 : basis - netCapCharge;
     }
 
-    function _reduceWeeklyRedemptionBasis(uint256 redeemedAmount) internal {
+    function _reduceWeeklyRedemptionBasis(uint256 netCapCharge) internal {
         if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) return;
         uint256 basis = _windowStartSupply;
         if (basis == 0) return;
-        _windowStartSupply = redeemedAmount >= basis ? 0 : basis - redeemedAmount;
+        _windowStartSupply = netCapCharge >= basis ? 0 : basis - netCapCharge;
+    }
+
+    function _restoreRedemptionBasis(uint256 basis, uint256 offset) internal pure returns (uint256) {
+        if (offset == 0) return basis;
+        if (offset > type(uint256).max - basis) revert InvalidState();
+        return basis + offset;
     }
 
     /// @dev OF-002: Safe depositor USDC computation with underflow protection.
@@ -1288,6 +1309,7 @@ contract RISKUSDVault is
         if (block.timestamp < _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
             uint256 weeklyOffset = _min(amount, _weeklyRedemptionUsed);
             _weeklyRedemptionUsed -= weeklyOffset;
+            _windowStartSupply = _restoreRedemptionBasis(_windowStartSupply, weeklyOffset);
             buffers.weeklyMintAmount += amount - weeklyOffset;
         } else {
             buffers.weeklyMintAmount += amount;
@@ -1301,6 +1323,7 @@ contract RISKUSDVault is
         if (block.timestamp < _dailyRedemptionWindowStart + DAILY_WINDOW) {
             uint256 dailyOffset = _min(amount, _dailyRedemptionUsed);
             _dailyRedemptionUsed -= dailyOffset;
+            _dailyRedemptionWindowStartSupply = _restoreRedemptionBasis(_dailyRedemptionWindowStartSupply, dailyOffset);
             buffers.dailyMintAmount += amount - dailyOffset;
         } else {
             buffers.dailyMintAmount += amount;
@@ -1480,18 +1503,6 @@ contract RISKUSDVault is
         return a < b ? a : b;
     }
 
-    function _reduceMintActiveSupply(uint256 riskusdAmount) internal {
-        if (block.timestamp < _weeklyMintWindowStart + WEEKLY_WINDOW) {
-            _weeklyMintUsed = riskusdAmount >= _weeklyMintUsed ? 0 : _weeklyMintUsed - riskusdAmount;
-        }
-        if (block.timestamp < _dailyMintWindowStart + DAILY_WINDOW) {
-            _dailyMintUsed = riskusdAmount >= _dailyMintUsed ? 0 : _dailyMintUsed - riskusdAmount;
-        }
-        if (block.number == _mintUsedBlockNumber) {
-            _mintUsedThisBlock = riskusdAmount >= _mintUsedThisBlock ? 0 : _mintUsedThisBlock - riskusdAmount;
-        }
-    }
-
     function _assertBackingMarginNotDecreased(uint256 backingAssetsBefore, uint256 riskusdSupplyBefore) internal view {
         uint256 backingAssetsAfter = solvencyBackingAssets();
         uint256 riskusdSupplyAfter = _riskusd.totalSupply();
@@ -1575,23 +1586,30 @@ contract RISKUSDVault is
     // --- Allowlist Gate Overrides ---
 
     /// @notice KYC-02: the caller gate is the first check on UUPS upgrades and ownership handoff.
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshDeploymentOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
     /// @notice KYC-02: two-step ownership proposals require an allowlisted caller.
-    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+    function transferOwnership(address newOwner) public override freshDeploymentOnly onlyAllowedCaller {
         super.transferOwnership(newOwner);
     }
 
     /// @notice KYC-02: two-step ownership acceptance requires an allowlisted caller.
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshDeploymentOnly onlyAllowedCaller {
         super.acceptOwnership();
     }
 
     // --- UUPS ---
 
     function _authorizeUpgrade(address) internal override onlyOwner {
+        _requireFreshDeployment();
         _pendingCustodian = address(0);
         _pendingLossReporter = address(0);
         // OF-002 (11th audit): Clear proposal timestamps on upgrade
@@ -1618,7 +1636,7 @@ contract RISKUSDVault is
 
     /// @notice Sets the delegatecall target for the moved admin, NAV, loss, registry and rescue cluster.
     /// @dev Only the owner can wire the module; an unset module makes every moved selector revert ModuleUnavailable.
-    function setVaultModule(address module_) external onlyAllowedCaller onlyOwner {
+    function setVaultModule(address module_) external freshDeploymentOnly onlyAllowedCaller onlyOwner {
         if (module_.code.length == 0) revert ZeroAddress();
         VaultModuleStorage storage $ = _getVaultModuleStorage();
         address previous = $.module;
@@ -1633,6 +1651,10 @@ contract RISKUSDVault is
 
     /// @notice Any selector the vault does not declare goes through the caller gate to the module.
     fallback() external {
+        _requireFreshDeployment();
+        if (msg.sig == bytes4(keccak256("initializeV2(address)"))) {
+            revert LegacyVaultRegistryInitializationUnsupported(msg.sig);
+        }
         _checkAllowedCaller();
         _delegateToModule();
         assembly {
@@ -1644,6 +1666,7 @@ contract RISKUSDVault is
     /// @dev Delegates the call to the module: reverts with the module's returndata on failure and
     ///      falls through on success, so a forwarder's trailing modifier code (nonReentrant) runs.
     function _delegateToModule() internal {
+        _requireFreshDeployment();
         address module = _getVaultModuleStorage().module;
         if (module.code.length == 0) revert ModuleUnavailable();
         assembly {
@@ -1652,6 +1675,11 @@ contract RISKUSDVault is
             returndatacopy(0, 0, returndatasize())
             if iszero(result) { revert(0, returndatasize()) }
         }
+    }
+
+    function _requireFreshDeployment() private view {
+        uint256 version = RISKUSDVaultRedemptionBufferStorage.layout().freshDeploymentVersion;
+        if (version != FRESH_DEPLOYMENT_VERSION) revert FreshDeploymentRequired(version);
     }
 
     // --- Deposit / Redeem ---

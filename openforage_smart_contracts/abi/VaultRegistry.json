@@ -375,35 +375,13 @@
         "name": "initialOwner_",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV2",
-    "inputs": [
+      },
       {
         "name": "riskusdVault_",
         "type": "address",
         "internalType": "address"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV3",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV4",
-    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -839,25 +817,6 @@
   },
   {
     "type": "event",
-    "name": "LossResolutionBlockMigrated",
-    "inputs": [
-      {
-        "name": "oldValue",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "newValue",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "OwnershipTransferStarted",
     "inputs": [
       {
@@ -1213,6 +1172,37 @@
   },
   {
     "type": "error",
+    "name": "FreshInitializationOnExistingState",
+    "inputs": [
+      {
+        "name": "layoutVersion",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "nextVaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "vaultCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "activeVaultCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
   },
@@ -1481,6 +1471,17 @@
     "type": "error",
     "name": "VaultNotWindingDown",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultRegistryFreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "layoutVersion",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
   },
   {
     "type": "error",

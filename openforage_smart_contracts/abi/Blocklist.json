@@ -163,29 +163,6 @@
   },
   {
     "type": "function",
-    "name": "importLegacyBlockedInterval",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "start",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "end",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -426,30 +403,6 @@
     "stateMutability": "view"
   },
   {
-    "type": "function",
-    "name": "wasEffectivelyBlockedAt",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "timepoint",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
     "type": "event",
     "name": "AddressBlocked",
     "inputs": [
@@ -566,62 +519,6 @@
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "LegacyBlockedCheckpointImported",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "key",
-        "type": "uint48",
-        "indexed": true,
-        "internalType": "uint48"
-      },
-      {
-        "name": "previousValue",
-        "type": "uint208",
-        "indexed": false,
-        "internalType": "uint208"
-      },
-      {
-        "name": "newValue",
-        "type": "uint208",
-        "indexed": false,
-        "internalType": "uint208"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "LegacyBlockedIntervalImported",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "start",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "end",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -746,6 +643,17 @@
   },
   {
     "type": "error",
+    "name": "BlocklistLegacyStateUnsupported",
+    "inputs": [
+      {
+        "name": "storedVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CallerNotAllowed",
     "inputs": [
       {
@@ -794,11 +702,6 @@
   {
     "type": "error",
     "name": "InvalidInitialization",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidLegacyInterval",
     "inputs": []
   },
   {

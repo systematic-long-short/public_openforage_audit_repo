@@ -1,47 +1,33 @@
-# OpenForage Public Smart Contract Audit Snapshot
+# OpenForage public contract review
 
-This repository is a selective production-source snapshot for independent review. It is not a deployment repository or a copy of the private monorepo.
+This repository is a selective source snapshot for independent review. It is not a deployment repository or a copy of the private monorepo.
 
-## Public snapshot identity
+## Snapshot scope
 
-The copied public history starts at PR 9 head `bd005bad4fe3432401a6e4ae920830e267369e38`, based on public commit `6fbbc51c4da48fce46f7119d1053088ba119d7bf`. This packet prepares a local review candidate only. It does not update a remote branch, open a pull request, change a label, or start an Octane analysis.
+The direct map remains 59 files: 33 Solidity source, interface, and module files; 18 ABI files; and 8 selected deployment-script and interface files. It includes the three source paths previously added to PR #9, including the Treasury accounting module. C9 changes the already-mapped `RISKUSDVault.sol`; no mapped ABI or selected script changed, and no new first-party source/interface/module/ABI path was added. Both root dependency Gitlinks and all nine recursive pins remain unchanged. Vendor source stays behind those pins. Private audit records, run logs, packet text, deployment state, credentials, and non-allowlisted scripts and tooling are excluded.
 
-The measured source overlay covers 62 paths: 30 Solidity sources, 18 ABI artifacts, two public status documents, two Semgrep manifest/exception files, and ten scripts or interfaces. `README.md` is an additional required path. `documentation/review_commands.md` remains unchanged.
+No first-party contract test path is copied.
 
-The import inventory distinguishes 91 dependency source files from the two top-level and nine recursive Gitlinks. The top-level pins are Chainlink CCIP `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441` and OpenZeppelin upgradeable contracts `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`. The `lib/` entries remain Gitlinks, not copied vendor trees.
+## Analysis 9 status
 
-## Candidate source changes
+See [`Analysis 9 dispositions`](documentation/smart_contract_audits/2026-09-29-analysis-9-dispositions.md) for all 21 primary findings, 11 related cases, and the current bounded review results. The 155 analysis 1–8 identities remain unchanged in [`the historical record`](documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md). Warning 28 retains its dated missing-capture gap. The saved Analysis 9 acknowledgements remain `Other`; no finding is marked resolved.
 
-The public source overlay includes candidate changes to governance bounds, voting history, vault accounting, Bridge settlement, queue ordering, expiry handling, Registry accounting, Treasury claim funding, and deployment setup. The exact paths remain under `openforage_smart_contracts/`. These are source claims, not deployed behavior or final independent acceptance.
+Completed source reviews keep every Analysis 9 disposition bounded. The Treasury helper-readiness guard is accepted only as a source correction; A9-02 is not fully closed. A9-03 remains `ACCEPT_BOUNDED` for net-basis accounting. The related case is now `ACCEPT_BOUNDED` at source level: ordinary redemption leaves active-window public mint use consumed, so a redeemed position can leave shared headroom occupied until its active window resets. This is temporary aggregate cap contention, not a fairness guarantee or a risk-acceptance decision. A9-6, A9-9, A9-10, A9-14, A9-19, and A9-20 retain their specific source limits. No legacy-proxy, deployment, or current Octane proof exists. A9-21 whole-query gas remains unmeasured.
 
-The configured distributor route may pay a recipient who is not allow-listed when that recipient is not blocklisted. A paid recipient gains no system-account status or restricted-call permission. External vesting approval does not create those rights either.
+The separate introduced-analyzer review agrees with 187 source-bounded row dispositions. One scanner-coverage issue remains under private repair, so the final Semgrep evidence is not treated as exact-bound. Pre-existing analyzer rows remain separate and open; no full static pass is claimed.
 
-## Saved proof and open findings
+## Policy boundaries
 
-The saved final compiler pair used Forge 1.3.5, Solidity 0.8.24, and Cancun settings against 125 source inputs. The checker repair updates JavaScript source-text controls and their bound manifest only; it changes no Solidity compiler input or ABI. This candidate reuses the saved pair and does not rerun a compiler or analyzer.
+Only fresh deployments are supported. New code must refuse pre-fresh state before changing it. No legacy migration engine is supported. In the Blocklist, the legacy importer and interval-translation path are removed; fresh initialization sets the layout version and every state-changing entrypoint checks it before effects. The historical checkpoint lookup uses `wasBlockedAt`; the retained pre-checkpoint mapping is inert and remains only for layout. Completed review 0645 accepts this Blocklist repair as a source-only bounded result; it proves no old-proxy or deployed-state behavior. The first upgrade still uses the authorizer in the implementation already installed. These rules do not prove every deployed proxy or upgrade path.
 
-- The default-profile compiler produced no compiler errors, but its command exited 1. Six runtime-size limits and the `atRISKUSD` initcode limit remain over the configured boundaries.
-- The Deploy profile exited 0, produced no compiler errors, and fit all 20 measured runtime/initcode pairs. This result does not clear the default profile.
-- The saved ABI comparison matched all 17 source-backed artifacts. `FoundationTreasury.json` remains the source-less orphan.
-- The storage baseline remains red at 14 checks and five divergences. The saved current-layout comparison does not establish old-proxy state, a migration, or upgrade safety.
-- Slither reported 326 unique findings with process exit 255, while its JSON says `success: true` and `error: null`. The unchanged suppression checker matched 8 rows, left 318 unmatched and 60 stale, and exited 1.
-- Configured Semgrep reported seven findings over 48 inputs. The disjointness configuration reported zero over 34 inputs. The exception-free configuration reported 57 over 48 inputs. These outputs are separate; none is a full static pass.
-- Two Windows MSVC checks remain red because the required native compiler and SDK were not available. No Windows result is inferred from another target.
+Profit belongs to the holders at recognition. Unpaid profit stays a separate claim and is paid only when cash arrives. Withdrawals use cash-backed share value and available cash; they promise no payment date. A reported custodian loss belongs to holders at report time. Transfers and exits that could avoid that loss stay frozen through settlement.
 
-All 155 captured `(analysis, UUID)` identities remain in the public remediation ledger. The counts are 55, 11, 9, 14, 9, 5, 28, and 24 for analyses 1 through 8. The latest completed analysis is 8; its 24 rows are acknowledged. Acknowledgement changes workflow reporting only. This candidate does not claim a finding is resolved because of an acknowledgement or a missing later result.
+The distributor is the trusted payer, not the recipient. Payment grants no system-account status or restricted-call permission.
 
-Warning 28 retains UUID `3c2ba48b-3798-4f57-beba-90dc904af4d8`. The later 2026-09-25 description capture remains identified, but the original 2026-09-24 capture bytes are missing. No original description has been reconstructed.
+## Build and verification limits
 
-A8-14 remains `Other` and open. A conditional source calculation reported 31,555,113 required and 29,061,962 spent against a dated 32,000,000 comparison. This is not measured gas or a complete transaction bound. The current transaction cap, arbitrary-provider behavior, and legacy funded-proxy state remain unanswered.
+Forge 1.3.5 and Solc 0.8.24 compiled 130 inputs in both profiles with the first-party test tree excluded. Default code generation completed with zero compiler errors, but its child exited 1 on three EIP-170 runtime overages: ForageGovernor (27,458 bytes), StakingQueue (27,382 bytes), USDCTreasury (27,671 bytes). Default initcode has no overage; CustodianRegistry is 1 byte below EIP-170 and atRISKUSD initcode is 48,156 bytes, 996 bytes below EIP-3860. Deploy exited 0 with all 22 first-party runtime/initcode pairs fitting; USDCTreasury is 24,168 runtime bytes, 408 bytes below EIP-170. See [`review commands and sizes`](documentation/review_commands.md).
 
-## Test and deployment boundaries
+All 18 ABI files match the mapped source; 17 have compiler source definitions and `FoundationTreasury.json` remains source-less. The historical storage check remains red at 14 OK and 7 divergences.
 
-`make -C openforage_smart_contracts no-tests` returned `NO_TESTS_INVENTORY_PASS`. It checks the first-party test paths, named test-only controls, and their tracked paths. It is an inventory result, not a contract-test pass. This packet ran no contract test, fuzz/formal campaign, Anvil stack, runtime simulation, or gas simulation.
-
-The pinned upstream submodules contain their own test-looking files. They are vendor files under dependency Gitlinks, not first-party tests in this repository. The dated 2026-06-09 audit record retains historical log files, including earlier test-named logs; this packet did not execute, refresh, or treat them as current evidence. Deployment scripts remain reviewable controls and were not run.
-
-Removing tests does not clear any finding. No full Octane audit, new Octane analysis, public write, deployment, or chain action was performed for this candidate.
-
-## Review documents
-
-See [`documentation/audit_scope.md`](documentation/audit_scope.md), [`documentation/review_commands.md`](documentation/review_commands.md), and [`documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md`](documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md) for scope, commands, the finding census, source changes, and remaining conditions.
+Full Slither, configured Semgrep, and the full static-audit route did not run on this candidate. The 187 introduced analyzer rows retain their per-row source-bounded independent-review dispositions; one scanner-coverage issue remains, and pre-existing analyzer rows remain separate. `SL-28` still needs a current `RISKUSDVault.sol` source rebind. Two Windows CLI rows remain failed. No first-party contract test, runtime, deployed-state, chain, or Octane result is claimed.

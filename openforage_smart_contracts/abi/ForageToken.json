@@ -45,6 +45,19 @@
   },
   {
     "type": "function",
+    "name": "DOMAIN_SEPARATOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "FORAGE_TREASURY_ALLOCATION",
     "inputs": [],
     "outputs": [
@@ -162,6 +175,13 @@
   },
   {
     "type": "function",
+    "name": "activateBlocklistRotation",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "allowance",
     "inputs": [
       {
@@ -249,6 +269,76 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "blocklistRotationStatus",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ForageTokenRotationStatus",
+        "components": [
+          {
+            "name": "inventorySupported",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "rotationActive",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "activeGeneration",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pendingGeneration",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "cursor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "inventoryLength",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "processed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "dirty",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "epochCount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "activeBlocklist",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "pendingBlocklist",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -647,7 +737,7 @@
     "name": "nonces",
     "inputs": [
       {
-        "name": "owner",
+        "name": "owner_",
         "type": "address",
         "internalType": "address"
       }
@@ -705,6 +795,56 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "permit",
+    "inputs": [
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "processBlocklistRotation",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -826,6 +966,72 @@
   },
   {
     "type": "function",
+    "name": "sourceEligibilityForBlocklist",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "registeredBeneficiary",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "registrationKnown",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "systemAccount",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "blocklist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "eligibility",
+        "type": "tuple",
+        "internalType": "struct ForageTokenSourceEligibility",
+        "components": [
+          {
+            "name": "allowlisted",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "systemAccount",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "blocked",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "allowedUntil",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "blockedUntil",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "symbol",
     "inputs": [],
     "outputs": [
@@ -836,19 +1042,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "syncDelegateSources",
-    "inputs": [
-      {
-        "name": "sources",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1074,6 +1267,105 @@
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BlocklistRotationActivated",
+    "inputs": [
+      {
+        "name": "oldBlocklist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newBlocklist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "activationTime",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BlocklistRotationProgress",
+    "inputs": [
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "cursor",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "inventoryLength",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "processed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "dirty",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BlocklistRotationStarted",
+    "inputs": [
+      {
+        "name": "currentBlocklist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "candidateBlocklist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "inventoryLength",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1337,6 +1629,25 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "VoteSourceInventoried",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "inventoryLength",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AccountHasActiveLocks",
     "inputs": [
@@ -1407,6 +1718,48 @@
   },
   {
     "type": "error",
+    "name": "BlocklistRotationInProgress",
+    "inputs": [
+      {
+        "name": "pendingBlocklist",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BlocklistRotationIncomplete",
+    "inputs": [
+      {
+        "name": "cursor",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "inventoryLength",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "processed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "dirty",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BlocklistRotationUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CallerNotAllowed",
     "inputs": [
       {
@@ -1441,6 +1794,33 @@
     "type": "error",
     "name": "DelegationBySignatureDisabled",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ECDSAInvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ECDSAInvalidSignatureLength",
+    "inputs": [
+      {
+        "name": "length",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ECDSAInvalidSignatureS",
+    "inputs": [
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1555,6 +1935,33 @@
     "inputs": [
       {
         "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ERC2612ExpiredSignature",
+    "inputs": [
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ERC2612InvalidSigner",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "owner",
         "type": "address",
         "internalType": "address"
       }
@@ -1699,6 +2106,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidProjectionGeneration",
+    "inputs": [
+      {
+        "name": "generation",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "LegacyDelegateSourceIndexCorrupted",
     "inputs": [
       {
@@ -1715,6 +2133,22 @@
         "name": "maximum",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "LegacySourceInventoryUnavailable",
+    "inputs": [
+      {
+        "name": "currentBlocklist",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "proposedBlocklist",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -1780,6 +2214,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ProjectionGenerationExhausted",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1915,6 +2354,28 @@
     "inputs": [
       {
         "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnauthorizedTokenQuery",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedLegacyVestingBeneficiary",
+    "inputs": [
+      {
+        "name": "source",
         "type": "address",
         "internalType": "address"
       }

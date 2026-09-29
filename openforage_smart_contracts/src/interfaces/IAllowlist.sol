@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 interface IAllowlist {
     error CallerNotAllowed(address caller);
     error AllowlistUnavailable();
+    error AllowlistFreshDeploymentRequired(uint256 layoutVersion);
+    error CurrentOwnerMustRemainEligible(address account);
 
     function isAllowed(address account) external view returns (bool);
 

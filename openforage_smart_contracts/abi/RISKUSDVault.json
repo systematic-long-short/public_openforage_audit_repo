@@ -582,6 +582,11 @@
         "internalType": "address"
       },
       {
+        "name": "vaultRegistry_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "initialOwner_",
         "type": "address",
         "internalType": "address"
@@ -605,6 +610,11 @@
         "internalType": "address"
       },
       {
+        "name": "vaultRegistry_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "initialOwner_",
         "type": "address",
         "internalType": "address"
@@ -616,19 +626,6 @@
       },
       {
         "name": "initialLossReporter_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV2",
-    "inputs": [
-      {
-        "name": "vaultRegistry_",
         "type": "address",
         "internalType": "address"
       }
@@ -2997,6 +2994,17 @@
   },
   {
     "type": "error",
+    "name": "FreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InsufficientVaultBalance",
     "inputs": []
   },
@@ -3070,6 +3078,17 @@
         "name": "target",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "LegacyVaultRegistryInitializationUnsupported",
+    "inputs": [
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
       }
     ]
   },

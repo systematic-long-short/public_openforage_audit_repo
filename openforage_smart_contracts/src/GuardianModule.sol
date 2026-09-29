@@ -41,6 +41,8 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     error GuardianCannotMoveFunds();
     error SuccessorNotPreCommitted();
     error RotationNotReady();
+    error RoutineRotationIdOccupied(bytes32 operationId);
+    error GuardianFreshDeploymentRequired(uint256 observedVersion);
 
     // ── Custom events ────────────────────────────────────────────────────
     event GuardianPaused(address indexed guardian, address indexed target);
@@ -117,21 +119,6 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         bool exists;
     }
 
-    struct GuardianScheduleBatchHeader {
-        uint256 targetsOffset;
-        uint256 valuesOffset;
-        uint256 calldatasOffset;
-        uint256 targetsLength;
-        uint256 valuesEnd;
-        uint256 calldatasCount;
-        uint256 calldatasElementsHead;
-    }
-
-    struct GuardianScheduleBatch {
-        address[] targets;
-        bytes[] calldatas;
-    }
-
     mapping(bytes32 => mapping(address => address)) public preCommittedSuccessor;
     mapping(bytes32 => address) public activeSlotHolder;
     mapping(bytes32 => Rotation) internal _rotations;
@@ -141,13 +128,29 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     mapping(bytes32 => uint256) internal _routineRotationGenerations;
 
     /// @dev Reserved storage gap for future upgrades.
-    uint256[34] private __gap;
+    uint256 private _freshLayoutVersion;
+    uint256[33] private __gap;
 
     // ── Constructor ──────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    modifier freshOnly() {
+        _requireFreshDeployment();
+        _;
+    }
+
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    function _requireFreshDeployment() private view {
+        uint256 version = _freshLayoutVersion;
+        if (version != 1) revert GuardianFreshDeploymentRequired(version);
     }
 
     // ── Initializer ──────────────────────────────────────────────────────
@@ -157,7 +160,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         address timelock_,
         address[] calldata initialGuardians_,
         uint256[] calldata initialGuardianPermissions_
-    ) external initializer {
+    ) external onlyDuringConstructionBeforeInitialization initializer {
         if (governor_ == address(0)) revert ZeroAddress();
         if (timelock_ == address(0)) revert ZeroAddress();
         if (initialGuardians_.length != initialGuardianPermissions_.length) revert ArrayLengthMismatch();
@@ -180,11 +183,12 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 ++i;
             }
         }
+        _freshLayoutVersion = 1;
     }
 
     // ── Guardian functions ───────────────────────────────────────────────
 
-    function guardianPause(address target) external onlyAllowedCaller {
+    function guardianPause(address target) external freshOnly onlyAllowedCaller {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
         if (permissions == 0) revert NotGuardian();
@@ -206,7 +210,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     /// @notice OF-001 (8th audit): Blocks guardian from cancelling proposals that would
     /// remove or modify their own guardian permissions (governance entrenchment prevention).
-    function guardianCancel(uint256 proposalId) external onlyAllowedCaller {
+    function guardianCancel(uint256 proposalId) external freshOnly onlyAllowedCaller {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
         if (permissions == 0) revert NotGuardian();
@@ -229,6 +233,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     function guardianExecuteEmergency(address[] calldata targets, uint256[] calldata values, bytes[] calldata calldatas)
         external
+        freshOnly
         onlyAllowedCaller
     {
         _requireCurrentGuardianModule();
@@ -282,7 +287,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     /// @dev OF-16-014: Validates bitmask against MAX_VALID_PERMISSIONS.
     /// @dev OF-16-005: Forbids PERMISSION_CAN_PAUSE | PERMISSION_CAN_CANCEL on same guardian.
-    function setGuardianPermissions(address guardian_, uint256 permissions) external onlyAllowedCaller {
+    function setGuardianPermissions(address guardian_, uint256 permissions) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         _requireVerifiedAccount(guardian_);
@@ -316,7 +321,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         );
     }
 
-    function removeGuardian(address guardian_) external onlyAllowedCaller {
+    function removeGuardian(address guardian_) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         if (guardianPermissions[guardian_] == 0) revert NotGuardian();
@@ -343,7 +348,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     /// @notice Add or remove an address from the pausable target whitelist.
     /// @param target The contract address to whitelist or de-whitelist.
     /// @param allowed True to add, false to remove.
-    function setPausableTarget(address target, bool allowed) external onlyAllowedCaller {
+    function setPausableTarget(address target, bool allowed) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (target == address(0)) revert ZeroAddress();
         _pausableTargets[target] = allowed;
@@ -351,7 +356,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         emit GuardianFastPathRationale(GuardianModule.setPausableTarget.selector, RATIONALE_PAUSABLE_TARGET_FAST_PATH);
     }
 
-    function setPreCommittedSuccessor(bytes32 slot, address current, address successor) external onlyAllowedCaller {
+    function setPreCommittedSuccessor(bytes32 slot, address current, address successor)
+        external
+        freshOnly
+        onlyAllowedCaller
+    {
         _requireCurrentTimelockAuthority();
         if (slot == bytes32(0) || current == address(0) || successor == address(0)) revert ZeroAddress();
         _requireVerifiedAccount(successor);
@@ -363,6 +372,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     function proposeAcceleratedRotation(bytes32 slot, address current, address successor)
         external
+        freshOnly
         onlyAllowedCaller
         returns (bytes32)
     {
@@ -371,7 +381,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         return _proposeAcceleratedRotation(slot, current, successor);
     }
 
-    function approveAcceleratedRotation(bytes32 operationId) external onlyAllowedCaller {
+    function approveAcceleratedRotation(bytes32 operationId) external freshOnly onlyAllowedCaller {
         _requireGuardian(msg.sender);
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists) revert InvalidParameter();
@@ -392,7 +402,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         return _rotations[operationId].readyAt;
     }
 
-    function executeAcceleratedRotation(bytes32 operationId) external onlyAllowedCaller {
+    function executeAcceleratedRotation(bytes32 operationId) external freshOnly onlyAllowedCaller {
         Rotation storage rotation = _rotations[operationId];
         if (rotation.readyAt == 0 || block.timestamp < rotation.readyAt || rotation.executed) {
             revert RotationNotReady();
@@ -413,6 +423,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     function proposeRoutineRotation(bytes32 slot, address current, address successor)
         external
+        freshOnly
         onlyAllowedCaller
         returns (bytes32)
     {
@@ -421,18 +432,24 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         bytes32 tupleId = _routineRotationTupleId(slot, current, successor);
         uint256 generation = _routineRotationGenerations[tupleId];
         bytes32 operationId = _rotationOperationId(tupleId, generation);
-        Rotation storage rotation = _rotations[operationId];
-        if (!rotation.exists) {
-            rotation.slot = slot;
-            rotation.current = current;
-            rotation.successor = successor;
-            rotation.proposedAt = block.timestamp;
-            rotation.exists = true;
+        Rotation storage existing = _rotations[operationId];
+        if (existing.exists) {
+            if (!existing.executed) return operationId;
+            generation += 1;
+            operationId = _rotationOperationId(tupleId, generation);
+            if (_rotations[operationId].exists) revert RoutineRotationIdOccupied(operationId);
+            _routineRotationGenerations[tupleId] = generation;
         }
+        Rotation storage next = _rotations[operationId];
+        next.slot = slot;
+        next.current = current;
+        next.successor = successor;
+        next.proposedAt = block.timestamp;
+        next.exists = true;
         return operationId;
     }
 
-    function finalizeRoutineRotation(bytes32 operationId) external onlyAllowedCaller {
+    function finalizeRoutineRotation(bytes32 operationId) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists || rotation.executed) revert RotationNotReady();
@@ -466,7 +483,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     // ── OF-016: Governor/Timelock update functions ──────────────────────
 
     /// @notice OF-016: Update the governor address. Only callable by the timelock.
-    function updateGovernor(address newGovernor) external onlyAllowedCaller {
+    function updateGovernor(address newGovernor) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (newGovernor == address(0)) revert ZeroAddress();
         address oldGovernor = governor;
@@ -477,7 +494,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     /// @notice OF-L04: Propose a new timelock address. Only callable by the current timelock.
     /// Two-step pattern prevents irrecoverable loss from setting a wrong timelock address.
     /// @dev OF-NEW-07 (12th audit): Records proposal timestamp for FINALIZE_DELAY enforcement.
-    function proposeTimelock(address newTimelock) external onlyAllowedCaller {
+    function proposeTimelock(address newTimelock) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (newTimelock == address(0)) revert ZeroAddress();
         pendingTimelock = newTimelock;
@@ -487,7 +504,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     /// @notice OF-L04: Accept the pending timelock role. Only callable by the pending timelock.
     /// @dev OF-NEW-07 (12th audit): Enforces FINALIZE_DELAY and PROPOSAL_EXPIRY.
-    function acceptTimelock() external onlyAllowedCaller {
+    function acceptTimelock() external freshOnly onlyAllowedCaller {
         if (msg.sender != pendingTimelock) revert NotPendingTimelock();
         if (block.timestamp < timelockProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > timelockProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -499,7 +516,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     }
 
     /// @notice Wire the allowlist that gates every entry point. Timelock authority only.
-    function setAllowlist(address allowlist_) external {
+    function setAllowlist(address allowlist_) external freshOnly {
         _requireCurrentTimelockAuthority();
         _transitionAllowlist(allowlist_);
     }
@@ -575,13 +592,20 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     // ── OF-011: UUPS upgrade authorization ────────────────────────────
 
     /// @dev Caller gate on the inherited upgrade entry point; runs before the proxy check.
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
     /// @dev OF-011: Only the timelock can authorize upgrades.
     /// OF-031: Clear pendingTimelock on upgrade to prevent stale two-step state.
     function _authorizeUpgrade(address) internal override {
+        _requireFreshDeployment();
         _requireCurrentTimelockAuthority();
         // OF-16-021: Emit event when pending timelock is cleared by upgrade
         if (pendingTimelock != address(0)) {
@@ -883,40 +907,33 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
             }
             if (selector == _GOVERNOR_RELAY_SELECTOR) {
                 _consumeGuardianVisits(budget, 1);
-                _requireGuardianDepth(depth);
-                (bool ok, address nestedTarget, bytes memory nestedData) = _tryDecodeRelayForGuardianScan(data);
-                if (!ok || nestedData.length >= data.length) revert SelfTargetingGuardianMutation();
-                return _isSelfTargetingGuardianMutation(guardian_, nestedTarget, nestedData, depth + 1, budget);
+                (bool ok, GovernancePayloadBudget.OperationPayload memory nested) =
+                    GovernancePayloadBudget.tryDecodeRelay(data);
+                if (!ok) revert SelfTargetingGuardianMutation();
+                if (nested.data.length >= data.length) revert SelfTargetingGuardianMutation();
+                bool protectedChild = nested.target == governor || nested.target == timelock;
+                if (protectedChild) _requireGuardianDepth(depth);
+                return _isSelfTargetingGuardianMutation(
+                    guardian_, nested.target, nested.data, protectedChild ? depth + 1 : depth, budget
+                );
             }
         }
 
         if (target == timelock) {
             if (selector == _TIMELOCK_SCHEDULE_SELECTOR) {
                 _consumeGuardianVisits(budget, 1);
-                _requireGuardianDepth(depth);
-                (bool ok, address nestedTarget, bytes memory nestedData) = _tryDecodeScheduleForGuardianScan(data);
-                if (!ok || nestedData.length >= data.length) revert SelfTargetingGuardianMutation();
-                return _isSelfTargetingGuardianMutation(guardian_, nestedTarget, nestedData, depth + 1, budget);
+                (bool ok, GovernancePayloadBudget.OperationPayload memory nested) =
+                    GovernancePayloadBudget.tryDecodeSchedule(data);
+                if (!ok) revert SelfTargetingGuardianMutation();
+                if (nested.data.length >= data.length) revert SelfTargetingGuardianMutation();
+                bool protectedChild = nested.target == governor || nested.target == timelock;
+                if (protectedChild) _requireGuardianDepth(depth);
+                return _isSelfTargetingGuardianMutation(
+                    guardian_, nested.target, nested.data, protectedChild ? depth + 1 : depth, budget
+                );
             }
             if (selector == _TIMELOCK_SCHEDULE_BATCH_SELECTOR) {
-                (bool ok, GuardianScheduleBatch memory nestedBatch) =
-                    _tryDecodeScheduleBatchForGuardianScan(data, budget, depth);
-                if (!ok || nestedBatch.targets.length != nestedBatch.calldatas.length) {
-                    revert SelfTargetingGuardianMutation();
-                }
-                for (uint256 i; i < nestedBatch.targets.length;) {
-                    if (nestedBatch.calldatas[i].length >= data.length) revert SelfTargetingGuardianMutation();
-                    if (
-                        _isSelfTargetingGuardianMutation(
-                            guardian_, nestedBatch.targets[i], nestedBatch.calldatas[i], depth + 1, budget
-                        )
-                    ) {
-                        return true;
-                    }
-                    unchecked {
-                        ++i;
-                    }
-                }
+                return _scanScheduleBatchForSelfMutation(guardian_, data, depth, budget);
             }
         }
 
@@ -944,6 +961,54 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         return selector == _UPGRADE_TO_AND_CALL_SELECTOR || selector == GuardianModule.proposeTimelock.selector;
     }
 
+    function _scanScheduleBatchForSelfMutation(
+        address guardian_,
+        bytes memory data,
+        uint256 depth,
+        GovernancePayloadBudget.Budget memory budget
+    ) private view returns (bool) {
+        (bool headerOk, GovernancePayloadBudget.ScheduleBatchHeader memory header) =
+            GovernancePayloadBudget.tryReadScheduleBatchHeader(data);
+        if (!headerOk) revert SelfTargetingGuardianMutation();
+        _consumeGuardianVisits(budget, header.targetsLength);
+        (bool targetsOk, address[] memory targets) = GovernancePayloadBudget.tryReadScheduleBatchTargets(data, header);
+        if (!targetsOk) revert SelfTargetingGuardianMutation();
+        for (uint256 i; i < targets.length;) {
+            if ((targets[i] == governor || targets[i] == timelock)) _requireGuardianDepth(depth);
+            unchecked {
+                ++i;
+            }
+        }
+        (bool batchOk, GovernancePayloadBudget.ScheduleBatchPayload memory batch) =
+            GovernancePayloadBudget.tryDecodeScheduleBatch(data, header, targets);
+        if (!batchOk || batch.targets.length != batch.calldatas.length) revert SelfTargetingGuardianMutation();
+        return _scanScheduleBatchChildren(guardian_, data, depth, budget, batch);
+    }
+
+    function _scanScheduleBatchChildren(
+        address guardian_,
+        bytes memory data,
+        uint256 depth,
+        GovernancePayloadBudget.Budget memory budget,
+        GovernancePayloadBudget.ScheduleBatchPayload memory batch
+    ) private view returns (bool) {
+        for (uint256 i; i < batch.targets.length;) {
+            address nestedTarget = batch.targets[i];
+            bytes memory nestedData = batch.calldatas[i];
+            bool protectedChild = nestedTarget == governor || nestedTarget == timelock;
+            if (protectedChild && nestedData.length >= data.length) revert SelfTargetingGuardianMutation();
+            if (
+                _isSelfTargetingGuardianMutation(
+                    guardian_, nestedTarget, nestedData, protectedChild ? depth + 1 : depth, budget
+                )
+            ) return true;
+            unchecked {
+                ++i;
+            }
+        }
+        return false;
+    }
+
     function _consumeGuardianVisits(GovernancePayloadBudget.Budget memory budget, uint256 visits) private pure {
         uint256 maximum = GovernancePayloadBudget.MAX_NESTED_ACTION_VISITS;
         if (visits > maximum - budget.nestedVisits) revert SelfTargetingGuardianMutation();
@@ -967,6 +1032,12 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         }
     }
 
+    function _wordAt(bytes memory data, uint256 offset) private pure returns (uint256 word) {
+        assembly ("memory-safe") {
+            word := mload(add(add(data, 0x20), offset))
+        }
+    }
+
     function _isCurrentDownstreamGuardianModuleTarget(address target) internal view returns (bool) {
         if (target == address(this) || target == governor || target.code.length == 0 || !_pausableTargets[target]) {
             return false;
@@ -983,363 +1054,6 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
             module_ := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
         }
         return ok && returnSize >= 32 && module_ == address(this);
-    }
-
-    function _tryDecodeRelayForGuardianScan(bytes memory data)
-        internal
-        pure
-        returns (bool ok, address nestedTarget, bytes memory nestedData)
-    {
-        if (!_hasRange(data, 4, 96)) return (false, address(0), nestedData);
-
-        uint256 dataOffset = _wordAt(data, 68);
-        if (dataOffset != 96 || !_tryBytesTailEndsAtCallData(data, 4, dataOffset, 96)) {
-            return (false, address(0), nestedData);
-        }
-        (bool targetOk, address decodedTarget) = _tryReadAddress(data, 4);
-        if (!targetOk) return (false, address(0), nestedData);
-
-        (bool dataOk, bytes memory decodedData) = _tryReadBytes(data, 4, dataOffset, 96);
-        if (!dataOk) return (false, address(0), nestedData);
-
-        return (true, decodedTarget, decodedData);
-    }
-
-    function _tryDecodeScheduleForGuardianScan(bytes memory data)
-        internal
-        pure
-        returns (bool ok, address nestedTarget, bytes memory nestedData)
-    {
-        if (!_hasRange(data, 4, 192)) return (false, address(0), nestedData);
-
-        uint256 dataOffset = _wordAt(data, 68);
-        if (dataOffset != 192 || !_tryBytesTailEndsAtCallData(data, 4, dataOffset, 192)) {
-            return (false, address(0), nestedData);
-        }
-        (bool targetOk, address decodedTarget) = _tryReadAddress(data, 4);
-        if (!targetOk) return (false, address(0), nestedData);
-
-        (bool dataOk, bytes memory decodedData) = _tryReadBytes(data, 4, dataOffset, 192);
-        if (!dataOk) return (false, address(0), nestedData);
-
-        return (true, decodedTarget, decodedData);
-    }
-
-    function _tryDecodeScheduleBatchForGuardianScan(
-        bytes memory data,
-        GovernancePayloadBudget.Budget memory budget,
-        uint256 depth
-    ) internal pure returns (bool ok, GuardianScheduleBatch memory batch) {
-        (bool headerOk, GuardianScheduleBatchHeader memory header) = _tryReadScheduleBatchHeader(data);
-        if (!headerOk) return (false, batch);
-
-        _consumeGuardianVisits(budget, header.targetsLength);
-        if (header.targetsLength != 0) _requireGuardianDepth(depth);
-        return _tryReadScheduleBatchContents(data, header);
-    }
-
-    function _tryReadScheduleBatchHeader(bytes memory data)
-        private
-        pure
-        returns (bool ok, GuardianScheduleBatchHeader memory header)
-    {
-        if (!_hasRange(data, 4, 192)) return (false, header);
-
-        header.targetsOffset = _wordAt(data, 4);
-        header.valuesOffset = _wordAt(data, 36);
-        header.calldatasOffset = _wordAt(data, 68);
-        {
-            (bool targetsOk, uint256 targetsLength, uint256 targetsEnd) =
-                _tryReadAddressArrayLength(data, 4, header.targetsOffset, 192);
-            if (!targetsOk || header.valuesOffset != targetsEnd) return (false, header);
-            header.targetsLength = targetsLength;
-
-            (bool valuesOk, uint256 valuesLength) = _tryReadUint256ArrayLength(data, 4, header.valuesOffset, targetsEnd);
-            header.valuesEnd = header.valuesOffset + 32 + valuesLength * 32;
-            if (!valuesOk || valuesLength != header.targetsLength || header.calldatasOffset != header.valuesEnd) {
-                return (false, header);
-            }
-        }
-        {
-            (bool calldatasOk, uint256 calldatasCount, uint256 calldatasElementsHead) =
-                _tryReadBytesArrayLength(data, 4, header.calldatasOffset, header.valuesEnd);
-            if (!calldatasOk || calldatasCount != header.targetsLength) return (false, header);
-            header.calldatasCount = calldatasCount;
-            header.calldatasElementsHead = calldatasElementsHead;
-        }
-        return (true, header);
-    }
-
-    function _tryReadScheduleBatchContents(bytes memory data, GuardianScheduleBatchHeader memory header)
-        private
-        pure
-        returns (bool ok, GuardianScheduleBatch memory batch)
-    {
-        uint256 targetsElementsHead = 4 + header.targetsOffset + 32;
-        if (!_tryValidateAddressArrayContents(data, targetsElementsHead, header.targetsLength)) {
-            return (false, batch);
-        }
-        if (!_tryValidateBytesArrayContents(data, header.calldatasElementsHead, header.calldatasCount)) {
-            return (false, batch);
-        }
-
-        (bool readTargets, address[] memory decodedTargets) = _tryReadAddressArray(data, 4, header.targetsOffset, 192);
-        if (!readTargets) return (false, batch);
-        (bool readCalldatas, bytes[] memory decodedCalldatas) =
-            _tryReadBytesArray(data, 4, header.calldatasOffset, header.valuesEnd);
-        if (!readCalldatas) return (false, batch);
-
-        batch.targets = decodedTargets;
-        batch.calldatas = decodedCalldatas;
-        return (true, batch);
-    }
-
-    function _tryReadAddress(bytes memory data, uint256 offset) internal pure returns (bool ok, address account) {
-        if (!_hasRange(data, offset, 32)) return (false, address(0));
-        uint256 word = _wordAt(data, offset);
-        if (word > type(uint160).max) return (false, address(0));
-        return (true, address(uint160(word)));
-    }
-
-    function _tryReadAddressArray(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, address[] memory accounts)
-    {
-        (bool headOk, uint256 count, uint256 endOffset) =
-            _tryReadAddressArrayLength(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, accounts);
-
-        uint256 elementsHead = baseOffset + dynamicOffset + 32;
-        if (endOffset > data.length - baseOffset) return (false, accounts);
-        accounts = new address[](count);
-        for (uint256 i; i < count;) {
-            (bool elementOk, address account) = _tryReadAddress(data, elementsHead + i * 32);
-            if (!elementOk) return (false, accounts);
-            accounts[i] = account;
-            unchecked {
-                ++i;
-            }
-        }
-        return (true, accounts);
-    }
-
-    function _tryReadAddressArrayLength(
-        bytes memory data,
-        uint256 baseOffset,
-        uint256 dynamicOffset,
-        uint256 minTailOffset
-    ) internal pure returns (bool ok, uint256 count, uint256 endOffset) {
-        (bool headOk, uint256 arrayHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, 0, 0);
-
-        count = _wordAt(data, arrayHead);
-        uint256 elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return (false, 0, 0);
-        endOffset = dynamicOffset + 32 + count * 32;
-        return (true, count, endOffset);
-    }
-
-    function _tryValidateAddressArrayContents(bytes memory data, uint256 elementsHead, uint256 count)
-        private
-        pure
-        returns (bool)
-    {
-        for (uint256 i; i < count;) {
-            (bool elementOk,) = _tryReadAddress(data, elementsHead + i * 32);
-            if (!elementOk) return false;
-            unchecked {
-                ++i;
-            }
-        }
-        return true;
-    }
-
-    function _tryReadUint256ArrayLength(
-        bytes memory data,
-        uint256 baseOffset,
-        uint256 dynamicOffset,
-        uint256 minTailOffset
-    ) internal pure returns (bool ok, uint256 count) {
-        (bool headOk, uint256 arrayHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, 0);
-
-        count = _wordAt(data, arrayHead);
-        uint256 elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return (false, 0);
-        return (true, count);
-    }
-
-    function _tryReadBytesArrayLength(
-        bytes memory data,
-        uint256 baseOffset,
-        uint256 dynamicOffset,
-        uint256 minTailOffset
-    ) private pure returns (bool ok, uint256 count, uint256 elementsHead) {
-        (bool headOk, uint256 arrayHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, 0, 0);
-
-        count = _wordAt(data, arrayHead);
-        elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return (false, 0, 0);
-        return (true, count, elementsHead);
-    }
-
-    function _tryReadBytesArray(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, bytes[] memory values)
-    {
-        (bool headOk, uint256 count, uint256 elementsHead) =
-            _tryReadBytesArrayLength(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk || !_tryValidateBytesArrayContents(data, elementsHead, count)) return (false, values);
-        values = new bytes[](count);
-        uint256 minElementTailOffset = count * 32;
-        for (uint256 i; i < count;) {
-            (bool elementOk, bytes memory value, uint256 nextElementTailOffset) =
-                _tryReadBytesArrayElement(data, elementsHead, i, minElementTailOffset);
-            if (!elementOk) return (false, values);
-            values[i] = value;
-            minElementTailOffset = nextElementTailOffset;
-            unchecked {
-                ++i;
-            }
-        }
-        return (true, values);
-    }
-
-    function _tryReadBytesArrayElement(bytes memory data, uint256 elementsHead, uint256 index, uint256 minTailOffset)
-        private
-        pure
-        returns (bool ok, bytes memory value, uint256 nextTailOffset)
-    {
-        uint256 elementHead = elementsHead + index * 32;
-        uint256 relativeOffset = _wordAt(data, elementHead);
-        (bool elementOk, bytes memory decodedValue) = _tryReadBytes(data, elementsHead, relativeOffset, minTailOffset);
-        if (!elementOk) return (false, decodedValue, 0);
-        uint256 lengthHead = elementsHead + relativeOffset;
-        uint256 valueLength = _wordAt(data, lengthHead);
-        uint256 padding = (32 - (valueLength % 32)) % 32;
-        nextTailOffset = relativeOffset + 32 + valueLength + padding;
-        return (true, decodedValue, nextTailOffset);
-    }
-
-    function _tryValidateBytesArrayContents(bytes memory data, uint256 elementsHead, uint256 count)
-        private
-        pure
-        returns (bool)
-    {
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return false;
-        uint256 relativeEnd = count * 32;
-        for (uint256 i; i < count;) {
-            uint256 relativeOffset = _wordAt(data, elementsHead + i * 32);
-            if (relativeOffset != relativeEnd || relativeOffset > data.length - elementsHead) return false;
-            uint256 lengthHead = elementsHead + relativeOffset;
-            if (!_hasRange(data, lengthHead, 32)) return false;
-            uint256 valueLength = _wordAt(data, lengthHead);
-            if (valueLength >= data.length) return false;
-            uint256 valueOffset = lengthHead + 32;
-            if (!_hasRange(data, valueOffset, valueLength)) return false;
-            uint256 padding = (32 - (valueLength % 32)) % 32;
-            if (padding > data.length - valueOffset - valueLength) return false;
-            uint256 paddedLength = valueLength + padding;
-            for (uint256 j = valueLength; j < paddedLength;) {
-                if (data[valueOffset + j] != 0) return false;
-                unchecked {
-                    ++j;
-                }
-            }
-            relativeEnd = relativeOffset + 32 + paddedLength;
-            unchecked {
-                ++i;
-            }
-        }
-        return elementsHead + relativeEnd == data.length;
-    }
-
-    function _tryReadBytes(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, bytes memory value)
-    {
-        (bool headOk, uint256 lengthHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, value);
-
-        uint256 byteLength = _wordAt(data, lengthHead);
-        if (byteLength >= data.length) return (false, value);
-        uint256 valueOffset = lengthHead + 32;
-        if (!_hasRange(data, valueOffset, byteLength)) return (false, value);
-
-        uint256 padding = (32 - (byteLength % 32)) % 32;
-        if (padding > data.length - valueOffset - byteLength) return (false, value);
-        uint256 paddedLength = byteLength + padding;
-        for (uint256 i = byteLength; i < paddedLength;) {
-            if (data[valueOffset + i] != 0) return (false, value);
-            unchecked {
-                ++i;
-            }
-        }
-
-        return (true, _copyBytes(data, valueOffset, byteLength));
-    }
-
-    function _tryReadDynamicHead(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, uint256 headOffset)
-    {
-        if (dynamicOffset != minTailOffset || dynamicOffset % 32 != 0) return (false, 0);
-        if (baseOffset > data.length || dynamicOffset > data.length - baseOffset) return (false, 0);
-
-        headOffset = baseOffset + dynamicOffset;
-        if (!_hasRange(data, headOffset, 32)) return (false, 0);
-        return (true, headOffset);
-    }
-
-    function _tryBytesTailEndsAtCallData(
-        bytes memory data,
-        uint256 baseOffset,
-        uint256 dynamicOffset,
-        uint256 headLength
-    ) private pure returns (bool) {
-        (bool headOk, uint256 lengthHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, headLength);
-        if (!headOk) return false;
-        uint256 byteLength = _wordAt(data, lengthHead);
-        if (byteLength >= data.length) return false;
-        uint256 valueOffset = lengthHead + 32;
-        if (!_hasRange(data, valueOffset, byteLength)) return false;
-        uint256 padding = (32 - (byteLength % 32)) % 32;
-        if (padding > data.length - valueOffset - byteLength) return false;
-        uint256 paddedLength = byteLength + padding;
-        for (uint256 i = byteLength; i < paddedLength;) {
-            if (data[valueOffset + i] != 0) return false;
-            unchecked {
-                ++i;
-            }
-        }
-        return valueOffset + paddedLength == data.length;
-    }
-
-    function _hasRange(bytes memory data, uint256 offset, uint256 length) internal pure returns (bool) {
-        return offset <= data.length && length <= data.length - offset;
-    }
-
-    function _wordAt(bytes memory data, uint256 offset) internal pure returns (uint256 word) {
-        assembly {
-            word := mload(add(add(data, 0x20), offset))
-        }
-    }
-
-    function _copyBytes(bytes memory data, uint256 offset, uint256 length) internal pure returns (bytes memory value) {
-        value = new bytes(length);
-        for (uint256 i; i < length;) {
-            assembly {
-                mstore(add(add(value, 0x20), i), mload(add(add(data, 0x20), add(offset, i))))
-            }
-            unchecked {
-                i += 32;
-            }
-        }
     }
 
     // ── View functions ───────────────────────────────────────────────────

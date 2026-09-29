@@ -1,16 +1,16 @@
-# Octane Analysis 7 Remediation Snapshot Status
+# Octane Analyses 1–8 — Historical Identity and Remediation Record
 
 This document records a selective public source snapshot and the current limits of its evidence. It is not a security audit, a finding-clearance record, or an Octane analysis result.
 
 ## Public identity and status
 
-The copied public history starts at PR 9 head `bd005bad4fe3432401a6e4ae920830e267369e38`, based on public commit `6fbbc51c4da48fce46f7119d1053088ba119d7bf`. This packet creates a local review candidate only. It does not push a branch, open a pull request, change a finding label, or run Octane.
+The public review candidate continues PR #9 from head `fbcdda4fc95adc6d345786787ce4ea7557df86a4`, whose parent is `bd005bad4fe3432401a6e4ae920830e267369e38`. Public `main` was `6fbbc51c4da48fce46f7119d1053088ba119d7bf` at the retained readback. The current source map contains 59 files: 33 source/interface/module files, 18 ABI files, and 8 selected script/interface files. C9 changes the already-mapped `RISKUSDVault.sol`; no mapped ABI or selected script changed and no new first-party source/interface/module/ABI path was added.
 
-All 155 captured `(analysis, UUID)` identities from analyses 1–8 remain in this record. The scan counts are 55, 11, 9, 14, 9, 5, 28, and 24. The exact row codes and UUIDs follow. The row census matches the completed source census with no duplicate pair or missing pair.
+This file keeps all 155 exact `(analysis, UUID)` identities from analyses 1–8. The counts remain 55, 11, 9, 14, 9, 5, 28, and 24. The row codes and UUIDs are unchanged. Analysis 9 has a separate disposition document; it is not added to this historical identity table.
 
-Analysis 8 is the latest completed analysis in this evidence. Its 24 rows are acknowledged. Acknowledgement changes workflow reporting only. No finding is treated as resolved because of an acknowledgement or because it is absent from later automation.
+The retained Analysis 9 export records 21 findings: 15 vulnerabilities and 6 warnings. It records 21 acknowledgements as `Other`, with no finding marked resolved. Acknowledgements do not prove a fix. This candidate changes no Octane status. A9-02's helper-readiness fix has a bounded source review, but the finding is not fully closed; no legacy-proxy, deployment, or current Octane proof exists.
 
-Warning 28 retains UUID `3c2ba48b-3798-4f57-beba-90dc904af4d8`. A later dated description capture is identified, but the original 2026-09-24 capture bytes are unavailable. No description has been reconstructed.
+Warning 28 retains UUID `3c2ba48b-3798-4f57-beba-90dc904af4d8`. The later description capture is identified, but the original 2026-09-24 capture bytes are unavailable. No description has been reconstructed.
 
 ## Finding identity census
 
@@ -176,14 +176,24 @@ These rows preserve identity only. The source-family review below gives the cand
 
 ## Source review and residual conditions
 
+The analyses 1–8 family notes below are historical source descriptions. The separate Analysis 9 record describes the current source candidate and remaining work.
+
 The candidate changes below document the reviewed source paths. They do not show that a contract was deployed, that a legacy proxy is compatible, or that Octane marked a finding resolved. A source fix and an unresolved state or policy condition can coexist.
+
+### Current policy boundary
+
+The supported deployment model is fresh-only. Any state-changing path that would run the new implementation over pre-fresh storage must refuse before it changes state. No legacy migration engine is supported.
+
+An attested custodian loss belongs to holders at report time. Exits that could avoid a reported loss stay frozen until settlement. Recognized profit that has not arrived as cash remains a separate claim for the holders at recognition. Withdrawals use cash-backed value only.
+
+These rules do not prove that every current source path satisfies them. The first upgrade still uses the authorizer in the implementation already installed. The new implementation cannot prove or authorize that first upgrade. See the separate Analysis 9 disposition record for source and evidence limits.
 
 ### Analyses 1–6
 
 | Finding rows | Candidate source change | Actual unresolved condition |
 |---|---|---|
 | A1-11, A1-27, A1-28 | `ForageGovernor.sol`, `ForageGovernorTimelockGuard.sol`, and `GuardianModule.sol` bound proposal actions, nested visits, calldata bytes, and depth before proposal storage and on later queue, execution, relay, and cancellation paths. A separate Guardian proposal slot remains reserved. | The bounded source walk is not gas evidence. No live Timelock roles, queued proposals, controlled proposer count, or current slot configuration were read. Guardian self-authority protection remains intentional. |
-| A1-02, A1-05, A1-07, A1-21, A2-01, A2-03, A2-08, A4-02, A4-03 | `ForageToken.sol` and its state module filter voting sources and use bounded historical-source paths. `ForageGovernor.sol` retains its selected quorum denominator and disables signature voting. | The legacy source-list cap remains on the legacy path. Old proxy history is not migrated or observed. Total-supply quorum effects are policy-dependent. The described A4-02 same-second sequence is incompatible with the reviewed pinned Governor state/casting order, but no finding label is changed. |
+| A1-02, A1-05, A1-07, A1-21, A2-01, A2-03, A2-08, A4-02, A4-03 | `ForageToken.sol` and its state module filter voting sources and use bounded historical-source paths. `ForageGovernor.sol` retains its selected quorum denominator and disables signature voting. | Those source-family notes describe the historical analyses 1–8 candidate. The current source supports fresh inventory only and typed-refuses older layouts; no old proxy history was observed. Total-supply quorum effects are policy-dependent. The described A4-02 same-second sequence is incompatible with the reviewed pinned Governor state/casting order, but no finding label is changed. |
 | A2-07, A2-11, A3-02, A4-11, A4-12 | `Allowlist.sol`, `Blocklist.sol`, and `ForageToken.sol` carry timepoint-aware eligibility and source tracking. | Historical Blocklist intervals and Token checkpoints on existing proxies are unknown. A setter or current source index does not prove migration of old source histories. |
 | A1-40 | `GuardianModule.sol` includes generation-bound routine and accelerated rotation IDs. | No live Guardian roster or pending rotation state was inspected. |
 | A1-48, A2-10 | `HLTradingBridge.sol` resolves guardian authority through current governance/Registry wiring rather than relying only on an initialization-time address. | No deployed pointer or guardian-rotation state was read. |
@@ -192,7 +202,7 @@ The candidate changes below document the reviewed source paths. They do not show
 | A1-52 | `RISKUSD.sol` keeps the sender-side pause rule. | An inbound transfer from a non-exempt sender may wait for unpause. The source review does not establish a deployed pause or a bypass. |
 | A1-03, A1-54 | `atRISKUSD.sol` uses indexed expiry tracking and a bounded share-return recovery route when the configured yield source is unreachable. | Old heap/mapping state and deployed recovery eligibility are unknown. Recovery is not a general loss or pause bypass. |
 | A1-08, A1-09, A1-12, A1-18, A2-02, A3-01, A3-07, A3-09, A4-01, A4-10, A6-02 | `StakingQueue.sol` and `StakingQueueModule.sol` use admission bounds, finite new-entry deadlines, same-ID processing, bounded scans, and terminal-entry advancement. | A live eligible processor may settle an entry before a cancel transaction lands. Valid live heads can preserve FIFO while waiting for capacity. No universal queue-progress or target-chain gas claim is made. |
-| A1-42, A2-04, A2-09, A5-05 | Queue backfill and per-entry FORAGE accounting retain the same queue IDs. Current standard entries require bounds before processing. | A legacy priority row without stored bounds can remain processable; the exact priority-lane legacy state and per-entry lock history are not known. No old entry is migrated or re-ordered here. |
+| A1-42, A2-04, A2-09, A5-05 | The historical candidate retained queue IDs and bounds. The current fresh-only source rejects pre-fresh queue storage before writes and does not migrate legacy priority rows. | No old queue entry, locker balance, or migration state was read. The fresh-only refusal does not establish behavior for a deployed legacy queue. |
 | A1-31, A1-49, A1-50, A3-05 | Queue Oracle pricing includes sequencer/feed checks, revalidation before priority use, same-ID demotion, and a pre-multiplication scale bound. | Oracle behavior is conditional on its provider and configuration. No gas simulation or arbitrary-provider guarantee is established. Same-ID demotion preserves order; it does not cancel or refund the entry. |
 | A1-29, A1-32, A1-37, A1-39, A4-05, A4-06, A5-09 | Queue expiry handling distinguishes authorized automatic expiry processing from manual self-reversion. Tier 0 cap exemption is limited to the automatic expired-higher-tier path. Registry zero slots are handled by the candidate queue code. | A blocked depositor may have a FORAGE unlock deferred until eligibility returns. No deployed keeper authorization, lock state, or tier configuration is asserted. |
 | A1-44 | `StakingQueue.compactQueue` remains an optional linear maintenance operation; ordinary processing has separate bounded scan logic. | No current lane length or measured gas limit establishes an OOG failure of normal processing. Compaction is not described as a bounded operation. |
@@ -200,10 +210,10 @@ The candidate changes below document the reviewed source paths. They do not show
 | A1-13, A2-06, A3-06, A5-06, A6-05 | The Bridge and Vault expose typed manual NAV normalization and the candidate carries timestamp and book-basis checks. | The current manual fallback and stale-book behavior remain conditional on the exact final public code and external provider. No deployed manual-rescue event or old proxy state is established. |
 | A1-20, A1-34, A1-35, A1-41, A1-43, A4-13, A4-14, A5-03, A5-07 | `HLTradingBridge.sol` and `CustodianRegistry.sol` track intent credits, cancellation, late arrivals, reconciled return liquidity, and principal updates through typed accounting paths. Keeper reconciliation stays on the existing checked path. | Same-window cap shrink can delay operator actions. No arbitrary balance credit, transfer-identity proof, current cash balance, open intent, or legacy principal reconciliation is established. |
 | A1-06, A1-10, A1-17, A1-19, A1-23, A1-46, A4-08, A5-04, A6-03 | `RISKUSDVault.sol` charges cap use against the actual burn and refreshes the active basis at rollover. Fixed time windows remain explicit. | Window caps are not a fairness guarantee or a rolling-window limit. The current candidate's default size remains red, and no deployed cap state was inspected. |
-| A1-24, A1-33, A1-45, A1-47, A1-53, A4-07, A5-08 | `RISKUSDVaultModule.sol` and `VaultRegistry.sol` use an O(1) active funded-asset aggregate for required buffer checks; release logic defers tiers that retain shares or assets. | A fresh registration path does not prove that an older Registry proxy's aggregate is initialized. The optional full-list view remains unbounded. No proxy cache seed or residual-asset state was inspected. |
-| A1-04, A1-16, A1-22, A1-26, A1-38 | `USDCTreasury.sol` tracks funded and recognized tier claims; `atRISKUSD.sol` prices shares with funded assets plus claims and keeps exits funded-only. | A1-22's timing around profit recognition is not established. Zero-supply residual assets, zero-asset legacy supply, old claim maps, and existing proxy states remain conditional. No forced burn or sweep is authorized. |
+| A1-24, A1-33, A1-45, A1-47, A1-53, A4-07, A5-08 | `RISKUSDVaultModule.sol` and `VaultRegistry.sol` use an O(1) active funded-asset aggregate for required buffer checks; release logic defers tiers that retain shares or assets. | Fresh initialization seeds the Registry cache. Pre-fresh Registry layouts fail with a typed refusal before state changes. No legacy proxy or live cache was inspected. The optional full-list view remains unbounded. |
+| A1-04, A1-16, A1-22, A1-26, A1-38 | `USDCTreasury.sol` tracks funded and recognized tier claims; `atRISKUSD.sol` prices shares from cash-backed assets and keeps unpaid claims separate. | A1-22's timing around profit recognition is not established. Zero-supply residual assets, zero-asset legacy supply, old claim maps, and existing proxy states remain conditional. The separate Analysis 9 record keeps cooldown-escrow attribution and gross-loss-cap gaps open. No forced burn or sweep is authorized. |
 | A1-30 | `USDCTreasury.sol` has an earmark payout-window cap. | A shrinking balance can make later same-window disbursements fail. This is a trusted-operator liveness condition, not loss of funds. A fixed window-start basis is not adopted here. |
-| A1-36, A1-51, A6-04 | Current source preserves explicit layout/migration guards for selected upgrade paths. | The historical layout checker remains red on five rows and lacks a compiler-identity baseline. No proxy slot history, live storage word, migration, or upgrade-safety proof is supplied. |
+| A1-36, A1-51, A6-04 | Current source uses fresh-only guards and rejects pre-fresh state before mutation; no legacy migration is supported. | The historical layout checker remains red on five rows and lacks a compiler-identity baseline. No proxy slot history, live storage word, migration, or upgrade-safety proof is supplied. |
 
 ### Analyses 7–8
 
@@ -213,40 +223,59 @@ The candidate changes below document the reviewed source paths. They do not show
 | A7-02, A7-15 | Queue admission rejects an impossible minimum before storage; valid same-lane FIFO remains. | A live reachable head can wait for capacity. This is not universal queue liveness. |
 | A7-03 | Governor proposal checks bound nested Timelock actions before storage and execution. | External Timelock roles, queued operations, and deployed role configuration remain unknown. |
 | A7-04, A7-06, A8-02, A8-18 | Withdrawal requests reserve the weekly cap at request time and retain caller checks on execute/cancel paths. | The reservation is not cash. Long pauses, loss settlement, available liquidity, and old request state can delay payment; no return date is promised. |
-| A7-05 | Ordinary vote sources use an indexed path; a bounded legacy fallback remains. | Existing proxy source histories may still reach the legacy path and retain its cap. No migration is established. |
+| A7-05 | The historical candidate used an indexed path and a bounded legacy fallback. The current fresh-only source does not enumerate unsupported legacy sources. | No pre-fresh source history is supported or migrated. Whole-query gas and deployed proxy state remain unmeasured. |
 | A7-07 | The persistent ordinary-exit bypass is not present in the reviewed source; the recovery route is limited to its stated unreachable-source conditions. | The exact old proxy and override state are unknown. |
-| A7-08, A7-19, A7-26, A8-05, A8-08 | Profit claims belong to holders at recognition. `USDCTreasury.sol` records per-tier claims; `atRISKUSD.sol` prices shares with funded assets plus claims and pays exits from funded cash. | Recognition-time policy is not a deployment proof. Old Treasury claim maps/readiness and exact transaction ordering remain unknown. |
+| A7-08, A7-19, A7-26, A8-05, A8-08 | Profit claims belong to holders at recognition. `USDCTreasury.sol` records per-tier claims; `atRISKUSD.sol` prices shares from cash-backed assets and pays separate claims only when funded. | Recognition-time policy is not a deployment proof. The Analysis 9 record keeps cooldown-escrow attribution and gross-loss-cap gaps open; old claim maps and proxy state remain unknown. |
 | A7-09, A8-04 | Ordinary proposal slots are bounded and a separate designated Guardian proposal slot remains reserved under normal voting and timelock rules. | Multiple controlled proposers and live proposal/guardian state were not assessed as deployed state. Guardian self-authority changes remain subject to normal protections. |
 | A7-10 | The Governor checks the exact proposer suffix against the caller. | This is source evidence only; the saved static route remains red. |
-| A7-11 | Required deployment-buffer accounting uses the Registry's O(1) funded-asset aggregate. | Existing Registry proxy cache initialization is unknown. The full-list view remains an optional unbounded interface. |
+| A7-11 | Required deployment-buffer accounting uses the Registry's O(1) funded-asset aggregate. | Legacy Registry layouts fail loudly before use; fresh registration establishes the cache. The full-list view remains an optional unbounded interface. |
 | A7-12, A8-09 | Pending-withdrawal reads fail closed when raw state is ambiguous or uses the older layout. | No deployed raw words, implementation history, or migration policy is supplied. |
 | A7-13 | Transfers between non-blocklisted holders remain available under the selected holder-transfer policy. | Transfer permission does not create protocol eligibility or system-account status. The historical focused result is not current runtime proof. |
 | A7-16, A8-15, A8-20 | Zero-asset recovery remains self-only and guarded; the code does not force-burn shares or sweep claims. | Old supply, funded assets, claims, escrow, and loss state are unknown. No residual-asset cleanup is authorized. |
 | A7-17, A7-25 | Guardian rotation checks current eligibility and generation before completing an operation. | No deployed Guardian, Allowlist, or Timelock state is known. |
 | A7-18, A7-20, A7-27, A8-07, A8-19, A8-24 | Bridge and Treasury paths bind returns, NAV basis, loss nonce, and principal accounting; A8-07 separates caller permission from stale-amount accounting. | No live nonce, principal, acknowledged-loss balance, or legacy proxy state is available. Current-cap and provider behavior remain open. |
 | A8-03, A8-21 | Tier-charged loss consumes the tier budget; the candidate refuses positive claims for a zero-supply tier. | This is source and policy evidence only. No live reserve, loss-window, or tier-supply state is known. |
-| A8-13 | Fresh Treasury initialization marks an empty claim map ready; readers fail loud when readiness is unavailable. | Existing Treasury claim maps and upgrade history are unknown. No migration or fresh-only applicability rule is inferred. |
+| A8-13 | Fresh Treasury initialization marks an empty claim map ready; readers fail loud when readiness is unavailable. | Existing Treasury claim maps and upgrade history are unknown. The supported deployment scope is fresh-only: pre-fresh storage fails before mutation, and no legacy migration is supported. |
 | A7-21, A7-23, A8-12, A8-23 | Token history checks fail loud on missing history; the distributor path separates recipient payout from beneficiary and system status. | Pre-history behavior, old Blocklist intervals, legacy source lists, and existing proxy state remain unresolved. |
 | A7-22 | Max views consult current withdrawal, capacity, and funded-cash limits. | A max view cannot reserve future cash or promise later eligibility. No same-block deployed view result was observed. |
 | A7-24 | Guardian emergency cap handling is typed and shrink-only. | No deployed guardian role or emergency selector run was observed. |
 | A7-28, A8-10, A8-22 | Oracle priority is revalidated; failed revalidation demotes the same queue ID to standard FIFO, and scale-up overflow is checked before multiplication. | A8-14 gas is separate. Warning 28's original capture bytes remain missing. The new source path has no runtime or public scan result. |
 | A8-01 | A narrow split-minimum failure permits standard work only if the same failed priority ID remains the priority head and current limits permit it. | A valid priority head may still block standard processing. No universal progress or refund is promised. |
-| A8-06 | New queue deadlines have a finite ceiling; processing uses the stored deadline. | Existing legacy deadlines and old proxy entry state are not classified. |
+| A8-06 | New queue deadlines have a finite ceiling; processing uses the stored deadline. | Pre-fresh entries are unsupported and fail loudly; no historical deadline is reconstructed. |
 | A8-16 | External vesting approval does not bypass Queue reversion caller, Blocklist, cooldown, or loss checks. | No deployed beneficiary, lock, or eligibility state is known. |
-| A8-17 | Loss settlement remains caller-gated and paused when the Bridge is paused. | The pause is an availability boundary. No bypass, deadline, or automatic settlement is authorized. |
+| A8-17 | Loss settlement retains caller, pause, and exact-nonce checks. | The current source freezes share transfers after report time and uses a fixed-basis partial-settlement path. Independent review accepts bounded fresh-state behavior but rejects full fresh-only coverage. No runtime or legacy-proxy result is claimed. |
 | A8-14 | The source has bounded source-cardinality and per-helper transition work. The retained calculation reports 31,555,113 required and 29,061,962 spent against a dated 32,000,000 cap. | This is a conditional calculation, not measured execution or a complete transaction-envelope bound. The current cap, arbitrary providers, legacy funded proxies, and complete execution cost are unresolved. Keep `Other` and open. |
 
-## Static, compiler, and inventory results
+## Current public build and evidence limits
 
-The saved final Forge 1.3.5 / Solc 0.8.24 / Cancun pair covers 125 source inputs. The default profile has six runtime-size overages and one `atRISKUSD` initcode overage, with no compiler errors and process exit 1. The Deploy profile has no compiler errors, fits all 20 size pairs, and exits 0. The checker repair changes no compiler inputs or ABI bytes, so the saved maps remain unchanged and this update did not rebuild.
+Both public profiles compiled 130 inputs with Forge 1.3.5 and Solc 0.8.24, with the first-party test tree excluded. Default code generation completed with zero compiler errors, but the size command exited 1 on three EIP-170 runtime overages. Deploy exited 0 with zero compiler errors; all 22 first-party runtime/initcode pairs fit.
 
-The saved static results are mixed and remain visible. Slither produced 326 unique finding IDs, `success: true`, no analyzer error, and child exit 255. The unchanged suppression checker matched 8 entries, left 318 unmatched and 60 stale, and exited 1. Configured Semgrep returned seven findings over 48 inputs; the disjointness configuration returned zero over 34 inputs; the exception-free configuration returned 57 over 48 inputs. The exception-free findings are not confirmed vulnerabilities, and the configured findings have not been individually adjudicated here.
+| Contract | Default runtime / initcode | Deploy runtime / initcode |
+|---|---:|---:|
+| Allowlist | 13,833 / 14,089 bytes | 12,214 / 12,424 bytes |
+| AtRiskUSDProfitModule | 6,657 / 6,961 bytes | 5,396 / 5,697 bytes |
+| AtRiskUSDStateModule | 24,057 / 24,669 bytes | 20,271 / 20,806 bytes |
+| Blocklist | 9,249 / 9,499 bytes | 7,784 / 7,993 bytes |
+| CustodianRegistry | 24,575 / 24,831 bytes | 20,367 / 20,581 bytes |
+| DelegatingVestingWallet | 6,865 / 9,037 bytes | 5,914 / 7,401 bytes |
+| FORAGETreasury | 20,905 / 21,197 bytes | 17,451 / 17,697 bytes |
+| ForageGovernor | 27,458 / 35,161 bytes | 23,757 / 30,385 bytes |
+| ForageGovernorTimelockGuard | 7,335 / 7,364 bytes | 6,298 / 6,325 bytes |
+| ForageToken | 23,830 / 41,015 bytes | 23,050 / 38,856 bytes |
+| ForageTokenStateModule | 16,669 / 16,839 bytes | 15,323 / 15,489 bytes |
+| GuardianModule | 24,533 / 24,789 bytes | 19,381 / 19,595 bytes |
+| HLTradingBridge | 24,520 / 24,812 bytes | 22,156 / 22,406 bytes |
+| RISKUSD | 10,989 / 11,281 bytes | 9,166 / 9,411 bytes |
+| RISKUSDVault | 21,711 / 22,003 bytes | 18,385 / 18,635 bytes |
+| RISKUSDVaultModule | 23,988 / 24,460 bytes | 19,293 / 19,753 bytes |
+| StakingQueue | 27,382 / 27,674 bytes | 23,203 / 23,453 bytes |
+| StakingQueueModule | 24,443 / 24,565 bytes | 22,833 / 22,951 bytes |
+| USDCTreasury | 27,671 / 27,963 bytes | 24,168 / 24,418 bytes |
+| USDCTreasuryAccountingModule | 4,044 / 4,073 bytes | 3,059 / 3,086 bytes |
+| VaultRegistry | 20,054 / 20,310 bytes | 17,367 / 17,581 bytes |
+| atRISKUSD | 22,906 / 48,156 bytes | 19,214 / 40,499 bytes |
 
-The copied-source checker accepts the current Guardian flow and both supported wiring orders. Its 37 negative controls reject their bound source or configuration mutations, including five Guardian-flow changes. These controls do not rerun Semgrep or clear its seven configured findings.
-
-The source-backed ABI comparison matches 17 of 17 artifacts. `FoundationTreasury.json` remains a source-less orphan. Nineteen of 20 selected layout targets had nonempty raw layouts. The stored historical checker remains at 14 pass and five red comparisons; its baseline lacks compiler identity. These bounded layout comparisons do not clear old-proxy storage or upgrade safety.
-
-`make -C openforage_smart_contracts no-tests` returned `NO_TESTS_INVENTORY_PASS`. The first-party test directory and named test-only controls were absent. Upstream test files remain inside the pinned Gitlinks; they were not executed and are not first-party tests. Historical dated log files and deployment scripts were not run by this packet. The no-tests inventory is not a contract-test pass.
+The Default runtime-size failures are ForageGovernor (27,458 bytes), StakingQueue (27,382 bytes), USDCTreasury (27,671 bytes). Default initcode has no overage. CustodianRegistry is 1 byte below EIP-170; atRISKUSD initcode is 48,156 bytes, 996 bytes below EIP-3860. Deploy has no runtime or initcode overage; USDCTreasury is 24,168 runtime bytes, 408 bytes below EIP-170.
 
 ## External reviewer next steps
 

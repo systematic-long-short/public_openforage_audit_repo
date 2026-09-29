@@ -10,6 +10,10 @@ interface IUSDCTreasuryYieldClaims {
     function hlTradingBridge() external view returns (address);
 }
 
+interface IUSDCTreasuryLossSettlement {
+    function settleLoss(uint256 vaultId, uint256 lossNonce) external returns (bool complete, uint256 originalLoss);
+}
+
 interface IUSDCTreasuryCallerEligibility {
     function allowlist() external view returns (address);
 }
