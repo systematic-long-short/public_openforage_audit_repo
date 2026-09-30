@@ -26,6 +26,7 @@ contract AtRiskUSDProfitModule {
     error NoFundedProfit();
     error ProfitIndexPrecisionExhausted(uint256 outstanding, uint256 scale);
     error ProfitClaimInvariant(uint256 expected, uint256 actual);
+    error ProfitEpochCatchUpRequired(address account, uint64 nextEpoch, uint64 currentEpoch);
     error UnpaidProfitUnavailable(uint256 requested, uint256 outstanding);
     error YieldClaimsNotReady(address source);
     error YieldClaimsUnavailable(address source);
@@ -33,6 +34,7 @@ contract AtRiskUSDProfitModule {
     error ZeroSupplyYield();
 
     event UnpaidProfitClaimed(address indexed holder, uint256 amount);
+    event UnpaidProfitCatchUpProgress(address indexed account, uint64 nextEpoch, uint64 currentEpoch);
     event UnpaidProfitRecognized(uint256 amount, uint256 shares);
     event UnpaidProfitWrittenDown(uint256 amount, uint256 remaining);
 
@@ -55,6 +57,15 @@ contract AtRiskUSDProfitModule {
         uint64 activeEpoch;
     }
 
+    struct ClosedProfitEpoch {
+        uint256 unitsPerShare;
+        uint256 fundedDebtPerShare;
+        uint256 impairmentDebtPerShare;
+        uint256 completedFundedPerShare;
+        uint256 completedImpairedPerShare;
+        bool finalized;
+    }
+
     struct ProfitStorage {
         uint64 version;
         uint64 epoch;
@@ -74,9 +85,11 @@ contract AtRiskUSDProfitModule {
         mapping(uint64 => uint256) finalFundingIndex;
         mapping(uint64 => uint256) finalImpairmentIndex;
         mapping(address => ProfitEntitlement) entitlements;
+        mapping(uint64 => ClosedProfitEpoch) closedEpochs;
     }
 
     uint256 private constant PROFIT_SCALE = 1e27;
+    uint64 private constant MAX_CLOSED_EPOCHS_PER_CALL = 8;
     bytes32 private immutable _SELF;
     bytes32 private immutable _PROFIT_STORAGE_SLOT;
 
@@ -96,7 +109,7 @@ contract AtRiskUSDProfitModule {
         if (address(this) == address(uint160(uint256(_SELF)))) revert DirectCallForbidden();
         ProfitStorage storage state = _state();
         if (state.version != 0) revert InvalidProfitModule();
-        state.version = 1;
+        state.version = 2;
         state.epoch = 1;
         state.unitScale = PROFIT_SCALE;
     }
@@ -168,7 +181,7 @@ contract AtRiskUSDProfitModule {
         _requireNotBlocked(holder);
         ProfitStorage storage state = _state();
         ProfitEntitlement storage entitlement = state.entitlements[holder];
-        _settle(state, entitlement, holder);
+        _settle(state, entitlement, holder, false);
         uint256 remainingFace = entitlement.face > entitlement.impaired ? entitlement.face - entitlement.impaired : 0;
         uint256 ceiling = remainingFace > entitlement.paid ? remainingFace - entitlement.paid : 0;
         uint256 available = entitlement.funded > entitlement.paid ? entitlement.funded - entitlement.paid : 0;
@@ -187,13 +200,25 @@ contract AtRiskUSDProfitModule {
         if (to != from) _settleAccount(state, to);
     }
 
+    function catchUpUnpaidProfitEpochs(address account) external onlyDelegateCall returns (bool caughtUp) {
+        ProfitStorage storage state = _state();
+        ProfitEntitlement storage entitlement = state.entitlements[account];
+        caughtUp = _settle(state, entitlement, account, true);
+        emit UnpaidProfitCatchUpProgress(account, entitlement.activeEpoch, state.epoch);
+    }
+
     function _settleAccount(ProfitStorage storage state, address account) private {
         if (account == address(0)) return;
         ProfitEntitlement storage entitlement = state.entitlements[account];
-        _settle(state, entitlement, account);
+        _settle(state, entitlement, account, false);
     }
 
-    function _settle(ProfitStorage storage state, ProfitEntitlement storage entitlement, address account) private {
+    function _settle(
+        ProfitStorage storage state,
+        ProfitEntitlement storage entitlement,
+        address account,
+        bool allowPartial
+    ) private returns (bool caughtUp) {
         uint256 shares;
         if (account != address(this)) {
             IAtRiskUSDProfitHost host = IAtRiskUSDProfitHost(address(this));
@@ -201,64 +226,35 @@ contract AtRiskUSDProfitModule {
             (, uint256 pendingShares) = host.pendingWithdrawalAmount(account);
             shares += pendingShares;
         }
-        if (entitlement.units != 0 && entitlement.activeEpoch < state.epoch) {
-            if (shares == 0) {
-                uint256 finalFunding = state.finalFundingIndex[entitlement.activeEpoch];
-                uint256 finalImpairment = state.finalImpairmentIndex[entitlement.activeEpoch];
-                uint256 funded = Math.mulDiv(entitlement.units, finalFunding, PROFIT_SCALE);
-                uint256 impaired = Math.mulDiv(entitlement.units, finalImpairment, PROFIT_SCALE);
-                if (funded > entitlement.activeFundedCheckpoint) {
-                    entitlement.funded += funded - entitlement.activeFundedCheckpoint;
-                }
-                if (impaired > entitlement.activeImpairmentCheckpoint) {
-                    entitlement.impaired += impaired - entitlement.activeImpairmentCheckpoint;
-                }
+        uint64 activeEpoch = entitlement.activeEpoch;
+        if (activeEpoch != 0 && activeEpoch < state.epoch) {
+            uint64 missedEpochs = state.epoch - activeEpoch;
+            if (missedEpochs > MAX_CLOSED_EPOCHS_PER_CALL && !allowPartial) {
+                revert ProfitEpochCatchUpRequired(account, activeEpoch, state.epoch);
             }
-            entitlement.units = 0;
-            entitlement.fundedDebt = 0;
-            entitlement.impairmentDebt = 0;
-            entitlement.activeFundedCheckpoint = 0;
-            entitlement.activeImpairmentCheckpoint = 0;
-            entitlement.activeEpoch = state.epoch;
-            if (shares == 0) {
-                entitlement.unitsIndex = state.activeUnitsPerShare;
-                entitlement.fundedDebtIndex = state.activeFundedDebtPerShare;
-                entitlement.impairmentDebtIndex = state.activeImpairmentDebtPerShare;
-            } else {
-                entitlement.unitsIndex = 0;
-                entitlement.fundedDebtIndex = 0;
-                entitlement.impairmentDebtIndex = 0;
+            uint64 epochsToSettle =
+                missedEpochs > MAX_CLOSED_EPOCHS_PER_CALL ? MAX_CLOSED_EPOCHS_PER_CALL : missedEpochs;
+            for (uint64 settled; settled < epochsToSettle; ++settled) {
+                _settleClosedEpoch(state, entitlement, shares);
             }
+            if (entitlement.activeEpoch < state.epoch) return false;
         }
         if (shares == 0 && entitlement.activeEpoch == state.epoch && entitlement.units != 0) {
-            uint256 funded = Math.mulDiv(entitlement.units, state.activeFundingIndex, PROFIT_SCALE);
-            uint256 impaired = Math.mulDiv(entitlement.units, state.activeImpairmentIndex, PROFIT_SCALE);
-            if (funded > entitlement.activeFundedCheckpoint) {
-                entitlement.funded += funded - entitlement.activeFundedCheckpoint;
-            }
-            if (impaired > entitlement.activeImpairmentCheckpoint) {
-                entitlement.impaired += impaired - entitlement.activeImpairmentCheckpoint;
-            }
-            entitlement.activeFundedCheckpoint = funded;
-            entitlement.activeImpairmentCheckpoint = impaired;
+            _accrueActiveEntitlements(state, entitlement, 0, 0);
         }
         uint256 faceIndex = state.completedFacePerShare + state.activeFacePerShare;
         uint256 fundedIndex = state.completedFundedPerShare + _activeFundedPerShare(state);
         uint256 impairmentIndex = state.completedImpairedPerShare + _activeImpairedPerShare(state);
         if (shares != 0) {
             entitlement.face += Math.mulDiv(shares, faceIndex - entitlement.faceCheckpoint, PROFIT_SCALE);
-            entitlement.funded += Math.mulDiv(shares, fundedIndex - entitlement.fundedCheckpoint, PROFIT_SCALE);
-            entitlement.impaired +=
-                Math.mulDiv(shares, impairmentIndex - entitlement.impairmentCheckpoint, PROFIT_SCALE);
             entitlement.units += Math.mulDiv(shares, state.activeUnitsPerShare - entitlement.unitsIndex, PROFIT_SCALE);
-            entitlement.fundedDebt +=
+            uint256 newFundedDebt =
                 Math.mulDiv(shares, state.activeFundedDebtPerShare - entitlement.fundedDebtIndex, PROFIT_SCALE);
-            entitlement.impairmentDebt +=
+            uint256 newImpairmentDebt =
                 Math.mulDiv(shares, state.activeImpairmentDebtPerShare - entitlement.impairmentDebtIndex, PROFIT_SCALE);
-            entitlement.activeFundedCheckpoint = Math.mulDiv(entitlement.units, state.activeFundingIndex, PROFIT_SCALE);
-            entitlement.activeImpairmentCheckpoint =
-                Math.mulDiv(entitlement.units, state.activeImpairmentIndex, PROFIT_SCALE);
-            entitlement.activeEpoch = state.epoch;
+            entitlement.fundedDebt += newFundedDebt;
+            entitlement.impairmentDebt += newImpairmentDebt;
+            _accrueActiveEntitlements(state, entitlement, newFundedDebt, newImpairmentDebt);
         }
         entitlement.faceCheckpoint = faceIndex;
         entitlement.fundedCheckpoint = fundedIndex;
@@ -266,6 +262,97 @@ contract AtRiskUSDProfitModule {
         entitlement.unitsIndex = state.activeUnitsPerShare;
         entitlement.fundedDebtIndex = state.activeFundedDebtPerShare;
         entitlement.impairmentDebtIndex = state.activeImpairmentDebtPerShare;
+        entitlement.activeEpoch = state.epoch;
+        return true;
+    }
+
+    function _accrueActiveEntitlements(
+        ProfitStorage storage state,
+        ProfitEntitlement storage entitlement,
+        uint256 newFundedDebt,
+        uint256 newImpairmentDebt
+    ) private {
+        uint256 funded = Math.mulDiv(entitlement.units, state.activeFundingIndex, PROFIT_SCALE);
+        if (funded > entitlement.activeFundedCheckpoint) {
+            uint256 increment = funded - entitlement.activeFundedCheckpoint;
+            if (increment > newFundedDebt) entitlement.funded += increment - newFundedDebt;
+        }
+        entitlement.activeFundedCheckpoint = funded;
+        uint256 impaired = Math.mulDiv(entitlement.units, state.activeImpairmentIndex, PROFIT_SCALE);
+        if (impaired > entitlement.activeImpairmentCheckpoint) {
+            uint256 increment = impaired - entitlement.activeImpairmentCheckpoint;
+            if (increment > newImpairmentDebt) entitlement.impaired += increment - newImpairmentDebt;
+        }
+        entitlement.activeImpairmentCheckpoint = impaired;
+    }
+
+    function _settleClosedEpoch(ProfitStorage storage state, ProfitEntitlement storage entitlement, uint256 shares)
+        private
+    {
+        uint64 epoch = entitlement.activeEpoch;
+        ClosedProfitEpoch storage closed = state.closedEpochs[epoch];
+        if (!closed.finalized) revert ProfitClaimInvariant(state.epoch, epoch);
+        _accrueClosedEpochUnits(state, entitlement, closed, shares);
+        _rebaseClosedEpoch(entitlement, closed, epoch + 1);
+    }
+
+    function _accrueClosedEpochUnits(
+        ProfitStorage storage state,
+        ProfitEntitlement storage entitlement,
+        ClosedProfitEpoch storage closed,
+        uint256 shares
+    ) private {
+        uint256 unitsIndex = entitlement.unitsIndex;
+        uint256 fundedDebtIndex = entitlement.fundedDebtIndex;
+        uint256 impairmentDebtIndex = entitlement.impairmentDebtIndex;
+        if (
+            closed.unitsPerShare < unitsIndex || closed.fundedDebtPerShare < fundedDebtIndex
+                || closed.impairmentDebtPerShare < impairmentDebtIndex
+        ) revert ProfitClaimInvariant(closed.unitsPerShare, unitsIndex);
+        entitlement.units += Math.mulDiv(shares, closed.unitsPerShare - unitsIndex, PROFIT_SCALE);
+        uint256 fundedDebt = Math.mulDiv(shares, closed.fundedDebtPerShare - fundedDebtIndex, PROFIT_SCALE);
+        uint256 impairmentDebt = Math.mulDiv(shares, closed.impairmentDebtPerShare - impairmentDebtIndex, PROFIT_SCALE);
+        _accrueClosedFunding(state, entitlement, fundedDebt);
+        _accrueClosedImpairment(state, entitlement, impairmentDebt);
+    }
+
+    function _accrueClosedFunding(ProfitStorage storage state, ProfitEntitlement storage entitlement, uint256 newDebt)
+        private
+    {
+        uint256 funded = Math.mulDiv(entitlement.units, state.finalFundingIndex[entitlement.activeEpoch], PROFIT_SCALE);
+        if (funded <= entitlement.activeFundedCheckpoint) return;
+        uint256 increment = funded - entitlement.activeFundedCheckpoint;
+        if (increment > newDebt) entitlement.funded += increment - newDebt;
+    }
+
+    function _accrueClosedImpairment(
+        ProfitStorage storage state,
+        ProfitEntitlement storage entitlement,
+        uint256 newDebt
+    ) private {
+        uint256 impaired =
+            Math.mulDiv(entitlement.units, state.finalImpairmentIndex[entitlement.activeEpoch], PROFIT_SCALE);
+        if (impaired <= entitlement.activeImpairmentCheckpoint) return;
+        uint256 increment = impaired - entitlement.activeImpairmentCheckpoint;
+        if (increment > newDebt) entitlement.impaired += increment - newDebt;
+    }
+
+    function _rebaseClosedEpoch(
+        ProfitEntitlement storage entitlement,
+        ClosedProfitEpoch storage closed,
+        uint64 nextEpoch
+    ) private {
+        entitlement.units = 0;
+        entitlement.fundedDebt = 0;
+        entitlement.impairmentDebt = 0;
+        entitlement.activeFundedCheckpoint = 0;
+        entitlement.activeImpairmentCheckpoint = 0;
+        entitlement.fundedCheckpoint = closed.completedFundedPerShare;
+        entitlement.impairmentCheckpoint = closed.completedImpairedPerShare;
+        entitlement.activeEpoch = nextEpoch;
+        entitlement.unitsIndex = 0;
+        entitlement.fundedDebtIndex = 0;
+        entitlement.impairmentDebtIndex = 0;
     }
 
     function _activeFundedPerShare(ProfitStorage storage state) private view returns (uint256) {
@@ -279,11 +366,19 @@ contract AtRiskUSDProfitModule {
     }
 
     function _closeEpoch(ProfitStorage storage state) private {
-        state.finalFundingIndex[state.epoch] = state.activeFundingIndex;
-        state.finalImpairmentIndex[state.epoch] = state.activeImpairmentIndex;
+        uint64 epoch = state.epoch;
+        state.finalFundingIndex[epoch] = state.activeFundingIndex;
+        state.finalImpairmentIndex[epoch] = state.activeImpairmentIndex;
         state.completedFacePerShare += state.activeFacePerShare;
         state.completedFundedPerShare += _activeFundedPerShare(state);
         state.completedImpairedPerShare += _activeImpairedPerShare(state);
+        ClosedProfitEpoch storage closed = state.closedEpochs[epoch];
+        closed.unitsPerShare = state.activeUnitsPerShare;
+        closed.fundedDebtPerShare = state.activeFundedDebtPerShare;
+        closed.impairmentDebtPerShare = state.activeImpairmentDebtPerShare;
+        closed.completedFundedPerShare = state.completedFundedPerShare;
+        closed.completedImpairedPerShare = state.completedImpairedPerShare;
+        closed.finalized = true;
         state.activeUnits = 0;
         state.activeUnitsPerShare = 0;
         state.activeFundedDebtPerShare = 0;
@@ -323,7 +418,7 @@ contract AtRiskUSDProfitModule {
 
     function _requireReady() private view {
         uint64 version = _state().version;
-        if (version != 1) revert FreshDeploymentRequired(version);
+        if (version != 2) revert FreshDeploymentRequired(version);
     }
 
     function _state() private view returns (ProfitStorage storage state) {

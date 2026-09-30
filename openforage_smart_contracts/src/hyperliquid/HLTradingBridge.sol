@@ -989,6 +989,9 @@ contract HLTradingBridge is
     {
         if (msg.sender != riskusdVault) revert UnauthorizedVault(msg.sender);
         _requireNoLossSettlementInProgress();
+        uint256 knownSince = _principalBookKnownSince;
+        if (knownSince == 0) revert PrincipalBookAnchorUnavailable();
+        if (observedAt <= knownSince) revert ManualNAVObservationNotAfterPrincipalChange(observedAt, knownSince);
         if (lossNonce != 0) return _normalizeManualLossNonceNAV(nav);
         return _normalizeManualZeroNonceNAV(nav, observedAt);
     }
@@ -1002,9 +1005,6 @@ contract HLTradingBridge is
     }
 
     function _normalizeManualZeroNonceNAV(uint256 nav, uint256 observedAt) private view returns (bool, uint256) {
-        uint256 knownSince = _principalBookKnownSince;
-        if (knownSince == 0) revert PrincipalBookAnchorUnavailable();
-        if (observedAt <= knownSince) revert ManualNAVObservationNotAfterPrincipalChange(observedAt, knownSince);
         IRISKUSDVaultManualNAVState manualVault = IRISKUSDVaultManualNAVState(riskusdVault);
         uint256 principal = _deployedPrincipal;
         uint256 vaultPrincipal = manualVault.totalDeployed();

@@ -2,7 +2,8 @@ pragma solidity ^0.8.20;
 
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {IAllowlist, IVestingBeneficiarySource} from "../interfaces/IAllowlist.sol";
+import {IAllowlist, IAllowlistVestingRegistry, IVestingBeneficiarySource} from "../interfaces/IAllowlist.sol";
+import {IBlocklist, IBlocklistVoteEligibility} from "../interfaces/IBlocklist.sol";
 
 struct ForageTokenSourceEligibility {
     bool allowlisted;
@@ -10,6 +11,15 @@ struct ForageTokenSourceEligibility {
     bool blocked;
     uint64 allowedUntil;
     uint256 blockedUntil;
+}
+
+struct ForageTokenSourceEligibilityQuery {
+    address source;
+    address registeredBeneficiary;
+    bool registrationKnown;
+    address blocklist;
+    address allowlist;
+    address rememberedBeneficiary;
 }
 
 interface IForageTokenSourceView {
@@ -25,15 +35,9 @@ interface IForageTokenSourceView {
         address source,
         address registeredBeneficiary,
         bool registrationKnown,
-        bool systemAccount,
-        address blocklist
+        address blocklist,
+        address allowlist
     ) external view returns (ForageTokenSourceEligibility memory);
-}
-
-interface IForageTokenVestingRegistry {
-    function vestingSourceBeneficiary(address source) external view returns (address);
-
-    function maxVestingSourcesPerBeneficiary() external view returns (uint256);
 }
 
 struct ForageTokenStateUpdate {
@@ -60,6 +64,8 @@ struct ForageTokenRotationStatus {
     uint256 epochCount;
     address activeBlocklist;
     address pendingBlocklist;
+    bool allowlistReindexActive;
+    address pendingAllowlist;
 }
 
 struct ForageTokenActiveProjection {
@@ -71,6 +77,7 @@ struct ForageTokenPastProjection {
     uint256 indexedVotes;
     uint256 generation;
     address blocklist;
+    address allowlist;
 }
 
 contract ForageTokenStateModule {
@@ -99,6 +106,7 @@ contract ForageTokenStateModule {
     error BlocklistRotationInProgress(address pendingBlocklist);
     error BlocklistRotationUnavailable();
     error BlocklistRotationIncomplete(uint256 cursor, uint256 inventoryLength, uint256 processed, uint256 dirty);
+    error AllowlistReindexUnavailable();
     error UnsupportedLegacyVestingBeneficiary(address source);
     error ProjectionGenerationExhausted();
     error InvalidBlocklist(address blocklist);
@@ -121,6 +129,24 @@ contract ForageTokenStateModule {
     event BlocklistRotationActivated(
         address indexed oldBlocklist, address indexed newBlocklist, uint256 indexed generation, uint48 activationTime
     );
+    event AllowlistReindexStarted(
+        address indexed currentAllowlist,
+        address indexed candidateAllowlist,
+        uint256 indexed generation,
+        uint256 snapshotLength
+    );
+    event AllowlistReindexProgress(
+        uint256 indexed generation,
+        uint256 cursor,
+        uint256 snapshotLength,
+        uint256 inventoryLength,
+        uint256 processed,
+        uint256 dirty
+    );
+    event AllowlistReindexActivated(
+        address indexed oldAllowlist, address indexed newAllowlist, uint256 indexed generation, uint48 activationTime
+    );
+    event AllowlistReindexCancelled(address indexed candidateAllowlist, uint256 indexed generation);
 
     struct VoteSourceState {
         address delegatee;
@@ -162,6 +188,11 @@ contract ForageTokenStateModule {
         uint256 dirty;
         ProjectionEpoch[] epochs;
         mapping(uint256 => Projection) projections;
+        mapping(uint256 => address) generationAllowlists;
+        uint256 pendingSnapshotLength;
+        uint256 latestGeneration;
+        address pendingAllowlist;
+        uint256 projectionSchemaVersion;
     }
 
     struct VoteTransitions {
@@ -197,7 +228,8 @@ contract ForageTokenStateModule {
     mapping(address => EnumerableSet.AddressSet) private _vestingSourcesByBeneficiary;
     address private _initialTeamVestingSource;
     address private _initialTreasurySource;
-    uint256[37] private __gap;
+    mapping(address => mapping(address => bool)) private _explicitZeroResetRequired;
+    uint256[36] private __gap;
 
     address private immutable _SELF;
 
@@ -218,7 +250,7 @@ contract ForageTokenStateModule {
 
     function _requireFreshInventory() private view {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        if (state.inventoryVersion != 1 || state.epochs.length == 0) {
+        if (state.inventoryVersion != 1 || state.projectionSchemaVersion != 3 || state.epochs.length == 0) {
             revert LegacySourceInventoryUnavailable(_blocklist, address(0));
         }
     }
@@ -243,9 +275,11 @@ contract ForageTokenStateModule {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
         if (
             state.inventoryVersion != 0 || state.epochs.length != 0 || state.sources.length != 0
-                || state.pendingBlocklist != address(0) || state.activeGeneration != 0
+                || state.pendingBlocklist != address(0) || state.activeGeneration != 0 || state.pendingSnapshotLength != 0
+                || state.latestGeneration != 0 || state.pendingAllowlist != address(0) || state.projectionSchemaVersion != 0
         ) revert BlocklistRotationUnavailable();
         state.inventoryVersion = 1;
+        state.projectionSchemaVersion = 3;
         state.epochs.push(ProjectionEpoch({startTime: 0, generation: 0, blocklist: address(0)}));
     }
 
@@ -256,17 +290,21 @@ contract ForageTokenStateModule {
         returns (ForageTokenRotationStatus memory status)
     {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        status.inventorySupported = state.inventoryVersion == 1 && state.epochs.length != 0;
-        status.rotationActive = state.pendingBlocklist != address(0);
+        status.inventorySupported =
+            state.inventoryVersion == 1 && state.projectionSchemaVersion == 3 && state.epochs.length != 0;
+        status.rotationActive = state.pendingBlocklist != address(0) && state.pendingAllowlist == address(0);
         status.activeGeneration = state.activeGeneration;
         status.pendingGeneration = state.pendingGeneration;
         status.cursor = state.cursor;
-        status.inventoryLength = state.sources.length;
+        status.inventoryLength =
+            state.pendingBlocklist == address(0) ? state.sources.length : state.pendingSnapshotLength;
         status.processed = state.processed;
         status.dirty = state.dirty;
         status.epochCount = state.epochs.length;
         status.activeBlocklist = _blocklist;
         status.pendingBlocklist = state.pendingBlocklist;
+        status.allowlistReindexActive = state.pendingAllowlist != address(0);
+        status.pendingAllowlist = state.pendingAllowlist;
     }
 
     function bindInitialBlocklist(address blocklist, uint48 activationTime) external onlyFreshDelegateCall {
@@ -274,6 +312,7 @@ contract ForageTokenStateModule {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
         if (!_canBindInitialBlocklist(state)) revert LegacySourceInventoryUnavailable(_blocklist, blocklist);
         _blocklist = blocklist;
+        state.generationAllowlists[0] = allowlistAddress();
         state.epochs.push(ProjectionEpoch({startTime: activationTime, generation: 0, blocklist: blocklist}));
     }
 
@@ -284,23 +323,82 @@ contract ForageTokenStateModule {
 
     function beginBlocklistRotation(address blocklist) external onlyFreshDelegateCall {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        if (state.inventoryVersion != 1) revert LegacySourceInventoryUnavailable(_blocklist, blocklist);
+        if (state.inventoryVersion != 1 || state.projectionSchemaVersion != 3) {
+            revert LegacySourceInventoryUnavailable(_blocklist, blocklist);
+        }
         if (state.pendingBlocklist != address(0)) revert BlocklistRotationInProgress(state.pendingBlocklist);
         if (blocklist == address(0) || blocklist == _blocklist) revert InvalidBlocklist(blocklist);
-        if (state.activeGeneration == type(uint256).max) revert ProjectionGenerationExhausted();
+        if (state.latestGeneration < state.activeGeneration) {
+            revert LegacySourceInventoryUnavailable(_blocklist, blocklist);
+        }
+        if (state.latestGeneration == type(uint256).max) revert ProjectionGenerationExhausted();
         state.pendingBlocklist = blocklist;
-        state.pendingGeneration = state.activeGeneration + 1;
+        state.pendingGeneration = state.latestGeneration + 1;
+        state.latestGeneration = state.pendingGeneration;
+        state.pendingSnapshotLength = state.sources.length;
         state.cursor = 0;
         state.processed = 0;
         state.dirty = 0;
-        emit BlocklistRotationStarted(_blocklist, blocklist, state.pendingGeneration, state.sources.length);
+        emit BlocklistRotationStarted(_blocklist, blocklist, state.pendingGeneration, state.pendingSnapshotLength);
+    }
+
+    function beginAllowlistReindex(address allowlist_) external onlyFreshDelegateCall {
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        if (state.inventoryVersion != 1 || state.projectionSchemaVersion != 3) {
+            revert LegacySourceInventoryUnavailable(_blocklist, allowlist_);
+        }
+        if (state.pendingBlocklist != address(0)) revert BlocklistRotationInProgress(state.pendingBlocklist);
+        if (_blocklist == address(0) || allowlist_ == address(0) || allowlist_ == allowlistAddress()) {
+            revert AllowlistReindexUnavailable();
+        }
+        if (state.latestGeneration < state.activeGeneration) {
+            revert LegacySourceInventoryUnavailable(_blocklist, allowlist_);
+        }
+        if (state.latestGeneration == type(uint256).max) revert ProjectionGenerationExhausted();
+        state.pendingBlocklist = _blocklist;
+        state.pendingAllowlist = allowlist_;
+        state.pendingGeneration = state.latestGeneration + 1;
+        state.latestGeneration = state.pendingGeneration;
+        state.pendingSnapshotLength = state.sources.length;
+        state.cursor = 0;
+        state.processed = 0;
+        state.dirty = 0;
+        emit AllowlistReindexStarted(
+            allowlistAddress(), allowlist_, state.pendingGeneration, state.pendingSnapshotLength
+        );
     }
 
     function processBlocklistRotation() external onlyFreshDelegateCall {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        if (state.pendingBlocklist == address(0)) revert BlocklistRotationUnavailable();
-        uint256 length = state.sources.length;
-        uint256 remaining = length - state.cursor;
+        if (state.pendingBlocklist == address(0) || state.pendingAllowlist != address(0)) {
+            revert BlocklistRotationUnavailable();
+        }
+        _processProjectionPage(state);
+        emit BlocklistRotationProgress(
+            state.pendingGeneration, state.cursor, state.pendingSnapshotLength, state.processed, state.dirty
+        );
+    }
+
+    function processAllowlistReindex() external onlyFreshDelegateCall {
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        if (state.pendingAllowlist == address(0)) revert AllowlistReindexUnavailable();
+        _processProjectionPage(state);
+        emit AllowlistReindexProgress(
+            state.pendingGeneration,
+            state.cursor,
+            state.pendingSnapshotLength,
+            state.sources.length,
+            state.processed,
+            state.dirty
+        );
+    }
+
+    function _processProjectionPage(BlocklistRotationStorage storage state) private {
+        uint256 snapshot = state.pendingSnapshotLength;
+        if (state.cursor > snapshot) {
+            revert BlocklistRotationIncomplete(state.cursor, snapshot, state.processed, state.dirty);
+        }
+        uint256 remaining = snapshot - state.cursor;
         uint256 pageLength = remaining > BLOCKLIST_ROTATION_PAGE_SIZE ? BLOCKLIST_ROTATION_PAGE_SIZE : remaining;
         uint256 end = state.cursor + pageLength;
         while (state.cursor < end) {
@@ -308,33 +406,69 @@ contract ForageTokenStateModule {
             _syncSource(source, address(0), false, true);
             ++state.cursor;
         }
-        emit BlocklistRotationProgress(
-            state.pendingGeneration, state.cursor, state.sources.length, state.processed, state.dirty
-        );
     }
 
     function activateBlocklistRotation() external onlyFreshDelegateCall {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
         address nextBlocklist = state.pendingBlocklist;
-        if (nextBlocklist == address(0)) revert BlocklistRotationUnavailable();
-        uint256 length = state.sources.length;
-        if (state.cursor != length || state.processed != length || state.dirty != 0) {
-            revert BlocklistRotationIncomplete(state.cursor, length, state.processed, state.dirty);
+        if (nextBlocklist == address(0) || state.pendingAllowlist != address(0)) {
+            revert BlocklistRotationUnavailable();
         }
-        uint256 generation = state.pendingGeneration;
-        uint48 activationTime = IForageTokenSourceView(address(this)).clock();
         address previousBlocklist = _blocklist;
-        state.epochs.push(
-            ProjectionEpoch({startTime: activationTime, generation: generation, blocklist: nextBlocklist})
-        );
-        _blocklist = nextBlocklist;
-        state.activeGeneration = generation;
+        (uint256 generation, uint48 activationTime) = _activateProjection(state, nextBlocklist, allowlistAddress());
+        emit BlocklistRotationActivated(previousBlocklist, nextBlocklist, generation, activationTime);
+    }
+
+    function activateAllowlistReindex() external onlyFreshDelegateCall {
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        address nextAllowlist = state.pendingAllowlist;
+        if (nextAllowlist == address(0) || state.pendingBlocklist != _blocklist) {
+            revert AllowlistReindexUnavailable();
+        }
+        if (allowlistAddress() != nextAllowlist) revert AllowlistReindexUnavailable();
+        address previousAllowlist = state.generationAllowlists[state.activeGeneration];
+        (uint256 generation, uint48 activationTime) = _activateProjection(state, _blocklist, nextAllowlist);
+        emit AllowlistReindexActivated(previousAllowlist, nextAllowlist, generation, activationTime);
+    }
+
+    function cancelAllowlistReindex() external onlyFreshDelegateCall {
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        address candidateAllowlist = state.pendingAllowlist;
+        uint256 generation = state.pendingGeneration;
+        if (candidateAllowlist == address(0)) revert AllowlistReindexUnavailable();
         state.pendingBlocklist = address(0);
+        state.pendingAllowlist = address(0);
         state.pendingGeneration = 0;
+        state.pendingSnapshotLength = 0;
         state.cursor = 0;
         state.processed = 0;
         state.dirty = 0;
-        emit BlocklistRotationActivated(previousBlocklist, nextBlocklist, generation, activationTime);
+        emit AllowlistReindexCancelled(candidateAllowlist, generation);
+    }
+
+    function _activateProjection(BlocklistRotationStorage storage state, address nextBlocklist, address nextAllowlist)
+        private
+        returns (uint256 generation, uint48 activationTime)
+    {
+        uint256 snapshot = state.pendingSnapshotLength;
+        if (state.cursor != snapshot || state.processed < snapshot || state.dirty != 0) {
+            revert BlocklistRotationIncomplete(state.cursor, snapshot, state.processed, state.dirty);
+        }
+        generation = state.pendingGeneration;
+        activationTime = IForageTokenSourceView(address(this)).clock();
+        state.epochs.push(
+            ProjectionEpoch({startTime: activationTime, generation: generation, blocklist: nextBlocklist})
+        );
+        state.generationAllowlists[generation] = nextAllowlist;
+        _blocklist = nextBlocklist;
+        state.activeGeneration = generation;
+        state.pendingBlocklist = address(0);
+        state.pendingAllowlist = address(0);
+        state.pendingGeneration = 0;
+        state.pendingSnapshotLength = 0;
+        state.cursor = 0;
+        state.processed = 0;
+        state.dirty = 0;
     }
 
     function setAuthorizedBurner(address burner, bool authorized) external onlyFreshDelegateCall {
@@ -363,6 +497,10 @@ contract ForageTokenStateModule {
     }
 
     function syncInitialVestingSources() external onlyFreshDelegateCall {
+        BlocklistRotationStorage storage rotation = _blocklistRotationStorage();
+        if (rotation.activeGeneration == 0 && rotation.pendingBlocklist == address(0)) {
+            rotation.generationAllowlists[0] = allowlistAddress();
+        }
         address teamSource = _initialTeamVestingSource;
         if (teamSource != address(0)) _syncSource(teamSource, address(0), false, false);
         address treasurySource = _initialTreasurySource;
@@ -388,8 +526,94 @@ contract ForageTokenStateModule {
         onlyFreshDelegateCall
         returns (ForageTokenPastProjection memory projection)
     {
+        BlocklistRotationStorage storage rotation = _blocklistRotationStorage();
         (projection.generation, projection.blocklist) = _epochAt(timepoint);
+        projection.allowlist = rotation.generationAllowlists[projection.generation];
         projection.indexedVotes = _pastIndexedEligibleVotes(delegatee, timepoint, projection.generation);
+    }
+
+    function sourceEligibilityForBlocklistModule(ForageTokenSourceEligibilityQuery calldata query)
+        external
+        view
+        onlyFreshDelegateCall
+        returns (ForageTokenSourceEligibility memory eligibility)
+    {
+        (eligibility.allowlisted, eligibility.systemAccount, eligibility.allowedUntil) =
+            _allowlistAccountEligibility(query.allowlist, query.source);
+        address beneficiary = query.registeredBeneficiary;
+        if (beneficiary != address(0)) {
+            if (!eligibility.systemAccount) {
+                revert VestingSourceRegistrationRequired(query.source, beneficiary);
+            }
+            address registered;
+            try IAllowlistVestingRegistry(query.allowlist).vestingSourceBeneficiary(query.source) returns (
+                address value
+            ) {
+                registered = value;
+            } catch {
+                revert IAllowlist.AllowlistUnavailable();
+            }
+            if (registered != beneficiary) revert VestingSourceRegistrationRequired(query.source, beneficiary);
+        }
+        if (!query.registrationKnown && eligibility.systemAccount && query.source.code.length != 0) {
+            address registered;
+            try IAllowlistVestingRegistry(query.allowlist).vestingSourceBeneficiary(query.source) returns (
+                address value
+            ) {
+                registered = value;
+            } catch {
+                revert IAllowlist.AllowlistUnavailable();
+            }
+            if (registered != address(0)) revert UnsupportedLegacyVestingBeneficiary(query.source);
+            if (_readOptionalVestingBeneficiary(query.source) != address(0)) {
+                revert UnsupportedLegacyVestingBeneficiary(query.source);
+            }
+        }
+        if (beneficiary != address(0)) {
+            if (query.rememberedBeneficiary != address(0) && query.rememberedBeneficiary != beneficiary) {
+                revert IAllowlist.AllowlistUnavailable();
+            }
+            (bool beneficiaryAllowed, bool beneficiarySystem, uint64 beneficiaryUntil) =
+                _allowlistAccountEligibility(query.allowlist, beneficiary);
+            bool sourceSystem = eligibility.systemAccount;
+            eligibility.allowlisted = eligibility.allowlisted && beneficiaryAllowed;
+            eligibility.systemAccount = sourceSystem && beneficiarySystem;
+            if (sourceSystem) {
+                eligibility.allowedUntil = beneficiaryUntil;
+            } else if (!beneficiarySystem && beneficiaryUntil < eligibility.allowedUntil) {
+                eligibility.allowedUntil = beneficiaryUntil;
+            }
+        }
+        address blocklist = query.blocklist;
+        if (blocklist == address(0)) return eligibility;
+        try IBlocklist(blocklist).isBlocked(query.source) returns (bool blocked) {
+            eligibility.blocked = blocked;
+        } catch {
+            revert InvalidBlocklist(blocklist);
+        }
+        try IBlocklistVoteEligibility(blocklist).blockedUntil(query.source) returns (uint256 blockedUntil_) {
+            eligibility.blockedUntil = blockedUntil_;
+        } catch {
+            revert InvalidBlocklist(blocklist);
+        }
+        if (beneficiary != address(0)) {
+            bool beneficiaryBlocked;
+            uint256 beneficiaryBlockedUntil;
+            try IBlocklist(blocklist).isBlocked(beneficiary) returns (bool blocked) {
+                beneficiaryBlocked = blocked;
+            } catch {
+                revert InvalidBlocklist(blocklist);
+            }
+            try IBlocklistVoteEligibility(blocklist).blockedUntil(beneficiary) returns (uint256 blockedUntil_) {
+                beneficiaryBlockedUntil = blockedUntil_;
+            } catch {
+                revert InvalidBlocklist(blocklist);
+            }
+            eligibility.blocked = eligibility.blocked || beneficiaryBlocked;
+            if (beneficiaryBlockedUntil > eligibility.blockedUntil) {
+                eligibility.blockedUntil = beneficiaryBlockedUntil;
+            }
+        }
     }
 
     function _epochAt(uint256 timepoint) private view returns (uint256 generation, address provider) {
@@ -466,8 +690,31 @@ contract ForageTokenStateModule {
         returns (address beneficiary)
     {
         if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IForageTokenVestingRegistry(allowlist_).vestingSourceBeneficiary(source) returns (address registered) {
+        try IAllowlistVestingRegistry(allowlist_).vestingSourceBeneficiary(source) returns (address registered) {
             beneficiary = registered;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+    }
+
+    function _allowlistAccountEligibility(address allowlist_, address account)
+        private
+        view
+        returns (bool allowed, bool systemAccount, uint64 allowedUntil)
+    {
+        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
+        try IAllowlist(allowlist_).isAllowed(account) returns (bool currentAllowed) {
+            allowed = currentAllowed;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+        try IAllowlist(allowlist_).isSystemAccount(account) returns (bool currentSystem) {
+            systemAccount = currentSystem;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+        try IAllowlist(allowlist_).allowedUntil(account) returns (uint64 currentUntil) {
+            allowedUntil = currentUntil;
         } catch {
             revert IAllowlist.AllowlistUnavailable();
         }
@@ -519,7 +766,7 @@ contract ForageTokenStateModule {
     function _maxVestingSourcesPerBeneficiary() private view returns (uint256 maximum) {
         address allowlist_ = allowlistAddress();
         if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IForageTokenVestingRegistry(allowlist_).maxVestingSourcesPerBeneficiary() returns (uint256 value) {
+        try IAllowlistVestingRegistry(allowlist_).maxVestingSourcesPerBeneficiary() returns (uint256 value) {
             maximum = value;
         } catch {
             revert IAllowlist.AllowlistUnavailable();
@@ -683,14 +930,18 @@ contract ForageTokenStateModule {
 
     function _syncActiveProjection(BlocklistRotationStorage storage rotation, SourceSync memory sync) private {
         uint256 generation = rotation.activeGeneration;
-        ForageTokenStateUpdate memory update = _sourceUpdate(sync, _blocklist);
+        ForageTokenStateUpdate memory update =
+            _sourceUpdate(sync, _blocklist, IForageTokenSourceView(address(this)).allowlist());
         _applyProjectionSourceUpdate(rotation, generation, update);
     }
 
     function _syncPendingProjection(BlocklistRotationStorage storage rotation, SourceSync memory sync) private {
         uint256 generation = rotation.pendingGeneration;
         if (generation == 0) return;
-        ForageTokenStateUpdate memory update = _sourceUpdate(sync, rotation.pendingBlocklist);
+        address pendingAllowlist = rotation.pendingAllowlist;
+        address allowlist_ =
+            pendingAllowlist == address(0) ? IForageTokenSourceView(address(this)).allowlist() : pendingAllowlist;
+        ForageTokenStateUpdate memory update = _sourceUpdate(sync, rotation.pendingBlocklist, allowlist_);
         _applyProjectionSourceUpdate(rotation, generation, update);
     }
 
@@ -739,7 +990,7 @@ contract ForageTokenStateModule {
         if (ok && returnSize != 0) revert UnsupportedLegacyVestingBeneficiary(source);
     }
 
-    function _sourceUpdate(SourceSync memory sync, address blocklist)
+    function _sourceUpdate(SourceSync memory sync, address blocklist, address allowlist_)
         private
         view
         returns (ForageTokenStateUpdate memory update)
@@ -751,11 +1002,7 @@ contract ForageTokenStateModule {
         if (sync.newDelegate == address(0) || sync.votes == 0) return update;
         ForageTokenSourceEligibility memory eligibility = IForageTokenSourceView(address(this))
             .sourceEligibilityForBlocklist(
-            sync.source,
-            sync.registeredBeneficiary,
-            sync.registeredBeneficiary != address(0),
-            sync.systemAccount,
-            blocklist
+            sync.source, sync.registeredBeneficiary, sync.registeredBeneficiary != address(0), blocklist, allowlist_
         );
         if (eligibility.allowlisted && !eligibility.blocked) update.newBaseVotes = sync.votes;
         VoteTransitions memory transitions = _planVoteTransitions(eligibility, sync.votes);

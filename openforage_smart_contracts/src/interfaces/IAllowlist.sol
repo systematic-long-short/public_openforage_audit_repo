@@ -18,6 +18,12 @@ interface IAllowlist {
     function isVestingSourceRegistrationPending(address source) external view returns (bool);
 }
 
+interface IAllowlistVestingRegistry {
+    function vestingSourceBeneficiary(address source) external view returns (address);
+
+    function maxVestingSourcesPerBeneficiary() external view returns (uint256);
+}
+
 interface IVoteEligibilityObserver {
     function syncVoteEligibility(address account) external;
 }

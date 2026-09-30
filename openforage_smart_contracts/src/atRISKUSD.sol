@@ -103,6 +103,7 @@ contract atRISKUSD is
     error NoFundedProfit();
     error ProfitIndexPrecisionExhausted(uint256 outstanding, uint256 scale);
     error ProfitClaimInvariant(uint256 expected, uint256 actual);
+    error ProfitEpochCatchUpRequired(address account, uint64 nextEpoch, uint64 currentEpoch);
 
     // ============================================================
     // Events
@@ -135,6 +136,7 @@ contract atRISKUSD is
     event UnpaidProfitRecognized(uint256 amount, uint256 shares);
     event UnpaidProfitWrittenDown(uint256 amount, uint256 remaining);
     event UnpaidProfitClaimed(address indexed holder, uint256 amount);
+    event UnpaidProfitCatchUpProgress(address indexed account, uint64 nextEpoch, uint64 currentEpoch);
 
     // ============================================================
     // Structs
@@ -208,7 +210,7 @@ contract atRISKUSD is
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
     uint64 private constant FRESH_DEPLOYMENT_VERSION = 2;
-    uint64 private constant PROFIT_ENTITLEMENT_VERSION = 1;
+    uint64 private constant PROFIT_ENTITLEMENT_VERSION = 2;
 
     // ============================================================
     // Constructor
@@ -286,9 +288,9 @@ contract atRISKUSD is
 
     function _requireFreshDeployment() private view {
         uint64 version = _freshDeploymentVersion;
-        if (version != FRESH_DEPLOYMENT_VERSION || _profitEntitlementVersion != PROFIT_ENTITLEMENT_VERSION) {
-            revert FreshDeploymentRequired(version);
-        }
+        if (version != FRESH_DEPLOYMENT_VERSION) revert FreshDeploymentRequired(version);
+        uint64 profitVersion = _profitEntitlementVersion;
+        if (profitVersion != PROFIT_ENTITLEMENT_VERSION) revert FreshDeploymentRequired(profitVersion);
     }
 
     // ============================================================
@@ -419,6 +421,11 @@ contract atRISKUSD is
 
     function claimUnpaidProfit() external onlyFreshDeployment onlyAllowedCaller nonReentrant returns (uint256) {
         return _delegateProfitModuleUint(abi.encodeCall(AtRiskUSDProfitModule.claimUnpaidProfit, ()));
+    }
+
+    function catchUpUnpaidProfitEpochs(address account) external onlyFreshDeployment nonReentrant returns (bool) {
+        return
+            _delegateProfitModuleUint(abi.encodeCall(AtRiskUSDProfitModule.catchUpUnpaidProfitEpochs, (account))) == 1;
     }
 
     /// @dev OF-L22: Loss reporting must work even when paused. Auth-gated by _yieldSource.

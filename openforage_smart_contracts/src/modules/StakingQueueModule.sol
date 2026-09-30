@@ -566,7 +566,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         (bool hasLockup, bool isExpired, bool autoRenew, bool hasPendingWithdrawal, uint256 shares) =
             _getLockupInfo(tierVaultAddr, tier, depositor);
 
-        if (!hasLockup || !isExpired || hasPendingWithdrawal) return;
+        if (!hasLockup || !isExpired || (autoRenew && hasPendingWithdrawal)) return;
 
         if (autoRenew) {
             (bool success, bytes memory data) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_RENEW_LOCKUP, depositor));

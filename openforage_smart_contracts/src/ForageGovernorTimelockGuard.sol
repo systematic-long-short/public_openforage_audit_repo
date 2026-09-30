@@ -30,14 +30,19 @@ library GovernancePayloadBudget {
     }
 
     function tryDecodeRelay(bytes memory data) internal pure returns (bool, OperationPayload memory) {
-        return _tryDecodeOperation(data, 96, true);
+        return _tryDecodeOperation(data, 96, true, 68);
     }
 
     function tryDecodeSchedule(bytes memory data) internal pure returns (bool, OperationPayload memory) {
-        return _tryDecodeOperation(data, 192, false);
+        return _tryDecodeOperation(data, 192, false, 68);
     }
 
-    function _tryDecodeOperation(bytes memory data, uint256 headLength, bool readValue)
+    function isValidAddressAndBytes(bytes memory data) internal pure returns (bool) {
+        (bool valid,) = _tryDecodeOperation(data, 64, false, 36);
+        return valid;
+    }
+
+    function _tryDecodeOperation(bytes memory data, uint256 headLength, bool readValue, uint256 offsetPosition)
         private
         pure
         returns (bool, OperationPayload memory decoded)
@@ -46,7 +51,7 @@ library GovernancePayloadBudget {
         (bool targetOk, address target) = _tryReadAddress(data, 4);
         if (!targetOk) return (false, decoded);
         if (readValue && !_hasRange(data, 36, 32)) return (false, decoded);
-        (bool offsetOk, uint256 dataOffset) = _tryReadWord(data, 68);
+        (bool offsetOk, uint256 dataOffset) = _tryReadWord(data, offsetPosition);
         if (!offsetOk) return (false, decoded);
         (bool dataOk, bytes memory nestedData) = _tryReadDynamicBytes(data, 4, data.length - 4, dataOffset, headLength);
         if (!dataOk) return (false, decoded);
@@ -295,9 +300,13 @@ contract ForageGovernorTimelockGuard {
     error TimelockSelfProposerGrant();
     error TimelockExternalProposerGrant(address account);
 
+    bytes4 private constant _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR = bytes4(keccak256("proposeTimelock(address)"));
+    bytes4 private constant _GUARDIAN_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
+
     struct TimelockGuardContext {
         address executor;
         address allowedProposer;
+        address guardianModule;
         uint256 delayFloor;
         uint256 nestingBound;
         uint256 depth;
@@ -323,6 +332,7 @@ contract ForageGovernorTimelockGuard {
     function enforceOperations(
         address executor,
         address allowedProposer,
+        address guardianModule,
         uint256 delayFloor,
         uint256 nestingBound,
         address[] memory targets,
@@ -334,7 +344,89 @@ contract ForageGovernorTimelockGuard {
         TimelockPolicyCollection memory policies = _newPolicyCollection(targets.length);
         for (uint256 i; i < targets.length; ++i) {
             TimelockGuardContext memory context =
-                TimelockGuardContext(executor, allowedProposer, delayFloor, nestingBound, 0);
+                TimelockGuardContext(executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0);
+            _collectTimelockPolicies(context, targets[i], calldatas[i], budget, policies);
+        }
+        _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
+        _enforceFutureRelayedTimelocks(
+            executor, allowedProposer, guardianModule, delayFloor, nestingBound, targets, calldatas, budget.actionBytes
+        );
+    }
+
+    function _enforceFutureRelayedTimelocks(
+        address executor,
+        address allowedProposer,
+        address guardianModule,
+        uint256 delayFloor,
+        uint256 nestingBound,
+        address[] memory targets,
+        bytes[] memory calldatas,
+        uint256 actionBytes
+    ) private pure {
+        address[] memory candidates = new address[](targets.length);
+        address[] memory relayTargets = new address[](targets.length);
+        uint256 candidateCount;
+        for (uint256 i; i < targets.length; ++i) {
+            bytes memory data = calldatas[i];
+            if (
+                targets[i] != allowedProposer || data.length < 4 || _operationSelector(data) != _governorRelaySelector()
+            ) {
+                continue;
+            }
+            (bool valid, GovernancePayloadBudget.OperationPayload memory relayed) =
+                GovernancePayloadBudget.tryDecodeRelay(data);
+            if (!valid) revert MalformedTimelockCalldata();
+            if (relayed.target == executor || relayed.target == allowedProposer) {
+                continue;
+            }
+            relayTargets[i] = relayed.target;
+            if (_hasCandidate(candidates, candidateCount, relayed.target)) continue;
+            candidates[candidateCount] = relayed.target;
+            candidateCount += 1;
+        }
+        for (uint256 i; i < candidateCount; ++i) {
+            _enforceOperationsForExecutor(
+                candidates[i],
+                allowedProposer,
+                guardianModule,
+                delayFloor,
+                nestingBound,
+                targets,
+                calldatas,
+                relayTargets,
+                actionBytes
+            );
+        }
+    }
+
+    function _hasCandidate(address[] memory candidates, uint256 candidateCount, address candidate)
+        private
+        pure
+        returns (bool)
+    {
+        for (uint256 i; i < candidateCount; ++i) {
+            if (candidates[i] == candidate) return true;
+        }
+        return false;
+    }
+
+    function _enforceOperationsForExecutor(
+        address executor,
+        address allowedProposer,
+        address guardianModule,
+        uint256 delayFloor,
+        uint256 nestingBound,
+        address[] memory targets,
+        bytes[] memory calldatas,
+        address[] memory relayTargets,
+        uint256 actionBytes
+    ) private pure {
+        GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, actionBytes);
+        TimelockPolicyCollection memory policies = _newPolicyCollection(targets.length);
+        for (uint256 i; i < targets.length; ++i) {
+            if (targets[i] != executor && (targets[i] != allowedProposer || relayTargets[i] != executor)) continue;
+            TimelockGuardContext memory context =
+                TimelockGuardContext(executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0);
             _collectTimelockPolicies(context, targets[i], calldatas[i], budget, policies);
         }
         _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
@@ -343,6 +435,7 @@ contract ForageGovernorTimelockGuard {
     function enforceOperation(
         address executor,
         address allowedProposer,
+        address guardianModule,
         uint256 delayFloor,
         uint256 nestingBound,
         address target,
@@ -352,7 +445,11 @@ contract ForageGovernorTimelockGuard {
         _addActionBytes(budget, data.length);
         TimelockPolicyCollection memory policies = _newPolicyCollection(1);
         _collectTimelockPolicies(
-            TimelockGuardContext(executor, allowedProposer, delayFloor, nestingBound, 0), target, data, budget, policies
+            TimelockGuardContext(executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0),
+            target,
+            data,
+            budget,
+            policies
         );
         _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
     }
@@ -392,13 +489,16 @@ contract ForageGovernorTimelockGuard {
     ) private pure {
         if (data.length < 4) return;
         bytes4 selector = _operationSelector(data);
+        _revertIfMalformedGuardianMutation(context.guardianModule, target, data, selector);
         if (target == context.allowedProposer && selector == _governorRelaySelector()) {
             _consumeNestedVisits(budget, 1);
             (bool valid, GovernancePayloadBudget.OperationPayload memory relayed) =
                 GovernancePayloadBudget.tryDecodeRelay(data);
             if (!valid) revert MalformedTimelockCalldata();
             if (relayed.data.length >= data.length) revert MalformedTimelockCalldata();
-            if (relayed.target == context.executor || relayed.target == context.allowedProposer) {
+            if (relayed.target == context.guardianModule && relayed.target != address(0)) {
+                _collectTimelockPolicies(context, relayed.target, relayed.data, budget, policies);
+            } else if (relayed.target == context.executor || relayed.target == context.allowedProposer) {
                 _collectTimelockPolicies(
                     _nestedTimelockContext(context), relayed.target, relayed.data, budget, policies
                 );
@@ -421,7 +521,9 @@ contract ForageGovernorTimelockGuard {
                 GovernancePayloadBudget.tryDecodeSchedule(data);
             if (!valid) revert MalformedTimelockCalldata();
             if (scheduled.data.length >= data.length) revert MalformedTimelockCalldata();
-            if (scheduled.target == context.executor || scheduled.target == context.allowedProposer) {
+            if (scheduled.target == context.guardianModule && scheduled.target != address(0)) {
+                _collectTimelockPolicies(context, scheduled.target, scheduled.data, budget, policies);
+            } else if (scheduled.target == context.executor || scheduled.target == context.allowedProposer) {
                 _collectTimelockPolicies(
                     _nestedTimelockContext(context), scheduled.target, scheduled.data, budget, policies
                 );
@@ -430,6 +532,20 @@ contract ForageGovernorTimelockGuard {
         }
         if (selector == _timelockScheduleBatchSelector()) {
             _collectTimelockBatchPolicies(context, data, budget, policies);
+        }
+    }
+
+    function _revertIfMalformedGuardianMutation(
+        address guardianModule,
+        address target,
+        bytes memory data,
+        bytes4 selector
+    ) private pure {
+        if (guardianModule == address(0) || target != guardianModule) return;
+        if (selector == _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR) {
+            if (data.length < 36 || _readAddress(data, 4) == address(0)) revert MalformedTimelockCalldata();
+        } else if (selector == _GUARDIAN_UPGRADE_SELECTOR && !GovernancePayloadBudget.isValidAddressAndBytes(data)) {
+            revert MalformedTimelockCalldata();
         }
     }
 
@@ -478,6 +594,8 @@ contract ForageGovernorTimelockGuard {
                 _collectTimelockPolicies(
                     _nestedTimelockContext(context), scheduledTarget, scheduledData, budget, policies
                 );
+            } else if (scheduledTarget == context.guardianModule && scheduledTarget != address(0)) {
+                _collectTimelockPolicies(context, scheduledTarget, batch.calldatas[i], budget, policies);
             }
         }
     }
@@ -530,7 +648,12 @@ contract ForageGovernorTimelockGuard {
     {
         if (context.depth >= context.nestingBound) revert MalformedTimelockCalldata();
         nested = TimelockGuardContext(
-            context.executor, context.allowedProposer, context.delayFloor, context.nestingBound, context.depth + 1
+            context.executor,
+            context.allowedProposer,
+            context.guardianModule,
+            context.delayFloor,
+            context.nestingBound,
+            context.depth + 1
         );
     }
 

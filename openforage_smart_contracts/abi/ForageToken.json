@@ -175,6 +175,13 @@
   },
   {
     "type": "function",
+    "name": "activateAllowlistReindex",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "activateBlocklistRotation",
     "inputs": [],
     "outputs": [],
@@ -337,6 +344,16 @@
             "name": "pendingBlocklist",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "allowlistReindexActive",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "pendingAllowlist",
+            "type": "address",
+            "internalType": "address"
           }
         ]
       }
@@ -358,6 +375,13 @@
         "internalType": "uint256"
       }
     ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelAllowlistReindex",
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -841,6 +865,13 @@
   },
   {
     "type": "function",
+    "name": "processAllowlistReindex",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "processBlocklistRotation",
     "inputs": [],
     "outputs": [],
@@ -984,12 +1015,12 @@
         "internalType": "bool"
       },
       {
-        "name": "systemAccount",
-        "type": "bool",
-        "internalType": "bool"
+        "name": "blocklist_",
+        "type": "address",
+        "internalType": "address"
       },
       {
-        "name": "blocklist_",
+        "name": "allowlist_",
         "type": "address",
         "internalType": "address"
       }
@@ -1188,6 +1219,130 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "AllowlistReindexActivated",
+    "inputs": [
+      {
+        "name": "oldAllowlist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newAllowlist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "activationTime",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AllowlistReindexCancelled",
+    "inputs": [
+      {
+        "name": "candidateAllowlist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AllowlistReindexProgress",
+    "inputs": [
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "cursor",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "snapshotLength",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "inventoryLength",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "processed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "dirty",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AllowlistReindexStarted",
+    "inputs": [
+      {
+        "name": "currentAllowlist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "candidateAllowlist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "generation",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "snapshotLength",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1694,6 +1849,22 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "AllowlistReindexInProgress",
+    "inputs": [
+      {
+        "name": "pendingAllowlist",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AllowlistReindexUnavailable",
+    "inputs": []
   },
   {
     "type": "error",

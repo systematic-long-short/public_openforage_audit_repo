@@ -10,12 +10,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 import "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {
-    IAllowlist,
-    IAllowlistVoteEligibility,
-    IVestingBeneficiarySource,
-    IVoteEligibilityObserver
-} from "./interfaces/IAllowlist.sol";
+import {IAllowlist, IAllowlistVoteEligibility, IVoteEligibilityObserver} from "./interfaces/IAllowlist.sol";
 import {IBlocklist, IBlocklistVoteEligibility} from "./interfaces/IBlocklist.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import {
@@ -23,6 +18,7 @@ import {
     ForageTokenPastProjection,
     ForageTokenRotationStatus,
     ForageTokenSourceEligibility,
+    ForageTokenSourceEligibilityQuery,
     ForageTokenStateModule
 } from "./modules/ForageTokenStateModule.sol";
 
@@ -70,6 +66,8 @@ contract ForageToken is
     error BlocklistRotationInProgress(address pendingBlocklist);
     error BlocklistRotationUnavailable();
     error BlocklistRotationIncomplete(uint256 cursor, uint256 inventoryLength, uint256 processed, uint256 dirty);
+    error AllowlistReindexInProgress(address pendingAllowlist);
+    error AllowlistReindexUnavailable();
     error UnsupportedLegacyVestingBeneficiary(address source);
     error ProjectionGenerationExhausted();
     error InvalidProjectionGeneration(uint256 generation);
@@ -96,6 +94,24 @@ contract ForageToken is
     event BlocklistRotationActivated(
         address indexed oldBlocklist, address indexed newBlocklist, uint256 indexed generation, uint48 activationTime
     );
+    event AllowlistReindexStarted(
+        address indexed currentAllowlist,
+        address indexed candidateAllowlist,
+        uint256 indexed generation,
+        uint256 snapshotLength
+    );
+    event AllowlistReindexProgress(
+        uint256 indexed generation,
+        uint256 cursor,
+        uint256 snapshotLength,
+        uint256 inventoryLength,
+        uint256 processed,
+        uint256 dirty
+    );
+    event AllowlistReindexActivated(
+        address indexed oldAllowlist, address indexed newAllowlist, uint256 indexed generation, uint48 activationTime
+    );
+    event AllowlistReindexCancelled(address indexed candidateAllowlist, uint256 indexed generation);
 
     // Constants
     uint256 public constant TOTAL_SUPPLY = 100_000_000 * 10 ** 18;
@@ -136,9 +152,10 @@ contract ForageToken is
     mapping(address => EnumerableSet.AddressSet) private _vestingSourcesByBeneficiary;
     address private _initialTeamVestingSource;
     address private _initialTreasurySource;
+    mapping(address => mapping(address => bool)) private _explicitZeroResetRequired;
 
     /// @dev Reserved storage gap for future upgrades
-    uint256[37] private __gap;
+    uint256[36] private __gap;
 
     ForageTokenStateModule private immutable _STATE_MODULE;
 
@@ -248,6 +265,46 @@ contract ForageToken is
         return reader(delegatee, timepoint);
     }
 
+    function _delegateSourceEligibilityForBlocklist(
+        address source,
+        address registeredBeneficiary,
+        bool registrationKnown,
+        address blocklist_,
+        address allowlist_
+    ) private returns (ForageTokenSourceEligibility memory) {
+        ForageTokenSourceEligibilityQuery memory query = ForageTokenSourceEligibilityQuery({
+            source: source,
+            registeredBeneficiary: registeredBeneficiary,
+            registrationKnown: registrationKnown,
+            blocklist: blocklist_,
+            allowlist: allowlist_,
+            rememberedBeneficiary: _vestingBeneficiaryBySource[source]
+        });
+        return abi.decode(
+            _delegateStateModuleResult(
+                abi.encodeCall(ForageTokenStateModule.sourceEligibilityForBlocklistModule, (query))
+            ),
+            (ForageTokenSourceEligibility)
+        );
+    }
+
+    function _readSourceEligibilityForBlocklist(
+        address source,
+        address registeredBeneficiary,
+        bool registrationKnown,
+        address blocklist_,
+        address allowlist_
+    ) private view returns (ForageTokenSourceEligibility memory) {
+        function(address, address, bool, address, address) internal view returns (ForageTokenSourceEligibility memory)
+            reader;
+        function(address, address, bool, address, address) internal returns (ForageTokenSourceEligibility memory)
+            delegateReader = _delegateSourceEligibilityForBlocklist;
+        assembly ("memory-safe") {
+            reader := delegateReader
+        }
+        return reader(source, registeredBeneficiary, registrationKnown, blocklist_, allowlist_);
+    }
+
     function _delegateRotationStatus() private returns (ForageTokenRotationStatus memory) {
         return abi.decode(
             _delegateStateModuleResult(abi.encodeCall(ForageTokenStateModule.blocklistRotationStatus, ())),
@@ -342,7 +399,7 @@ contract ForageToken is
     function getPastVotes(address account, uint256 timepoint) public view override returns (uint256) {
         uint256 checkpointVotes = super.getPastVotes(account, timepoint);
         ForageTokenPastProjection memory projection = _readPastProjection(account, timepoint);
-        if (_wasBlockedAt(account, timepoint, projection.blocklist)) return 0;
+        if (_wasBlockedAt(account, timepoint, projection.blocklist, projection.allowlist)) return 0;
         uint256 trackedVotes = projection.indexedVotes;
         return trackedVotes < checkpointVotes ? trackedVotes : checkpointVotes;
     }
@@ -369,7 +426,10 @@ contract ForageToken is
 
     function syncVoteEligibility(address account) external {
         ForageTokenRotationStatus memory status = _requireFreshInventory();
-        if (msg.sender != allowlist() && msg.sender != _blocklist && msg.sender != status.pendingBlocklist) {
+        if (
+            msg.sender != allowlist() && msg.sender != _blocklist && msg.sender != status.pendingBlocklist
+                && msg.sender != status.pendingAllowlist
+        ) {
             revert UnauthorizedEligibilityObserver(msg.sender);
         }
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncVoteEligibility, (account)));
@@ -410,12 +470,11 @@ contract ForageToken is
         _requireNotBlocked(owner_);
         if (value != 0) {
             _requireNotBlocked(spender);
+            _requireExplicitAllowanceReset(owner_, spender, value);
         }
-        uint256 currentAllowance = allowance(owner_, spender);
-        if (currentAllowance != 0 && value != 0) {
-            revert AllowanceChangeRequiresZero(spender, currentAllowance, value);
-        }
-        return super.approve(spender, value);
+        bool approved = super.approve(spender, value);
+        if (approved) _explicitZeroResetRequired[owner_][spender] = value != 0;
+        return approved;
     }
 
     function transferFrom(address from, address to, uint256 value) public override freshInventoryReady returns (bool) {
@@ -524,8 +583,8 @@ contract ForageToken is
         return _authorizedLockers[locker];
     }
 
-    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
-        ForageTokenRotationStatus memory status = _requireFreshInventory();
+    function setBlocklist(address blocklist_) external freshInventoryReady onlyAllowedCaller onlyOwner {
+        ForageTokenRotationStatus memory status = _readRotationStatus();
         if (blocklist_ == address(0)) revert ZeroAddress();
         _requireValidBlocklist(blocklist_);
         address oldBlocklist = _blocklist;
@@ -550,8 +609,8 @@ contract ForageToken is
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.processBlocklistRotation, ()));
     }
 
-    function activateBlocklistRotation() external onlyAllowedCaller onlyOwner {
-        ForageTokenRotationStatus memory status = _requireFreshInventory();
+    function activateBlocklistRotation() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        ForageTokenRotationStatus memory status = _readRotationStatus();
         if (!status.rotationActive) revert BlocklistRotationUnavailable();
         _unregisterBlocklistObserverStrict(status.activeBlocklist);
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.activateBlocklistRotation, ()));
@@ -559,7 +618,7 @@ contract ForageToken is
     }
 
     function blocklistRotationStatus() external view returns (ForageTokenRotationStatus memory) {
-        return _readRotationStatus();
+        return _requireFreshInventory();
     }
 
     /// @dev Configuration-time code+interface probe (mirror of DelegatingVestingWallet's
@@ -645,7 +704,20 @@ contract ForageToken is
         override
         freshInventoryReady
     {
+        _requireNotBlocked(owner_);
+        if (value != 0) {
+            _requireNotBlocked(spender);
+            _requireExplicitAllowanceReset(owner_, spender, value);
+        }
         super.permit(owner_, spender, value, deadline, v, r, s);
+        _explicitZeroResetRequired[owner_][spender] = value != 0;
+    }
+
+    function _requireExplicitAllowanceReset(address owner_, address spender, uint256 value) private view {
+        uint256 currentAllowance = allowance(owner_, spender);
+        if (currentAllowance != 0 || _explicitZeroResetRequired[owner_][spender]) {
+            revert AllowanceChangeRequiresZero(spender, currentAllowance, value);
+        }
     }
 
     function nonces(address owner_) public view override(ERC20PermitUpgradeable, NoncesUpgradeable) returns (uint256) {
@@ -654,13 +726,49 @@ contract ForageToken is
 
     function setAllowlist(address allowlist_) external freshInventoryReady onlyOwner {
         address oldAllowlist = allowlist();
-        if (oldAllowlist != allowlist_) {
-            _validateAllowlistTransition(allowlist_);
-            _unregisterAllowlistObserver(oldAllowlist);
+        if (oldAllowlist == allowlist_) {
+            _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncInitialVestingSources, ()));
+            return;
         }
-        _transitionAllowlist(allowlist_);
+        ForageTokenRotationStatus memory rotation = _requireFreshInventory();
+        if (rotation.rotationActive || rotation.allowlistReindexActive) {
+            address pending = rotation.allowlistReindexActive ? rotation.pendingAllowlist : rotation.pendingBlocklist;
+            revert AllowlistReindexInProgress(pending);
+        }
+        _validateAllowlistTransition(allowlist_);
+        if (_blocklist == address(0)) {
+            _unregisterAllowlistObserver(oldAllowlist);
+            _transitionAllowlist(allowlist_);
+            _registerAllowlistObserver(allowlist_);
+            _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncInitialVestingSources, ()));
+            return;
+        }
+        if (!_supportsAllowlistVoteEligibility(allowlist_)) revert IAllowlist.AllowlistUnavailable();
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.beginAllowlistReindex, (allowlist_)));
         _registerAllowlistObserver(allowlist_);
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncInitialVestingSources, ()));
+    }
+
+    function processAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.processAllowlistReindex, ()));
+    }
+
+    function activateAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        ForageTokenRotationStatus memory status = _readRotationStatus();
+        address nextAllowlist = status.pendingAllowlist;
+        if (!status.allowlistReindexActive || nextAllowlist == address(0)) revert AllowlistReindexUnavailable();
+        address oldAllowlist = allowlist();
+        _unregisterAllowlistObserver(oldAllowlist);
+        _transitionAllowlist(nextAllowlist);
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.activateAllowlistReindex, ()));
+    }
+
+    function cancelAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        ForageTokenRotationStatus memory status = _readRotationStatus();
+        address candidateAllowlist = status.pendingAllowlist;
+        if (!status.allowlistReindexActive || candidateAllowlist == address(0)) revert AllowlistReindexUnavailable();
+        _unregisterAllowlistObserver(candidateAllowlist);
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.cancelAllowlistReindex, ()));
     }
 
     function renounceOwnership() public pure override {
@@ -683,106 +791,12 @@ contract ForageToken is
         address source,
         address registeredBeneficiary,
         bool registrationKnown,
-        bool systemAccount,
-        address blocklist_
+        address blocklist_,
+        address allowlist_
     ) external view returns (ForageTokenSourceEligibility memory eligibility) {
         if (msg.sender != address(this)) revert UnauthorizedTokenQuery(msg.sender);
-        (eligibility.allowlisted, eligibility.systemAccount, eligibility.allowedUntil) =
-            _allowlistAccountEligibility(source);
-        address beneficiary = registeredBeneficiary;
-        if (!registrationKnown && systemAccount && eligibility.systemAccount && source.code.length != 0) {
-            if (_readVestingBeneficiary(source) != address(0)) {
-                revert UnsupportedLegacyVestingBeneficiary(source);
-            }
-        }
-        if (beneficiary != address(0)) {
-            address remembered = _vestingBeneficiaryBySource[source];
-            if (remembered != address(0) && remembered != beneficiary) revert IAllowlist.AllowlistUnavailable();
-            (bool beneficiaryAllowed, bool beneficiarySystem, uint64 beneficiaryUntil) =
-                _allowlistAccountEligibility(beneficiary);
-            bool sourceSystem = eligibility.systemAccount;
-            eligibility.allowlisted = eligibility.allowlisted && beneficiaryAllowed;
-            eligibility.systemAccount = sourceSystem && beneficiarySystem;
-            if (sourceSystem) {
-                eligibility.allowedUntil = beneficiaryUntil;
-            } else if (!beneficiarySystem && beneficiaryUntil < eligibility.allowedUntil) {
-                eligibility.allowedUntil = beneficiaryUntil;
-            }
-        }
-        if (blocklist_ == address(0)) return eligibility;
-        try IBlocklist(blocklist_).isBlocked(source) returns (bool blocked) {
-            eligibility.blocked = blocked;
-        } catch {
-            revert InvalidBlocklist(blocklist_);
-        }
-        try IBlocklistVoteEligibility(blocklist_).blockedUntil(source) returns (uint256 blockedUntil_) {
-            eligibility.blockedUntil = blockedUntil_;
-        } catch {
-            revert InvalidBlocklist(blocklist_);
-        }
-        if (beneficiary != address(0)) {
-            bool beneficiaryBlocked;
-            uint256 beneficiaryBlockedUntil;
-            try IBlocklist(blocklist_).isBlocked(beneficiary) returns (bool blocked) {
-                beneficiaryBlocked = blocked;
-            } catch {
-                revert InvalidBlocklist(blocklist_);
-            }
-            try IBlocklistVoteEligibility(blocklist_).blockedUntil(beneficiary) returns (uint256 blockedUntil_) {
-                beneficiaryBlockedUntil = blockedUntil_;
-            } catch {
-                revert InvalidBlocklist(blocklist_);
-            }
-            eligibility.blocked = eligibility.blocked || beneficiaryBlocked;
-            if (beneficiaryBlockedUntil > eligibility.blockedUntil) {
-                eligibility.blockedUntil = beneficiaryBlockedUntil;
-            }
-        }
-    }
-
-    function _allowlistAccountEligibility(address account)
-        private
-        view
-        returns (bool allowed, bool systemAccount, uint64 allowedUntil)
-    {
-        address allowlist_ = allowlist();
-        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
-        try IAllowlist(allowlist_).isAllowed(account) returns (bool currentAllowed) {
-            allowed = currentAllowed;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-        try IAllowlist(allowlist_).isSystemAccount(account) returns (bool currentSystem) {
-            systemAccount = currentSystem;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-        try IAllowlist(allowlist_).allowedUntil(account) returns (uint64 currentUntil) {
-            allowedUntil = currentUntil;
-        } catch {
-            revert IAllowlist.AllowlistUnavailable();
-        }
-    }
-
-    function _readStrictVestingBeneficiary(address source) private view returns (address beneficiary) {
-        beneficiary = _readVestingBeneficiary(source);
-        if (beneficiary == address(0)) revert UnsupportedLegacyVestingBeneficiary(source);
-    }
-
-    function _readVestingBeneficiary(address source) private view returns (address beneficiary) {
-        uint32 selector = uint32(IVestingBeneficiarySource.beneficiary.selector);
-        uint256 encoded;
-        bool ok;
-        uint256 returnSize;
-        assembly ("memory-safe") {
-            let pointer := mload(0x40)
-            mstore(pointer, shl(224, selector))
-            ok := staticcall(gas(), source, pointer, 4, pointer, 32)
-            returnSize := returndatasize()
-            if and(ok, eq(returnSize, 32)) { encoded := mload(pointer) }
-        }
-        if (!ok || returnSize != 32 || encoded > type(uint160).max) return address(0);
-        return address(uint160(encoded));
+        return
+            _readSourceEligibilityForBlocklist(source, registeredBeneficiary, registrationKnown, blocklist_, allowlist_);
     }
 
     function _wasCheckpointBlockedAt(address blocklist_, address account, uint256 timepoint)
@@ -815,8 +829,8 @@ contract ForageToken is
         return ok && data.length >= 32 && abi.decode(data, (bool));
     }
 
-    function _isSystemAccountAt(address account, uint256 timepoint) private view returns (bool) {
-        address allowlist_ = allowlist();
+    function _isSystemAccountAt(address account, uint256 timepoint, address allowlist_) private view returns (bool) {
+        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
         try IAllowlistVoteEligibility(allowlist_).isSystemAccountAt(account, timepoint) returns (bool systemAccount_) {
             return systemAccount_;
         } catch {
@@ -824,17 +838,21 @@ contract ForageToken is
         }
     }
 
-    function _wasBlockedAt(address account, uint256 timepoint, address provider) private view returns (bool) {
+    function _wasBlockedAt(address account, uint256 timepoint, address provider, address allowlist_)
+        private
+        view
+        returns (bool)
+    {
         if (provider == address(0)) return false;
         if (_wasCheckpointBlockedAt(provider, account, timepoint)) return true;
-        if (!_isSystemAccountAt(account, timepoint)) return false;
+        if (!_isSystemAccountAt(account, timepoint, allowlist_)) return false;
         address beneficiary = _vestingBeneficiaryBySource[account];
         return beneficiary != address(0) && _wasCheckpointBlockedAt(provider, beneficiary, timepoint);
     }
 
     function _registerAllowlistObserver(address allowlist_) private {
         if (allowlist_ == address(0)) return;
-        _isSystemAccountAt(address(this), clock());
+        _isSystemAccountAt(address(this), clock(), allowlist_);
         if (!_supportsAllowlistVoteEligibility(allowlist_)) return;
         bool isSystemAccount_;
         try IAllowlist(allowlist_).isSystemAccount(address(this)) returns (bool value) {

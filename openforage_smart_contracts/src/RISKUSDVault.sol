@@ -371,9 +371,7 @@ contract RISKUSDVault is
             revert InvalidVaultRegistryInterface(vaultRegistry_);
         }
         if (initialOwner_ == address(0)) revert ZeroAddress();
-        try IVaultRegistryWiringQuery(vaultRegistry_).riskusdVault() returns (address wiredVault) {
-            if (wiredVault != address(this)) revert InvalidVaultRegistryInterface(vaultRegistry_);
-        } catch {
+        if (!_registryMatchesCurrentOrPendingVault(vaultRegistry_)) {
             revert InvalidVaultRegistryInterface(vaultRegistry_);
         }
 
@@ -433,6 +431,7 @@ contract RISKUSDVault is
 
         // Mint RISKUSD 1:1
         _riskusd.mint(msg.sender, usdcAmount);
+        _seedFreshRedemptionCapBases(riskusdSupplyBefore, usdcAmount);
 
         _assertBackingMarginNotDecreased(backingAssetsBefore, riskusdSupplyBefore);
         if (basis == 2) _depositedOnce[msg.sender] = true;
@@ -449,10 +448,12 @@ contract RISKUSDVault is
         uint256 backingAssetsBefore = solvencyBackingAssets();
         uint256 riskusdSupplyBefore = _riskusd.totalSupply();
 
-        uint256 weeklyCapCharge = _consumeWeeklyRedemptionMint(riskusdAmount);
-        uint256 dailyCapCharge = _consumeDailyRedemptionMint(riskusdAmount);
-        _enforceWeeklyCap(weeklyCapCharge);
-        _enforceDailyRedemptionCap(dailyCapCharge);
+        uint256 weeklyMintConsumed = _consumeWeeklyRedemptionMint(riskusdAmount);
+        uint256 dailyMintConsumed = _consumeDailyRedemptionMint(riskusdAmount);
+        uint256 weeklyCapCharge = riskusdAmount;
+        uint256 dailyCapCharge = riskusdAmount;
+        _enforceWeeklyCap(weeklyCapCharge, weeklyMintConsumed);
+        _enforceDailyRedemptionCap(dailyCapCharge, dailyMintConsumed);
 
         // Vault liquidity check
         uint256 balance = vaultUsdcBalance();
@@ -471,7 +472,7 @@ contract RISKUSDVault is
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
         _riskusd.burn(address(this), riskusdAmount);
-        if (_publicRedemptionNettingEnabled()) {
+        if (_redemptionMintTrackingEnabled()) {
             uint256 supplyAfterRedeem = _riskusd.totalSupply();
             if (_lastActiveSupply == 0 || supplyAfterRedeem < _lastActiveSupply) {
                 _lastActiveSupply = supplyAfterRedeem;
@@ -1068,14 +1069,13 @@ contract RISKUSDVault is
     function effectiveWeeklyRedemptionCap() public view returns (uint256) {
         uint256 effectiveSupply;
         if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
-            // Window expired — would reset using last active supply (OF-L21)
-            effectiveSupply = _lastActiveSupply > 0 ? _lastActiveSupply : _riskusd.totalSupply();
-        } else if (_windowStartSupply == 0) {
-            // No redemptions yet — use current supply
-            effectiveSupply = _riskusd.totalSupply();
+            effectiveSupply = _lastActiveSupply > 0
+                ? _lastActiveSupply
+                : _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
+        } else if (_windowStartSupply == 0 && _weeklyRedemptionUsed == 0) {
+            effectiveSupply = _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
         } else {
-            // Use only the window start supply — prevents cap inflation from mid-window deposits
-            effectiveSupply = _windowStartSupply;
+            effectiveSupply = _redemptionCapBasis(_windowStartSupply, _weeklyRedemptionUsed);
         }
         return effectiveSupply * _weeklyRedemptionCapBps / 10000;
     }
@@ -1092,13 +1092,14 @@ contract RISKUSDVault is
     function effectiveDailyRedemptionCap() public view returns (uint256) {
         uint256 effectiveSupply;
         if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) {
-            effectiveSupply = _dailyRedemptionWindowStartSupply > _riskusd.totalSupply()
-                ? _dailyRedemptionWindowStartSupply
-                : _riskusd.totalSupply();
-        } else if (_dailyRedemptionWindowStartSupply == 0) {
-            effectiveSupply = _riskusd.totalSupply();
+            uint256 currentSupply =
+                _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _dailyRedemptionMintAmount());
+            effectiveSupply =
+                _dailyRedemptionWindowStartSupply > currentSupply ? _dailyRedemptionWindowStartSupply : currentSupply;
+        } else if (_dailyRedemptionWindowStartSupply == 0 && _dailyRedemptionUsed == 0) {
+            effectiveSupply = _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _dailyRedemptionMintAmount());
         } else {
-            effectiveSupply = _dailyRedemptionWindowStartSupply;
+            effectiveSupply = _redemptionCapBasis(_dailyRedemptionWindowStartSupply, _dailyRedemptionUsed);
         }
         return effectiveSupply * _dailyRedemptionCapBps / 10000;
     }
@@ -1245,12 +1246,6 @@ contract RISKUSDVault is
         _windowStartSupply = netCapCharge >= basis ? 0 : basis - netCapCharge;
     }
 
-    function _restoreRedemptionBasis(uint256 basis, uint256 offset) internal pure returns (uint256) {
-        if (offset == 0) return basis;
-        if (offset > type(uint256).max - basis) revert InvalidState();
-        return basis + offset;
-    }
-
     /// @dev OF-002: Safe depositor USDC computation with underflow protection.
     /// Returns 0 when outflows exceed inflows (high-loss scenario) instead of panicking.
     /// OF-18-007: Include _totalReplenished in inflows so replenished capital is redeployable.
@@ -1260,7 +1255,7 @@ contract RISKUSDVault is
         return inflows > outflows ? inflows - outflows : 0;
     }
 
-    function _publicRedemptionNettingEnabled() internal view returns (bool) {
+    function _redemptionMintTrackingEnabled() internal view returns (bool) {
         return address(_vaultRegistry) != address(0);
     }
 
@@ -1291,14 +1286,34 @@ contract RISKUSDVault is
         return returnedAddress <= type(uint160).max && address(uint160(returnedAddress)) == expected;
     }
 
+    function _registryMatchesCurrentOrPendingVault(address registry) private view returns (bool) {
+        (bool ok, bytes memory data) =
+            registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.riskusdVault.selector));
+        if (ok && _registryAddressMatches(data, address(this))) return true;
+        (ok, data) = registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.pendingRISKUSDVault.selector));
+        return ok && _registryAddressMatches(data, address(this));
+    }
+
     function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {
         if (block.timestamp < storedStart + window) return storedStart;
         uint256 elapsed = (block.timestamp - storedStart) / window;
         return storedStart + elapsed * window;
     }
 
+    function _weeklyRedemptionMintAmount() private view returns (uint256) {
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 activeStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        return buffers.weeklyWindowStart == activeStart ? buffers.weeklyMintAmount : 0;
+    }
+
+    function _dailyRedemptionMintAmount() private view returns (uint256) {
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 activeStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        return buffers.dailyWindowStart == activeStart ? buffers.dailyMintAmount : 0;
+    }
+
     function _recordPublicRedemptionMint(uint256 amount) internal {
-        if (!_publicRedemptionNettingEnabled()) return;
+        if (!_redemptionMintTrackingEnabled()) return;
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
@@ -1306,32 +1321,31 @@ contract RISKUSDVault is
             buffers.weeklyWindowStart = weeklyStart;
             buffers.weeklyMintAmount = 0;
         }
-        if (block.timestamp < _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
-            uint256 weeklyOffset = _min(amount, _weeklyRedemptionUsed);
-            _weeklyRedemptionUsed -= weeklyOffset;
-            _windowStartSupply = _restoreRedemptionBasis(_windowStartSupply, weeklyOffset);
-            buffers.weeklyMintAmount += amount - weeklyOffset;
-        } else {
-            buffers.weeklyMintAmount += amount;
-        }
+        buffers.weeklyMintAmount += amount;
 
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
         if (buffers.dailyWindowStart != dailyStart) {
             buffers.dailyWindowStart = dailyStart;
             buffers.dailyMintAmount = 0;
         }
-        if (block.timestamp < _dailyRedemptionWindowStart + DAILY_WINDOW) {
-            uint256 dailyOffset = _min(amount, _dailyRedemptionUsed);
-            _dailyRedemptionUsed -= dailyOffset;
-            _dailyRedemptionWindowStartSupply = _restoreRedemptionBasis(_dailyRedemptionWindowStartSupply, dailyOffset);
-            buffers.dailyMintAmount += amount - dailyOffset;
-        } else {
-            buffers.dailyMintAmount += amount;
-        }
+        buffers.dailyMintAmount += amount;
     }
 
-    function _consumeWeeklyRedemptionMint(uint256 amount) internal returns (uint256) {
-        if (!_publicRedemptionNettingEnabled()) return amount;
+    function _seedFreshRedemptionCapBases(uint256 supplyBefore, uint256 mintedSupply) private {
+        if (
+            supplyBefore != 0 || _windowStartSupply != 0 || _dailyRedemptionWindowStartSupply != 0
+                || _weeklyRedemptionUsed != 0 || _dailyRedemptionUsed != 0 || _lastActiveSupply != 0
+        ) {
+            return;
+        }
+
+        _windowStartSupply = mintedSupply;
+        _dailyRedemptionWindowStartSupply = mintedSupply;
+        _lastActiveSupply = mintedSupply;
+    }
+
+    function _consumeWeeklyRedemptionMint(uint256 amount) internal returns (uint256 consumedMintAmount) {
+        if (!_redemptionMintTrackingEnabled()) return 0;
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
@@ -1339,13 +1353,12 @@ contract RISKUSDVault is
             buffers.weeklyWindowStart = weeklyStart;
             buffers.weeklyMintAmount = 0;
         }
-        uint256 offset = _min(amount, buffers.weeklyMintAmount);
-        buffers.weeklyMintAmount -= offset;
-        return amount - offset;
+        consumedMintAmount = _min(amount, buffers.weeklyMintAmount);
+        buffers.weeklyMintAmount -= consumedMintAmount;
     }
 
-    function _consumeDailyRedemptionMint(uint256 amount) internal returns (uint256) {
-        if (!_publicRedemptionNettingEnabled()) return amount;
+    function _consumeDailyRedemptionMint(uint256 amount) internal returns (uint256 consumedMintAmount) {
+        if (!_redemptionMintTrackingEnabled()) return 0;
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
@@ -1353,13 +1366,12 @@ contract RISKUSDVault is
             buffers.dailyWindowStart = dailyStart;
             buffers.dailyMintAmount = 0;
         }
-        uint256 offset = _min(amount, buffers.dailyMintAmount);
-        buffers.dailyMintAmount -= offset;
-        return amount - offset;
+        consumedMintAmount = _min(amount, buffers.dailyMintAmount);
+        buffers.dailyMintAmount -= consumedMintAmount;
     }
 
     function _consumeLossRedemptionMint(uint256 amount) internal {
-        if (!_publicRedemptionNettingEnabled()) return;
+        if (!_redemptionMintTrackingEnabled()) return;
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
@@ -1379,9 +1391,11 @@ contract RISKUSDVault is
         buffers.dailyMintAmount -= dailyOffset;
     }
 
-    function _enforceWeeklyCap(uint256 riskusdAmount) internal {
+    function _enforceWeeklyCap(uint256 riskusdAmount, uint256 consumedMintAmount) internal {
         // Cache totalSupply to avoid redundant external calls (OF-056)
         uint256 cachedTotalSupply = _riskusd.totalSupply();
+        uint256 supplyWithoutCurrentWindowMint =
+            _supplyWithoutCurrentWindowMint(cachedTotalSupply, consumedMintAmount, _weeklyRedemptionMintAmount());
 
         // Lazy reset: if window has expired, reset used counter and advance window
         if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
@@ -1390,16 +1404,15 @@ contract RISKUSDVault is
             uint256 elapsed = (block.timestamp - _weeklyRedemptionWindowStart) / WEEKLY_WINDOW;
             _weeklyRedemptionWindowStart += elapsed * WEEKLY_WINDOW;
             // OF-L21: Use last active-window supply to prevent cap inflation via temporary deposits
-            _windowStartSupply = _lastActiveSupply > 0 ? _lastActiveSupply : cachedTotalSupply;
+            _windowStartSupply = _lastActiveSupply > 0 ? _lastActiveSupply : supplyWithoutCurrentWindowMint;
             // OF-007: Reset _lastActiveSupply for new window to prevent permanent cap ratchet-down
             _lastActiveSupply = cachedTotalSupply;
-        } else if (_windowStartSupply == 0) {
-            // First redemption ever — snapshot current supply
-            _windowStartSupply = cachedTotalSupply;
+        } else if (_windowStartSupply == 0 && _weeklyRedemptionUsed == 0) {
+            _windowStartSupply = supplyWithoutCurrentWindowMint;
         }
 
-        // Use only _windowStartSupply — prevents cap inflation from mid-window deposits (OF-014)
-        uint256 cap = _windowStartSupply * _weeklyRedemptionCapBps / 10000;
+        uint256 capBasis = _redemptionCapBasis(_windowStartSupply, _weeklyRedemptionUsed);
+        uint256 cap = capBasis * _weeklyRedemptionCapBps / 10000;
         if (_weeklyRedemptionUsed + riskusdAmount > cap) revert WeeklyRedemptionCapExceeded();
 
         // PHASE3-002: Min-track supply to prevent inflation via temporary large deposits
@@ -1407,21 +1420,24 @@ contract RISKUSDVault is
             (_lastActiveSupply > 0 && _lastActiveSupply < cachedTotalSupply) ? _lastActiveSupply : cachedTotalSupply;
     }
 
-    function _enforceDailyRedemptionCap(uint256 riskusdAmount) internal {
+    function _enforceDailyRedemptionCap(uint256 riskusdAmount, uint256 consumedMintAmount) internal {
         uint256 cachedTotalSupply = _riskusd.totalSupply();
+        uint256 supplyWithoutCurrentWindowMint =
+            _supplyWithoutCurrentWindowMint(cachedTotalSupply, consumedMintAmount, _dailyRedemptionMintAmount());
 
         if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) {
             _dailyRedemptionUsed = 0;
             uint256 elapsed = (block.timestamp - _dailyRedemptionWindowStart) / DAILY_WINDOW;
             _dailyRedemptionWindowStart += elapsed * DAILY_WINDOW;
-            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply > cachedTotalSupply
+            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply > supplyWithoutCurrentWindowMint
                 ? _dailyRedemptionWindowStartSupply
-                : cachedTotalSupply;
-        } else if (_dailyRedemptionWindowStartSupply == 0) {
-            _dailyRedemptionWindowStartSupply = cachedTotalSupply;
+                : supplyWithoutCurrentWindowMint;
+        } else if (_dailyRedemptionWindowStartSupply == 0 && _dailyRedemptionUsed == 0) {
+            _dailyRedemptionWindowStartSupply = supplyWithoutCurrentWindowMint;
         }
 
-        uint256 cap = _dailyRedemptionWindowStartSupply * _dailyRedemptionCapBps / 10000;
+        uint256 capBasis = _redemptionCapBasis(_dailyRedemptionWindowStartSupply, _dailyRedemptionUsed);
+        uint256 cap = capBasis * _dailyRedemptionCapBps / 10000;
         if (_dailyRedemptionUsed + riskusdAmount > cap) revert DailyRedemptionCapExceeded();
     }
 
@@ -1501,6 +1517,22 @@ contract RISKUSDVault is
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {
         return a < b ? a : b;
+    }
+
+    function _supplyWithoutCurrentWindowMint(uint256 supply, uint256 consumedOffset, uint256 remainingMint)
+        private
+        pure
+        returns (uint256)
+    {
+        if (consumedOffset > type(uint256).max - remainingMint) revert InvalidState();
+        uint256 trackedMint = consumedOffset + remainingMint;
+        if (trackedMint > supply) revert InvalidState();
+        return supply - trackedMint;
+    }
+
+    function _redemptionCapBasis(uint256 basis, uint256 used) private pure returns (uint256) {
+        if (used > type(uint256).max - basis) revert InvalidState();
+        return basis + used;
     }
 
     function _assertBackingMarginNotDecreased(uint256 backingAssetsBefore, uint256 riskusdSupplyBefore) internal view {

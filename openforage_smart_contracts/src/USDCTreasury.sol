@@ -558,10 +558,6 @@ contract USDCTreasury is
         if (pendingVaultId == 0 || vaultId != pendingVaultId) revert LossVaultMismatch(vaultId, pendingVaultId);
         uint256 loss = centralVault.latestLossAmount();
         if (loss == 0 || !centralVault.lossPending()) revert NoPendingLoss();
-        VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
-        if (_pendingLossSettlement.nonce == 0) {
-            _writeDownUnpaidClaims(vaultId, loss, config);
-        }
         LossSettlementPlan memory plan = _prepareLossSettlement(vaultId, lossNonce, loss);
         originalLoss = _pendingLossSettlement.originalLoss;
         complete = _applyLossSettlement(vaultId, lossNonce, centralVault, plan);
@@ -814,6 +810,17 @@ contract USDCTreasury is
             _tierAccountingValue[vaultId][i] -= allocation;
             _unfundedTierYieldClaim[tierVault] -= allocation;
         }
+        _reconcilePendingVaultTopUp(vaultId, outstanding - writtenDown);
+    }
+
+    function _reconcilePendingVaultTopUp(uint256 vaultId, uint256 outstanding) private {
+        uint256 pending = pendingVaultTopUp[vaultId];
+        if (pending <= outstanding) return;
+        uint256 excess = pending - outstanding;
+        uint256 earmark = earmarkBalance[EARMARK_VAULT_TOP_UP];
+        if (earmark < excess) revert InsufficientEarmark();
+        pendingVaultTopUp[vaultId] = outstanding;
+        earmarkBalance[EARMARK_VAULT_TOP_UP] = earmark - excess;
     }
 
     function _reduceUnreturnedRecognizedProfit(uint256 vaultId, uint256 loss) private {
@@ -866,7 +873,6 @@ contract USDCTreasury is
     }
 
     function _startLossSettlement(uint256 vaultId, uint256 lossNonce, uint256 loss) private {
-        _reduceUnreturnedRecognizedProfit(vaultId, loss);
         VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
         (uint256[4] memory tierAssets, uint256 totalTierAssets) = _tierAssetSnapshot(config);
         uint256 tierLoss = loss < totalTierAssets ? loss : totalTierAssets;

@@ -269,6 +269,25 @@
   },
   {
     "type": "function",
+    "name": "catchUpUnpaidProfitEpochs",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "claimUnpaidProfit",
     "inputs": [],
     "outputs": [
@@ -1997,6 +2016,31 @@
   },
   {
     "type": "event",
+    "name": "UnpaidProfitCatchUpProgress",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "nextEpoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "currentEpoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UnpaidProfitClaimed",
     "inputs": [
       {
@@ -2828,6 +2872,27 @@
         "name": "actual",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProfitEpochCatchUpRequired",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "nextEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "currentEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },

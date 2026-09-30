@@ -57,6 +57,7 @@ contract ForageGovernor is
     error TimelockExternalProposerGrant(address account);
     error SignatureVotingDisabled();
     error TimelockRoleMissing(bytes32 role, address account);
+    error GovernorFreshLayoutRequired(uint256 version);
 
     // ── Custom events ────────────────────────────────────────────────────
     event QuorumBpsUpdated(uint256 oldQuorumBps, uint256 newQuorumBps);
@@ -87,7 +88,8 @@ contract ForageGovernor is
     mapping(uint256 => uint256) internal _proposalQuorumBps;
 
     uint256 private _reservedGuardianProposalIdPlusOne;
-    uint256[42] private __gap;
+    uint256 private _freshLayoutVersion;
+    uint256[41] private __gap;
 
     // ── Constants ──────────────────────────────────────────────────────
     /// @notice OF-13-001: Minimum timelock delay floor to prevent governance self-reduction.
@@ -166,6 +168,21 @@ contract ForageGovernor is
         _timelockGuard = new ForageGovernorTimelockGuard();
     }
 
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    function _requireFreshLayout() private view {
+        uint256 version = _freshLayoutVersion;
+        if (version != 1) revert GovernorFreshLayoutRequired(version);
+    }
+
+    modifier freshLayout() {
+        _requireFreshLayout();
+        _;
+    }
+
     // ── Initializer ──────────────────────────────────────────────────────
 
     function initialize(
@@ -176,7 +193,7 @@ contract ForageGovernor is
         uint256 proposalThresholdBps_,
         uint256 quorumBps_,
         address guardianModule_
-    ) external initializer {
+    ) external onlyDuringConstructionBeforeInitialization initializer {
         if (forageToken_ == address(0)) revert ZeroAddress();
         if (timelockController_ == address(0)) revert ZeroAddress();
         // OF-001: votingPeriod has a one-hour floor (MIN_VOTING_PERIOD); votingDelay may be zero.
@@ -206,6 +223,11 @@ contract ForageGovernor is
             _validateGuardianModule(guardianModule_);
             guardianModule = GuardianModule(guardianModule_);
         }
+        _freshLayoutVersion = 1;
+    }
+
+    receive() external payable override freshLayout {
+        if (_executor() != address(this)) revert GovernorDisabledDeposit();
     }
 
     // ── Proposal lifecycle (overrides) ───────────────────────────────────
@@ -217,7 +239,7 @@ contract ForageGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         string memory description
-    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
+    ) public override(GovernorUpgradeable) freshLayout onlyAllowedCaller returns (uint256) {
         // Lazy cleanup of terminal proposals
         _cleanupTerminalProposals();
 
@@ -293,7 +315,7 @@ contract ForageGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         bytes32 descriptionHash
-    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
+    ) public override(GovernorUpgradeable) freshLayout onlyAllowedCaller returns (uint256) {
         uint256 proposalId = getProposalId(targets, values, calldatas, descriptionHash);
         if (!_validateCancel(proposalId, _msgSender())) {
             revert GovernorUnableToCancel(proposalId, _msgSender());
@@ -367,7 +389,7 @@ contract ForageGovernor is
 
     /// @dev OF-13-016: _quorumBps is now snapshotted per-proposal at creation time.
     /// Changing quorum via governance only affects future proposals.
-    function setQuorumBps(uint256 quorumBps_) external onlyAllowedCaller {
+    function setQuorumBps(uint256 quorumBps_) external freshLayout onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (quorumBps_ == 0 || quorumBps_ > 5000) revert InvalidParameter();
 
@@ -377,14 +399,24 @@ contract ForageGovernor is
         emit QuorumBpsUpdated(oldBps, quorumBps_);
     }
 
-    function setVotingDelay(uint48 newVotingDelay) public override(GovernorSettingsUpgradeable) onlyAllowedCaller {
+    function setVotingDelay(uint48 newVotingDelay)
+        public
+        override(GovernorSettingsUpgradeable)
+        freshLayout
+        onlyAllowedCaller
+    {
         if (msg.sender != _executor()) revert Unauthorized();
         // OF-001: No hardcoded minimum on votingDelay. Testnet fast profile: 0s. Mainnet / production: 86400s (1 day), set from genesis by the production deployer.
         // Transition via governance proposal; timelock delay protects against malicious changes.
         _setVotingDelay(newVotingDelay);
     }
 
-    function setVotingPeriod(uint32 newVotingPeriod) public override(GovernorSettingsUpgradeable) onlyAllowedCaller {
+    function setVotingPeriod(uint32 newVotingPeriod)
+        public
+        override(GovernorSettingsUpgradeable)
+        freshLayout
+        onlyAllowedCaller
+    {
         if (msg.sender != _executor()) revert Unauthorized();
         if (newVotingPeriod < MIN_VOTING_PERIOD) {
             revert VotingPeriodBelowMinimum(newVotingPeriod, MIN_VOTING_PERIOD);
@@ -393,7 +425,7 @@ contract ForageGovernor is
         _setVotingPeriod(newVotingPeriod);
     }
 
-    function setProposalThresholdBps(uint256 proposalThresholdBps_) external onlyAllowedCaller {
+    function setProposalThresholdBps(uint256 proposalThresholdBps_) external freshLayout onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (proposalThresholdBps_ == 0 || proposalThresholdBps_ > 5000) revert InvalidParameter();
 
@@ -403,7 +435,7 @@ contract ForageGovernor is
         emit ProposalThresholdBpsUpdated(oldBps, proposalThresholdBps_);
     }
 
-    function setMaxActiveProposals(uint256 maxActiveProposals_) external onlyAllowedCaller {
+    function setMaxActiveProposals(uint256 maxActiveProposals_) external freshLayout onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         if (maxActiveProposals_ == 0 || maxActiveProposals_ > 100) revert InvalidParameter();
         if (maxActiveProposals_ < _activeOrdinaryProposalCount()) revert InvalidParameter();
@@ -414,7 +446,7 @@ contract ForageGovernor is
         emit MaxActiveProposalsUpdated(oldMax, maxActiveProposals_);
     }
 
-    function setGuardianModule(address guardianModule_) external onlyAllowedCaller {
+    function setGuardianModule(address guardianModule_) external freshLayout onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
         _validateGuardianModule(guardianModule_);
 
@@ -537,6 +569,7 @@ contract ForageGovernor is
     function updateTimelock(TimelockControllerUpgradeable newTimelock)
         public
         override(GovernorTimelockControlUpgradeable)
+        freshLayout
         onlyAllowedCaller
     {
         if (address(newTimelock) == address(0)) revert ZeroAddress();
@@ -571,6 +604,7 @@ contract ForageGovernor is
         public
         payable
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
     {
         if (data.length > GovernancePayloadBudget.MAX_TOP_LEVEL_ACTION_BYTES) revert MalformedTimelockCalldata();
@@ -612,7 +646,14 @@ contract ForageGovernor is
         bytes[] memory calldatas
     ) internal view {
         _timelockGuard.enforceOperations(
-            executor, allowedProposer, MIN_TIMELOCK_DELAY, MAX_TIMELOCK_NESTING, targets, values, calldatas
+            executor,
+            allowedProposer,
+            address(guardianModule),
+            MIN_TIMELOCK_DELAY,
+            MAX_TIMELOCK_NESTING,
+            targets,
+            values,
+            calldatas
         );
     }
 
@@ -667,7 +708,9 @@ contract ForageGovernor is
     }
 
     function _enforceTimelockOperationGuards(address executor, address target, bytes memory data) internal view {
-        _timelockGuard.enforceOperation(executor, address(this), MIN_TIMELOCK_DELAY, MAX_TIMELOCK_NESTING, target, data);
+        _timelockGuard.enforceOperation(
+            executor, address(this), address(guardianModule), MIN_TIMELOCK_DELAY, MAX_TIMELOCK_NESTING, target, data
+        );
     }
 
     function _castVote(uint256 proposalId, address account, uint8 support, string memory reason, bytes memory params)
@@ -688,6 +731,7 @@ contract ForageGovernor is
     function castVote(uint256 proposalId, uint8 support)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (uint256)
     {
@@ -697,6 +741,7 @@ contract ForageGovernor is
     function castVoteWithReason(uint256 proposalId, uint8 support, string calldata reason)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (uint256)
     {
@@ -706,6 +751,7 @@ contract ForageGovernor is
     function castVoteWithReasonAndParams(uint256 proposalId, uint8 support, string calldata reason, bytes memory params)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (uint256)
     {
@@ -715,6 +761,7 @@ contract ForageGovernor is
     function castVoteBySig(uint256, uint8, address, bytes memory)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (uint256)
     {
@@ -724,6 +771,7 @@ contract ForageGovernor is
     function castVoteWithReasonAndParamsBySig(uint256, uint8, address, string calldata, bytes memory, bytes memory)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (uint256)
     {
@@ -733,6 +781,7 @@ contract ForageGovernor is
     function queue(address[] memory targets, uint256[] memory values, bytes[] memory calldatas, bytes32 descriptionHash)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (uint256)
     {
@@ -744,7 +793,7 @@ contract ForageGovernor is
         uint256[] memory values,
         bytes[] memory calldatas,
         bytes32 descriptionHash
-    ) public payable override(GovernorUpgradeable) onlyAllowedCaller returns (uint256) {
+    ) public payable override(GovernorUpgradeable) freshLayout onlyAllowedCaller returns (uint256) {
         return super.execute(targets, values, calldatas, descriptionHash);
     }
 
@@ -752,6 +801,7 @@ contract ForageGovernor is
         public
         payable
         override(UUPSUpgradeable)
+        freshLayout
         onlyAllowedCaller
     {
         super.upgradeToAndCall(newImplementation, data);
@@ -760,6 +810,7 @@ contract ForageGovernor is
     function setProposalThreshold(uint256 newProposalThreshold)
         public
         override(GovernorSettingsUpgradeable)
+        freshLayout
         onlyAllowedCaller
     {
         super.setProposalThreshold(newProposalThreshold);
@@ -768,6 +819,7 @@ contract ForageGovernor is
     function onERC721Received(address operator, address from, uint256 tokenId, bytes memory data)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (bytes4)
     {
@@ -777,6 +829,7 @@ contract ForageGovernor is
     function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes memory data)
         public
         override(GovernorUpgradeable)
+        freshLayout
         onlyAllowedCaller
         returns (bytes4)
     {
@@ -789,11 +842,11 @@ contract ForageGovernor is
         uint256[] memory ids,
         uint256[] memory values,
         bytes memory data
-    ) public override(GovernorUpgradeable) onlyAllowedCaller returns (bytes4) {
+    ) public override(GovernorUpgradeable) freshLayout onlyAllowedCaller returns (bytes4) {
         return super.onERC1155BatchReceived(operator, from, ids, values, data);
     }
 
-    function setAllowlist(address allowlist_) external {
+    function setAllowlist(address allowlist_) external freshLayout {
         if (msg.sender != _executor()) revert Unauthorized();
         if (allowlist_ == address(0) || allowlist_.code.length == 0) revert IAllowlist.AllowlistUnavailable();
 
@@ -811,6 +864,7 @@ contract ForageGovernor is
     }
 
     function _authorizeUpgrade(address) internal override {
+        _requireFreshLayout();
         if (msg.sender != _executor()) revert Unauthorized();
         _checkAllowedCaller();
     }
@@ -830,13 +884,14 @@ contract ForageGovernor is
     /// proposals (Defeated, Expired, Executed, Canceled) from the active tracking array.
     /// Also called lazily in propose(), but this external version allows anyone to trigger
     /// cleanup without submitting a new proposal.
-    function cleanupDefeated() external onlyAllowedCaller {
+    function cleanupDefeated() external freshLayout onlyAllowedCaller {
         _cleanupTerminalProposals();
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
     function _cleanupTerminalProposals() internal {
+        _requireFreshLayout();
         uint256 writeIdx = 0;
         // OF-035: Cache storage length to avoid redundant SLOAD per iteration
         uint256 len = _activeProposalIds.length;

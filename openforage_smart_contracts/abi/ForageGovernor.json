@@ -1870,6 +1870,17 @@
   },
   {
     "type": "error",
+    "name": "GovernorFreshLayoutRequired",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "GovernorInsufficientProposerVotes",
     "inputs": [
       {

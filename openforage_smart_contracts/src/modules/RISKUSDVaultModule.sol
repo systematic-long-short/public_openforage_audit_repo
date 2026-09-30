@@ -894,26 +894,27 @@ contract RISKUSDVaultModule is
             _clearLossPendingAndNotifyRegistry();
         }
 
+        (uint256 weeklyBasisDebit, uint256 dailyBasisDebit) = _consumeLossRedemptionMint(riskusdAmount);
+
         // OF-I06: Adjust _windowStartSupply if within current redemption window
         // to prevent the weekly cap from being based on stale (pre-burn) supply.
         if (block.timestamp < _weeklyRedemptionWindowStart + WEEKLY_WINDOW && _windowStartSupply > 0) {
-            _windowStartSupply = _windowStartSupply >= riskusdAmount ? _windowStartSupply - riskusdAmount : 0;
+            _windowStartSupply = _windowStartSupply >= weeklyBasisDebit ? _windowStartSupply - weeklyBasisDebit : 0;
         }
         // Mirror OF-I06 on the daily redemption basis: a burn inside the current daily window
         // must not leave the daily cap computed from stale (pre-burn) supply either.
         if (block.timestamp < _dailyRedemptionWindowStart + DAILY_WINDOW && _dailyRedemptionWindowStartSupply > 0) {
-            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply >= riskusdAmount
-                ? _dailyRedemptionWindowStartSupply - riskusdAmount
+            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply >= dailyBasisDebit
+                ? _dailyRedemptionWindowStartSupply - dailyBasisDebit
                 : 0;
         }
         // OF-014: Also adjust _lastActiveSupply to prevent next window inheriting pre-burn supply
-        if (_lastActiveSupply > riskusdAmount) {
-            _lastActiveSupply -= riskusdAmount;
+        if (_lastActiveSupply > weeklyBasisDebit) {
+            _lastActiveSupply -= weeklyBasisDebit;
         } else {
             _lastActiveSupply = 0;
         }
         _reduceMintActiveSupply(riskusdAmount);
-        _consumeLossRedemptionMint(riskusdAmount);
 
         if (coverUsdcAmount > 0) {
             _usdc.safeTransferFrom(msg.sender, address(this), coverUsdcAmount);
@@ -1113,8 +1114,11 @@ contract RISKUSDVaultModule is
         }
     }
 
-    function _consumeLossRedemptionMint(uint256 amount) internal {
-        if (address(_vaultRegistry) == address(0) || amount == 0) return;
+    function _consumeLossRedemptionMint(uint256 amount)
+        internal
+        returns (uint256 weeklyBasisDebit, uint256 dailyBasisDebit)
+    {
+        if (address(_vaultRegistry) == address(0) || amount == 0) return (amount, amount);
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
@@ -1124,6 +1128,7 @@ contract RISKUSDVaultModule is
         }
         uint256 weeklyOffset = amount < buffers.weeklyMintAmount ? amount : buffers.weeklyMintAmount;
         buffers.weeklyMintAmount -= weeklyOffset;
+        weeklyBasisDebit = amount - weeklyOffset;
 
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
         if (buffers.dailyWindowStart != dailyStart) {
@@ -1132,6 +1137,7 @@ contract RISKUSDVaultModule is
         }
         uint256 dailyOffset = amount < buffers.dailyMintAmount ? amount : buffers.dailyMintAmount;
         buffers.dailyMintAmount -= dailyOffset;
+        dailyBasisDebit = amount - dailyOffset;
     }
 
     function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {

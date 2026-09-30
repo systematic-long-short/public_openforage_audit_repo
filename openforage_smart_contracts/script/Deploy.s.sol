@@ -686,7 +686,7 @@ contract Deploy is Script {
         while (
             rotation.rotationActive
                 && (
-                    rotation.cursor != rotation.inventoryLength || rotation.processed != rotation.inventoryLength
+                    rotation.cursor < rotation.inventoryLength || rotation.processed < rotation.inventoryLength
                         || rotation.dirty != 0
                 )
         ) {
