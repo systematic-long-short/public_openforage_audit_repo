@@ -423,14 +423,6 @@ contract RISKUSDVaultModule is
         emit AttestedLossFinalized(vaultId, lossNonce, amount);
     }
 
-    function initializeV2(address vaultRegistry_) external onlyDelegateCall {
-        if (vaultRegistry_ == address(0)) revert ZeroAddress();
-        _requireVaultRegistryMatchesThisVault(vaultRegistry_);
-        _requireVaultRegistryInterface(vaultRegistry_);
-        _vaultRegistry = IVaultRegistry(vaultRegistry_);
-        emit VaultRegistryUpdated(address(0), vaultRegistry_);
-    }
-
     function proposeVaultRegistry(address newRegistry_) external onlyDelegateCall {
         if (newRegistry_ == address(0)) revert ZeroAddress();
         _pendingVaultRegistry = newRegistry_;
@@ -925,6 +917,12 @@ contract RISKUSDVaultModule is
             // Burn from caller (the loss reporter holds the RISKUSD)
             _riskusd.burn(msg.sender, riskusdAmount);
             emit LossBurned(riskusdAmount);
+            uint256 supplyAfterLoss = _riskusd.totalSupply();
+            if (supplyAfterLoss == 0) {
+                _resetRedemptionCapsForEmptySupply();
+            } else if (_lastActiveSupply == 0 || supplyAfterLoss < _lastActiveSupply) {
+                _lastActiveSupply = supplyAfterLoss;
+            }
         }
 
         if (
@@ -1121,6 +1119,12 @@ contract RISKUSDVaultModule is
         if (address(_vaultRegistry) == address(0) || amount == 0) return (amount, amount);
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        if (
+            buffers.weeklyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+                && buffers.dailyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+        ) {
+            return (amount, amount);
+        }
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
         if (buffers.weeklyWindowStart != weeklyStart) {
             buffers.weeklyWindowStart = weeklyStart;
@@ -1138,6 +1142,21 @@ contract RISKUSDVaultModule is
         uint256 dailyOffset = amount < buffers.dailyMintAmount ? amount : buffers.dailyMintAmount;
         buffers.dailyMintAmount -= dailyOffset;
         dailyBasisDebit = amount - dailyOffset;
+    }
+
+    function _resetRedemptionCapsForEmptySupply() private {
+        _weeklyRedemptionWindowStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        _dailyRedemptionWindowStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        _weeklyRedemptionUsed = 0;
+        _dailyRedemptionUsed = 0;
+        _windowStartSupply = 0;
+        _dailyRedemptionWindowStartSupply = 0;
+        _lastActiveSupply = 0;
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        buffers.weeklyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.weeklyMintAmount = 0;
+        buffers.dailyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.dailyMintAmount = 0;
     }
 
     function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {

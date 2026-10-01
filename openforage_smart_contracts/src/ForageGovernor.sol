@@ -105,6 +105,7 @@ contract ForageGovernor is
     uint256 public constant MAX_ACTIVE_GUARDIAN_PROPOSALS_PER_GUARDIAN = 1;
     uint256 private constant MAX_ACTIVE_ORDINARY_PROPOSALS_PER_PROPOSER = 3;
     uint256 private constant MAX_TIMELOCK_NESTING = GovernancePayloadBudget.MAX_TIMELOCK_DEPTH;
+    uint256 private constant GUARDIAN_PROPOSAL_FLAG = 1 << 255;
 
     // ── Public getters ───────────────────────────────────────────────
     function maxActiveProposals() external view returns (uint256) {
@@ -301,7 +302,7 @@ contract ForageGovernor is
         _activeProposalIds.push(proposalId);
 
         // OF-13-016: Snapshot quorum BPS at proposal creation
-        _proposalQuorumBps[proposalId] = _quorumBps;
+        _proposalQuorumBps[proposalId] = _quorumBps | (isGuardianProposer ? GUARDIAN_PROPOSAL_FLAG : 0);
 
         return proposalId;
     }
@@ -324,6 +325,14 @@ contract ForageGovernor is
         return _cancel(targets, values, calldatas, descriptionHash);
     }
 
+    function cancelBelowThreshold(uint256 proposalId) external freshLayout returns (uint256) {
+        ProposalState proposalState = state(proposalId);
+        if (!_isBelowThresholdOrdinaryProposal(proposalId, proposalState)) {
+            revert GovernorUnableToCancel(proposalId, _msgSender());
+        }
+        return _cancelStoredProposal(proposalId);
+    }
+
     function _validateCancel(uint256 proposalId, address caller)
         internal
         view
@@ -335,6 +344,22 @@ contract ForageGovernor is
         // GuardianModule can cancel (delegates guardian cancel permission checks)
         if (address(guardianModule) != address(0) && caller == address(guardianModule)) return true;
         return false;
+    }
+
+    function _cancelStoredProposal(uint256 proposalId) private returns (uint256) {
+        ProposalParams storage pp = _proposalParams[proposalId];
+        return _cancel(pp.targets, pp.values, pp.calldatas, pp.descriptionHash);
+    }
+
+    function _isBelowThresholdOrdinaryProposal(uint256 proposalId, ProposalState proposalState)
+        private
+        view
+        returns (bool)
+    {
+        if (proposalState != ProposalState.Pending && proposalState != ProposalState.Active) return false;
+        if ((_proposalQuorumBps[proposalId] & GUARDIAN_PROPOSAL_FLAG) != 0) return false;
+        uint256 threshold = proposalThreshold();
+        return threshold != 0 && getVotes(proposalProposer(proposalId), clock() - 1) < threshold;
     }
 
     function _activeProposalCountFor(address proposerAddr, uint256 maximum) internal view returns (uint256 count) {
@@ -490,7 +515,7 @@ contract ForageGovernor is
     /// Falls back to current _quorumBps for proposals created before the snapshot feature
     /// (pre-upgrade: _proposalQuorumBps[proposalId] == 0).
     function quorumForProposal(uint256 proposalId) public view returns (uint256) {
-        uint256 snapshotBps = _proposalQuorumBps[proposalId];
+        uint256 snapshotBps = _proposalQuorumBps[proposalId] & ~GUARDIAN_PROPOSAL_FLAG;
         uint256 bps = snapshotBps > 0 ? snapshotBps : _quorumBps;
         return token().getPastTotalSupply(proposalSnapshot(proposalId)) * bps / 10_000;
     }
@@ -892,6 +917,7 @@ contract ForageGovernor is
 
     function _cleanupTerminalProposals() internal {
         _requireFreshLayout();
+        _cleanupBelowThresholdProposals();
         uint256 writeIdx = 0;
         // OF-035: Cache storage length to avoid redundant SLOAD per iteration
         uint256 len = _activeProposalIds.length;
@@ -919,13 +945,25 @@ contract ForageGovernor is
         }
     }
 
-    function _usesActiveProposalSlot(uint256 proposalId, ProposalState proposalState) internal view returns (bool) {
-        if (
-            proposalState == ProposalState.Pending || proposalState == ProposalState.Active
-                || proposalState == ProposalState.Succeeded
-        ) {
-            return true;
+    function _cleanupBelowThresholdProposals() private {
+        uint256 i;
+        while (i < _activeProposalIds.length) {
+            uint256 proposalId = _activeProposalIds[i];
+            if (_isBelowThresholdOrdinaryProposal(proposalId, state(proposalId))) {
+                _cancelStoredProposal(proposalId);
+            } else {
+                unchecked {
+                    ++i;
+                }
+            }
         }
+    }
+
+    function _usesActiveProposalSlot(uint256 proposalId, ProposalState proposalState) internal view returns (bool) {
+        if (proposalState == ProposalState.Pending || proposalState == ProposalState.Active) {
+            return !_isBelowThresholdOrdinaryProposal(proposalId, proposalState);
+        }
+        if (proposalState == ProposalState.Succeeded) return true;
         if (proposalState != ProposalState.Queued) return false;
         uint256 eta = proposalEta(proposalId);
         return eta == 0 || block.timestamp <= eta + STALE_QUEUED_PROPOSAL_AGE;

@@ -303,6 +303,18 @@ contract ForageGovernorTimelockGuard {
     bytes4 private constant _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR = bytes4(keccak256("proposeTimelock(address)"));
     bytes4 private constant _GUARDIAN_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
 
+    struct FutureTimelockCall {
+        address executor;
+        address target;
+        bytes data;
+        uint256 depth;
+    }
+
+    struct FutureTimelockQueue {
+        FutureTimelockCall[] calls;
+        uint256[] count;
+    }
+
     struct TimelockGuardContext {
         address executor;
         address allowedProposer;
@@ -310,6 +322,7 @@ contract ForageGovernorTimelockGuard {
         uint256 delayFloor;
         uint256 nestingBound;
         uint256 depth;
+        FutureTimelockQueue futureTimelockCalls;
     }
 
     enum PolicyKind {
@@ -341,95 +354,98 @@ contract ForageGovernorTimelockGuard {
     ) external pure {
         GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
         _validateProposalBounds(targets, values, calldatas, budget);
+        FutureTimelockQueue memory futureTimelockCalls = _newFutureTimelockQueue(targets.length);
         TimelockPolicyCollection memory policies = _newPolicyCollection(targets.length);
+        TimelockGuardContext memory context = TimelockGuardContext(
+            executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0, futureTimelockCalls
+        );
         for (uint256 i; i < targets.length; ++i) {
-            TimelockGuardContext memory context =
-                TimelockGuardContext(executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0);
             _collectTimelockPolicies(context, targets[i], calldatas[i], budget, policies);
         }
         _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
-        _enforceFutureRelayedTimelocks(
-            executor, allowedProposer, guardianModule, delayFloor, nestingBound, targets, calldatas, budget.actionBytes
-        );
+        _enforceFutureTimelockExecutors(context, budget, targets, calldatas);
     }
 
-    function _enforceFutureRelayedTimelocks(
-        address executor,
-        address allowedProposer,
-        address guardianModule,
-        uint256 delayFloor,
-        uint256 nestingBound,
+    function _enforceFutureTimelockExecutors(
+        TimelockGuardContext memory context,
+        GovernancePayloadBudget.Budget memory budget,
         address[] memory targets,
-        bytes[] memory calldatas,
-        uint256 actionBytes
+        bytes[] memory calldatas
     ) private pure {
-        address[] memory candidates = new address[](targets.length);
-        address[] memory relayTargets = new address[](targets.length);
-        uint256 candidateCount;
         for (uint256 i; i < targets.length; ++i) {
-            bytes memory data = calldatas[i];
             if (
-                targets[i] != allowedProposer || data.length < 4 || _operationSelector(data) != _governorRelaySelector()
+                targets[i] != context.executor && targets[i] != context.allowedProposer
+                    && _isTimelockScheduleCall(calldatas[i])
             ) {
-                continue;
+                _enqueueFutureTimelockCall(context.futureTimelockCalls, targets[i], targets[i], calldatas[i], 0);
             }
-            (bool valid, GovernancePayloadBudget.OperationPayload memory relayed) =
-                GovernancePayloadBudget.tryDecodeRelay(data);
-            if (!valid) revert MalformedTimelockCalldata();
-            if (relayed.target == executor || relayed.target == allowedProposer) {
-                continue;
-            }
-            relayTargets[i] = relayed.target;
-            if (_hasCandidate(candidates, candidateCount, relayed.target)) continue;
-            candidates[candidateCount] = relayed.target;
-            candidateCount += 1;
         }
-        for (uint256 i; i < candidateCount; ++i) {
-            _enforceOperationsForExecutor(
-                candidates[i],
-                allowedProposer,
-                guardianModule,
-                delayFloor,
-                nestingBound,
-                targets,
-                calldatas,
-                relayTargets,
-                actionBytes
+        for (uint256 i; i < context.futureTimelockCalls.count[0]; ++i) {
+            FutureTimelockCall memory candidate = context.futureTimelockCalls.calls[i];
+            TimelockGuardContext memory candidateContext = TimelockGuardContext(
+                candidate.executor,
+                context.allowedProposer,
+                context.guardianModule,
+                context.delayFloor,
+                context.nestingBound,
+                candidate.depth,
+                context.futureTimelockCalls
             );
+            TimelockPolicyCollection memory policies = _newPolicyCollection(1);
+            _collectTimelockPolicies(candidateContext, candidate.target, candidate.data, budget, policies);
+            _enforceTimelockPolicies(policies, candidate.executor, context.allowedProposer, context.delayFloor);
         }
     }
 
-    function _hasCandidate(address[] memory candidates, uint256 candidateCount, address candidate)
+    function _newFutureTimelockQueue(uint256 rootActions) private pure returns (FutureTimelockQueue memory queue) {
+        queue.calls = new FutureTimelockCall[](rootActions + GovernancePayloadBudget.MAX_NESTED_ACTION_VISITS);
+        queue.count = new uint256[](1);
+    }
+
+    function _enqueueFutureTimelockCall(
+        FutureTimelockQueue memory queue,
+        address executor,
+        address target,
+        bytes memory data,
+        uint256 depth
+    ) private pure {
+        uint256 count = queue.count[0];
+        if (count >= queue.calls.length) revert MalformedTimelockCalldata();
+        queue.calls[count] = FutureTimelockCall(executor, target, data, depth);
+        queue.count[0] = count + 1;
+    }
+
+    function _isTimelockScheduleCall(bytes memory data) private pure returns (bool) {
+        if (data.length < 4) return false;
+        bytes4 selector = _operationSelector(data);
+        return selector == _timelockScheduleSelector() || selector == _timelockScheduleBatchSelector();
+    }
+
+    function _nextTimelockDepth(TimelockGuardContext memory context) private pure returns (uint256) {
+        if (context.depth >= context.nestingBound) revert MalformedTimelockCalldata();
+        return context.depth + 1;
+    }
+
+    function _queueNestedTimelockSchedule(
+        TimelockGuardContext memory context,
+        address target,
+        bytes memory data,
+        uint256 parentLength
+    ) private pure {
+        if (
+            target == context.executor || target == context.allowedProposer || target == context.guardianModule
+                || !_isTimelockScheduleCall(data)
+        ) return;
+        if (data.length >= parentLength) revert MalformedTimelockCalldata();
+        _enqueueFutureTimelockCall(context.futureTimelockCalls, target, target, data, _nextTimelockDepth(context));
+    }
+
+    function _queueRelayedTimelock(TimelockGuardContext memory context, address target, bytes memory data)
         private
         pure
-        returns (bool)
     {
-        for (uint256 i; i < candidateCount; ++i) {
-            if (candidates[i] == candidate) return true;
-        }
-        return false;
-    }
-
-    function _enforceOperationsForExecutor(
-        address executor,
-        address allowedProposer,
-        address guardianModule,
-        uint256 delayFloor,
-        uint256 nestingBound,
-        address[] memory targets,
-        bytes[] memory calldatas,
-        address[] memory relayTargets,
-        uint256 actionBytes
-    ) private pure {
-        GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, actionBytes);
-        TimelockPolicyCollection memory policies = _newPolicyCollection(targets.length);
-        for (uint256 i; i < targets.length; ++i) {
-            if (targets[i] != executor && (targets[i] != allowedProposer || relayTargets[i] != executor)) continue;
-            TimelockGuardContext memory context =
-                TimelockGuardContext(executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0);
-            _collectTimelockPolicies(context, targets[i], calldatas[i], budget, policies);
-        }
-        _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
+        if (target == address(0) || target == context.executor || target == context.allowedProposer) return;
+        _enqueueFutureTimelockCall(context.futureTimelockCalls, target, target, data, _nextTimelockDepth(context));
     }
 
     function enforceOperation(
@@ -443,15 +459,18 @@ contract ForageGovernorTimelockGuard {
     ) external pure {
         GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
         _addActionBytes(budget, data.length);
-        TimelockPolicyCollection memory policies = _newPolicyCollection(1);
-        _collectTimelockPolicies(
-            TimelockGuardContext(executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0),
-            target,
-            data,
-            budget,
-            policies
+        FutureTimelockQueue memory futureTimelockCalls = _newFutureTimelockQueue(1);
+        TimelockGuardContext memory context = TimelockGuardContext(
+            executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0, futureTimelockCalls
         );
+        TimelockPolicyCollection memory policies = _newPolicyCollection(1);
+        _collectTimelockPolicies(context, target, data, budget, policies);
         _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
+        address[] memory targets = new address[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        targets[0] = target;
+        calldatas[0] = data;
+        _enforceFutureTimelockExecutors(context, budget, targets, calldatas);
     }
 
     function _validateProposalBounds(
@@ -502,6 +521,8 @@ contract ForageGovernorTimelockGuard {
                 _collectTimelockPolicies(
                     _nestedTimelockContext(context), relayed.target, relayed.data, budget, policies
                 );
+            } else {
+                _queueRelayedTimelock(context, relayed.target, relayed.data);
             }
             return;
         }
@@ -527,6 +548,8 @@ contract ForageGovernorTimelockGuard {
                 _collectTimelockPolicies(
                     _nestedTimelockContext(context), scheduled.target, scheduled.data, budget, policies
                 );
+            } else {
+                _queueNestedTimelockSchedule(context, scheduled.target, scheduled.data, data.length);
             }
             return;
         }
@@ -596,6 +619,8 @@ contract ForageGovernorTimelockGuard {
                 );
             } else if (scheduledTarget == context.guardianModule && scheduledTarget != address(0)) {
                 _collectTimelockPolicies(context, scheduledTarget, batch.calldatas[i], budget, policies);
+            } else {
+                _queueNestedTimelockSchedule(context, scheduledTarget, batch.calldatas[i], data.length);
             }
         }
     }
@@ -653,7 +678,8 @@ contract ForageGovernorTimelockGuard {
             context.guardianModule,
             context.delayFloor,
             context.nestingBound,
-            context.depth + 1
+            context.depth + 1,
+            context.futureTimelockCalls
         );
     }
 

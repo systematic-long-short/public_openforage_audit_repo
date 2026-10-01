@@ -137,7 +137,7 @@ contract DeployMainnet is Deploy {
         require(block.timestamp <= expiresAt, "initial custodian config expired");
         initialHyperLiquidConfigProposedAt = proposedAt;
         initialHyperLiquidConfigFinalizedAt = block.timestamp;
-        registry.finalizeCustodianConfig(id);
+        _timelockCall(deployedCustodianRegistry, abi.encodeCall(CustodianRegistry.finalizeCustodianConfig, (id)));
     }
 
     function _afterRiskusdMinterProposed() internal override {
@@ -156,7 +156,6 @@ contract DeployMainnet is Deploy {
 
     function _handoffToProductionGovernance() internal {
         _transferOwnershipThroughTimelock(deployedBlocklist);
-        _transferOwnershipThroughTimelock(deployedCustodianRegistry);
         _transferOwnershipThroughTimelock(deployedFORAGETreasury);
         _transferOwnershipThroughTimelock(deployedForageToken);
         _transferOwnershipThroughTimelock(deployedRiskusd);

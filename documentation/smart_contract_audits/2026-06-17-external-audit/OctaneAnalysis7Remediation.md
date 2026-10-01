@@ -4,11 +4,11 @@ This document records a selective public source snapshot and the current limits 
 
 ## Public identity and status
 
-The previous PR #9 head and base of this update is `ef049358efb6496f8304faef11a99c34d2610e62`. Earlier commit `fbcdda4fc95adc6d345786787ce4ea7557df86a4` is its historical parent; `bd005bad4fe3432401a6e4ae920830e267369e38` is the historical parent of that earlier commit, and public `main` was `6fbbc51c4da48fce46f7119d1053088ba119d7bf` at a historical readback. None of those older identities is the base of this update. The current source map contains 59 files: 33 source/interface/module files, 18 ABI files, and 8 selected script/interface files. The private inventory has no first-party source/interface/module/ABI path outside the explicit map; the three previously added source paths remain included.
+The previous PR #9 head and base of this update is `6efd4cd86a9b2fec7f484c0da073f71385900308`. The older head `ef049358efb6496f8304faef11a99c34d2610e62` and earlier commits are historical. The current source map contains 60 files: 34 source/interface/library/module files, 18 ABI files, and 8 selected script/interface files. The private inventory has no first-party source/interface/library/module/ABI path outside the explicit map; `GuardianAuthorityClassifier.sol` is included.
 
-This file keeps all 155 exact `(analysis, UUID)` identities from analyses 1–8. The counts remain 55, 11, 9, 14, 9, 5, 28, and 24. The row codes and UUIDs are unchanged. Analysis 9 and Analysis 10 have separate disposition documents; neither is added to this historical identity table.
+This file keeps all 155 exact `(analysis, UUID)` identities from analyses 1–8. The counts remain 55, 11, 9, 14, 9, 5, 28, and 24. The row codes and UUIDs are unchanged. Analyses 9, 10, and 11 have separate disposition documents; none is added to this historical identity table.
 
-The retained Analysis 9 export records 21 findings: 15 vulnerabilities and 6 warnings. It records 21 acknowledgements as `Other`, with no finding marked resolved. Analysis 10 records 16 vulnerabilities and one warning. Acknowledgements and source reviews do not prove finding closure. A9-02's helper-readiness correction is bounded and not full closure; A10-17 remains open. No legacy-proxy, deployment, or current Octane proof exists. See the separate Analysis 9 and Analysis 10 disposition documents.
+The retained Analysis 9 export records 21 findings: 15 vulnerabilities and 6 warnings. It records 21 acknowledgements as `Other`, with no finding marked resolved. Analysis 10 records 16 vulnerabilities and one warning. Analysis 11 records 9 vulnerabilities, 2 warnings, and 3 related cases. Acknowledgements and source reviews do not prove finding closure. A9-02's helper-readiness correction is bounded and not full closure; A10-17 remains open. A11-05 retains its stated Guardian-cancellation limit. No legacy-proxy, deployment, or current Octane proof exists. See the separate Analysis 9, Analysis 10, and Analysis 11 disposition documents.
 
 Warning 28 retains UUID `3c2ba48b-3798-4f57-beba-90dc904af4d8`. The later description capture is identified, but the original 2026-09-24 capture bytes are unavailable. No description has been reconstructed.
 
@@ -176,7 +176,7 @@ These rows preserve identity only. The source-family review below gives the cand
 
 ## Source review and residual conditions
 
-The analyses 1–8 family notes below are historical source descriptions. The separate Analysis 9 and Analysis 10 records describe current source dispositions and remaining proof limits.
+The analyses 1–8 family notes below are historical source descriptions. The separate Analysis 9, Analysis 10, and Analysis 11 records describe current source dispositions and remaining proof limits.
 
 The candidate changes below document the reviewed source paths. They do not show that a contract was deployed, that a legacy proxy is compatible, or that Octane marked a finding resolved. A source fix and an unresolved state or policy condition can coexist.
 
@@ -248,38 +248,41 @@ These rules do not prove that every current source path satisfies them. The firs
 
 ## Current public build and evidence limits
 
-Forge 1.3.5 and Solc 0.8.24 compiled 130 public inputs in each profile with zero compiler errors. Default code generation completed, but the child exited 1 on three EIP-170 runtime-size overages: ForageGovernor 27,842 bytes (3,266 over), StakingQueue 27,382 bytes (2,806 over), and USDCTreasury 27,723 bytes (3,147 over). Default initcode has no overage. ForageToken fits at 23,835 runtime bytes, 741 below EIP-170. Deploy exited 0 and all 22 first-party runtime/initcode pairs fit; ForageToken is 23,437 runtime bytes (1,139 below), and USDCTreasury is 24,210 (366 below). Both profiles exclude the first-party test tree. The complete table below is regenerated from this run's preserved raw BuildInfo; runtime and initcode limits are 24,576 and 49,152 bytes.
+Forge 1.3.5 and Solc 0.8.24 compiled 131 public inputs in each profile with zero compiler errors. Default code generation completed, but the child exited 1 on three EIP-170 runtime-size overages: ForageGovernor 28,646 bytes (4,070 over), StakingQueue 27,382 bytes (2,806 over), and USDCTreasury 27,779 bytes (3,203 over). Default initcode has no overage. ForageToken fits at 24,112 runtime bytes, 464 below EIP-170; its 49,125-byte initcode is 27 below EIP-3860. Deploy exited 0 and all 22 first-party contract runtime/initcode pairs fit. ForageGovernor is 24,564 runtime bytes (12 below EIP-170); USDCTreasury is 24,231 runtime bytes (345 below EIP-170). The table lists all 25 compiled contract/library artifacts. GuardianModule links GuardianAuthorityClassifier; the library is 6,658/6,711 bytes in Default and 5,756/5,787 in Deploy.
 
-| Contract | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
+| Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
 | Allowlist | 13,833 / 14,089 (+10,743 / +35,063) | 12,214 / 12,424 (+12,362 / +36,728) |
 | AtRiskUSDProfitModule | 7,710 / 8,031 (+16,866 / +41,121) | 7,033 / 7,348 (+17,543 / +41,804) |
 | AtRiskUSDStateModule | 23,989 / 24,601 (+587 / +24,551) | 20,132 / 20,667 (+4,444 / +28,485) |
 | Blocklist | 9,249 / 9,499 (+15,327 / +39,653) | 7,784 / 7,993 (+16,792 / +41,159) |
-| CustodianRegistry | 24,575 / 24,831 (+1 / +24,321) | 20,367 / 20,581 (+4,209 / +28,571) |
+| CustodianRegistry | 24,374 / 24,630 (+202 / +24,522) | 20,266 / 20,480 (+4,310 / +28,672) |
 | DelegatingVestingWallet | 6,865 / 9,037 (+17,711 / +40,115) | 5,914 / 7,401 (+18,662 / +41,751) |
-| FORAGETreasury | 20,905 / 21,197 (+3,671 / +27,955) | 17,451 / 17,697 (+7,125 / +31,455) |
-| ForageGovernor | 27,842 / 37,107 (-3,266 / +12,045) | 24,072 / 32,154 (+504 / +16,998) |
-| ForageGovernorTimelockGuard | 8,897 / 8,926 (+15,679 / +40,226) | 7,752 / 7,779 (+16,824 / +41,373) |
-| ForageToken | 23,835 / 45,965 (+741 / +3,187) | 23,437 / 43,224 (+1,139 / +5,928) |
-| ForageTokenStateModule | 21,579 / 21,784 (+2,997 / +27,368) | 19,269 / 19,470 (+5,307 / +29,682) |
-| GuardianModule | 24,536 / 24,792 (+40 / +24,360) | 19,381 / 19,595 (+5,195 / +29,557) |
-| HLTradingBridge | 24,532 / 24,824 (+44 / +24,328) | 22,184 / 22,434 (+2,392 / +26,718) |
+| FORAGETreasury | 23,802 / 24,094 (+774 / +25,058) | 20,479 / 20,725 (+4,097 / +28,427) |
+| ForageGovernor | 28,646 / 38,793 (-4,070 / +10,359) | 24,564 / 33,507 (+12 / +15,645) |
+| ForageGovernorTimelockGuard | 9,779 / 9,808 (+14,797 / +39,344) | 8,613 / 8,640 (+15,963 / +40,512) |
+| ForageToken | 24,112 / 49,125 (+464 / +27) | 23,455 / 45,828 (+1,121 / +3,324) |
+| ForageTokenStateModule | 24,454 / 24,667 (+122 / +24,485) | 21,848 / 22,056 (+2,728 / +27,096) |
+| GovernancePayloadBudget | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
+| GuardianAuthorityClassifier | 6,658 / 6,711 (+17,918 / +42,441) | 5,756 / 5,787 (+18,820 / +43,365) |
+| GuardianModule | 23,073 / 23,329 (+1,503 / +25,823) | 17,972 / 18,186 (+6,604 / +30,966) |
+| HLTradingBridge | 24,372 / 24,664 (+204 / +24,488) | 22,238 / 22,488 (+2,338 / +26,664) |
 | RISKUSD | 10,989 / 11,281 (+13,587 / +37,871) | 9,166 / 9,411 (+15,410 / +39,741) |
-| RISKUSDVault | 21,937 / 22,229 (+2,639 / +26,923) | 18,550 / 18,800 (+6,026 / +30,352) |
-| RISKUSDVaultModule | 24,031 / 24,503 (+545 / +24,649) | 19,336 / 19,796 (+5,240 / +29,356) |
+| RISKUSDVault | 21,977 / 22,269 (+2,599 / +26,883) | 18,582 / 18,832 (+5,994 / +30,320) |
+| RISKUSDVaultModule | 24,079 / 24,544 (+497 / +24,608) | 19,766 / 20,219 (+4,810 / +28,933) |
+| RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | StakingQueue | 27,382 / 27,674 (-2,806 / +21,478) | 23,203 / 23,453 (+1,373 / +25,699) |
 | StakingQueueModule | 24,451 / 24,573 (+125 / +24,579) | 22,853 / 22,971 (+1,723 / +26,181) |
-| USDCTreasury | 27,723 / 28,015 (-3,147 / +21,137) | 24,210 / 24,460 (+366 / +24,692) |
+| USDCTreasury | 27,779 / 28,071 (-3,203 / +21,081) | 24,231 / 24,481 (+345 / +24,671) |
 | USDCTreasuryAccountingModule | 4,044 / 4,073 (+20,532 / +45,079) | 3,059 / 3,086 (+21,517 / +46,066) |
 | VaultRegistry | 20,054 / 20,310 (+4,522 / +28,842) | 17,367 / 17,581 (+7,209 / +31,571) |
 | atRISKUSD | 23,059 / 48,241 (+1,517 / +911) | 19,297 / 40,443 (+5,279 / +8,709) |
 
 The Default runtime overages are ForageGovernor, StakingQueue, and USDCTreasury; Default initcode has no overage. ForageToken fits Default EIP-170 by 741 bytes. Deploy has no runtime or initcode overage. These are compile and size results, not runtime or deployment proof.
 
-The current source map contains 59 files: 33 first-party sources/interfaces/modules, 18 ABI files, and 8 selected script/interface files. All 59 mapped bytes match the exact private source. Seventeen ABI files have compiler source definitions; `FoundationTreasury.json` remains source-less. The source-matched storage-baseline comparison remains red at 16 OK and 7 historical divergences; no baseline changed.
+The current source map contains 60 files: 34 first-party sources/interfaces/libraries/modules, 18 ABI files, and 8 selected script/interface files. All 60 mapped bytes match the exact private source. Seventeen ABI files have compiler source definitions; `FoundationTreasury.json` remains source-less. The source-matched storage-baseline comparison remains red at 16 OK and 7 historical divergences; no baseline changed.
 
-The public analyzer table records 47 analyzer identities: 7 Semgrep and 40 Slither. Each row names each cited candidate file's Git blob SHA-1, which identifies the exact file bytes in this candidate tree; `ef049358efb6496f8304faef11a99c34d2610e62` is the previous PR #9 head and base of this update, not the source of these lines. Forty have bounded source-only review; seven stale or unresolved identities remain pending. The earlier 72-row table stays separate with all independent reviews pending. No fresh full `audit-static` pass is established; retained Slither and Semgrep results remain red, per-ID Slither suppression reconciliation is in progress, the scanner-coverage gap remains open, and `SL-28` still needs a current-source rebind. Two Windows CLI rows remain failed, no Windows license or toolchain was installed or accepted, and no first-party contract test, EVM/runtime/gas simulation, RPC, chain, deployment, or Octane action ran. A9-21 whole-query gas, A10-17 whole-call gas fit, old-proxy state, and deployed behavior remain unproved.
+The public analyzer table records 47 analyzer identities: 7 Semgrep and 40 Slither. Each row pins its source lines to a candidate-file blob. The previous PR #9 head and base of this update is `6efd4cd86a9b2fec7f484c0da073f71385900308`; `ef049358efb6496f8304faef11a99c34d2610e62` and older commits are historical. Forty have bounded source-only review; seven stale or unresolved identities remain pending. The earlier 72-row table stays separate with all independent reviews pending. No fresh full `audit-static` pass is established; retained Slither and Semgrep results remain red, suppression reconciliation is in progress, the scanner-coverage gap remains open, and `SL-28` still needs a current-source rebind. Two Windows CLI rows remain failed, no Windows license or toolchain was installed or accepted, and no first-party contract test, EVM/runtime/gas simulation, RPC, chain, deployment, or Octane action ran. A9-21 whole-query gas, A10-17 whole-call gas fit, old-proxy state, and deployed behavior remain unproved.
 
 ## External reviewer next steps
 

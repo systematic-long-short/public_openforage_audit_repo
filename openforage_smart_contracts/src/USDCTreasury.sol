@@ -821,6 +821,7 @@ contract USDCTreasury is
         if (earmark < excess) revert InsufficientEarmark();
         pendingVaultTopUp[vaultId] = outstanding;
         earmarkBalance[EARMARK_VAULT_TOP_UP] = earmark - excess;
+        earmarkBalance[EARMARK_AGENT_PAY] += excess;
     }
 
     function _reduceUnreturnedRecognizedProfit(uint256 vaultId, uint256 loss) private {

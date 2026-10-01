@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IAllowlist, IAllowlistVestingRegistry, IVestingBeneficiarySource} from "../interfaces/IAllowlist.sol";
+import {IAllowlistSystemRegistrar} from "../interfaces/IAllowlistSystemRegistrar.sol";
 import {IBlocklist, IBlocklistVoteEligibility} from "../interfaces/IBlocklist.sol";
 
 struct ForageTokenSourceEligibility {
@@ -38,6 +39,10 @@ interface IForageTokenSourceView {
         address blocklist,
         address allowlist
     ) external view returns (ForageTokenSourceEligibility memory);
+}
+
+interface IVestingSourceAllowlist {
+    function allowlist() external view returns (address);
 }
 
 struct ForageTokenStateUpdate {
@@ -111,6 +116,9 @@ contract ForageTokenStateModule {
     error ProjectionGenerationExhausted();
     error InvalidBlocklist(address blocklist);
     error VestingSourceRegistrationRequired(address source, address beneficiary);
+    error VoteEligibilitySyncPending(uint48 timepoint);
+    error NoPendingVoteEligibilitySync(address account);
+    error VestingSourceAllowlistHandoffIncomplete(uint256 pendingSources);
 
     event AuthorizedBurnerUpdated(address indexed burner, bool authorized);
     event AuthorizedLockerUpdated(address indexed locker, bool authorized);
@@ -147,6 +155,8 @@ contract ForageTokenStateModule {
         address indexed oldAllowlist, address indexed newAllowlist, uint256 indexed generation, uint48 activationTime
     );
     event AllowlistReindexCancelled(address indexed candidateAllowlist, uint256 indexed generation);
+    event VoteEligibilitySyncQueued(address indexed account, uint48 timepoint, uint256 pendingCount);
+    event VoteEligibilitySyncProgress(address indexed account, uint256 remainingSources, bool complete);
 
     struct VoteSourceState {
         address delegatee;
@@ -168,6 +178,9 @@ contract ForageTokenStateModule {
         mapping(address => bool) processedSources;
         mapping(address => bool) projectedSources;
         mapping(address => bool) legacySources;
+        mapping(address => EnumerableSet.AddressSet) vestingSourcesByBeneficiary;
+        mapping(address => bool) vestingSourceAllowlistHandoffs;
+        uint256 vestingSourceAllowlistHandoffCount;
     }
 
     struct ProjectionEpoch {
@@ -193,6 +206,10 @@ contract ForageTokenStateModule {
         uint256 latestGeneration;
         address pendingAllowlist;
         uint256 projectionSchemaVersion;
+        mapping(address => bool) pendingVoteEligibilitySyncs;
+        mapping(address => uint256) pendingVoteEligibilitySyncCursors;
+        uint256 candidateAllowlistPointerCursor;
+        uint256 vestingMembershipSchemaVersion;
     }
 
     struct VoteTransitions {
@@ -209,6 +226,7 @@ contract ForageTokenStateModule {
         uint256 votes;
         bool systemAccount;
         bool relevant;
+        uint48 timepoint;
     }
 
     mapping(address => bool) internal _authorizedBurners;
@@ -229,7 +247,9 @@ contract ForageTokenStateModule {
     address private _initialTeamVestingSource;
     address private _initialTreasurySource;
     mapping(address => mapping(address => bool)) private _explicitZeroResetRequired;
-    uint256[36] private __gap;
+    uint256 private _voteEligibilitySyncCount;
+    uint48 private _voteEligibilitySyncTimepoint;
+    uint256[34] private __gap;
 
     address private immutable _SELF;
 
@@ -250,7 +270,10 @@ contract ForageTokenStateModule {
 
     function _requireFreshInventory() private view {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        if (state.inventoryVersion != 1 || state.projectionSchemaVersion != 3 || state.epochs.length == 0) {
+        if (
+            state.inventoryVersion != 1 || state.projectionSchemaVersion != 3
+                || state.vestingMembershipSchemaVersion != 1 || state.epochs.length == 0
+        ) {
             revert LegacySourceInventoryUnavailable(_blocklist, address(0));
         }
     }
@@ -277,9 +300,14 @@ contract ForageTokenStateModule {
             state.inventoryVersion != 0 || state.epochs.length != 0 || state.sources.length != 0
                 || state.pendingBlocklist != address(0) || state.activeGeneration != 0 || state.pendingSnapshotLength != 0
                 || state.latestGeneration != 0 || state.pendingAllowlist != address(0) || state.projectionSchemaVersion != 0
+                || state.candidateAllowlistPointerCursor != 0 || state.vestingMembershipSchemaVersion != 0
+                || _voteEligibilitySyncCount != 0 || _voteEligibilitySyncTimepoint != 0
         ) revert BlocklistRotationUnavailable();
         state.inventoryVersion = 1;
         state.projectionSchemaVersion = 3;
+        state.vestingMembershipSchemaVersion = 1;
+        _voteEligibilitySyncCount = 0;
+        _voteEligibilitySyncTimepoint = 0;
         state.epochs.push(ProjectionEpoch({startTime: 0, generation: 0, blocklist: address(0)}));
     }
 
@@ -290,8 +318,8 @@ contract ForageTokenStateModule {
         returns (ForageTokenRotationStatus memory status)
     {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        status.inventorySupported =
-            state.inventoryVersion == 1 && state.projectionSchemaVersion == 3 && state.epochs.length != 0;
+        status.inventorySupported = state.inventoryVersion == 1 && state.projectionSchemaVersion == 3
+            && state.vestingMembershipSchemaVersion == 1 && state.epochs.length != 0;
         status.rotationActive = state.pendingBlocklist != address(0) && state.pendingAllowlist == address(0);
         status.activeGeneration = state.activeGeneration;
         status.pendingGeneration = state.pendingGeneration;
@@ -339,6 +367,7 @@ contract ForageTokenStateModule {
         state.cursor = 0;
         state.processed = 0;
         state.dirty = 0;
+        state.candidateAllowlistPointerCursor = 0;
         emit BlocklistRotationStarted(_blocklist, blocklist, state.pendingGeneration, state.pendingSnapshotLength);
     }
 
@@ -363,6 +392,7 @@ contract ForageTokenStateModule {
         state.cursor = 0;
         state.processed = 0;
         state.dirty = 0;
+        state.candidateAllowlistPointerCursor = 0;
         emit AllowlistReindexStarted(
             allowlistAddress(), allowlist_, state.pendingGeneration, state.pendingSnapshotLength
         );
@@ -382,10 +412,16 @@ contract ForageTokenStateModule {
     function processAllowlistReindex() external onlyFreshDelegateCall {
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
         if (state.pendingAllowlist == address(0)) revert AllowlistReindexUnavailable();
-        _processProjectionPage(state);
+        uint256 progress = state.cursor;
+        if (state.cursor < state.pendingSnapshotLength) {
+            _processProjectionPage(state);
+        } else {
+            _processAllowlistPointerPage(state);
+            progress = state.candidateAllowlistPointerCursor;
+        }
         emit AllowlistReindexProgress(
             state.pendingGeneration,
-            state.cursor,
+            progress,
             state.pendingSnapshotLength,
             state.sources.length,
             state.processed,
@@ -403,9 +439,31 @@ contract ForageTokenStateModule {
         uint256 end = state.cursor + pageLength;
         while (state.cursor < end) {
             address source = state.sources[state.cursor];
-            _syncSource(source, address(0), false, true);
+            _registerPendingVestingSource(source, state.pendingAllowlist, true);
+            _syncSource(source, address(0), false, true, IForageTokenSourceView(address(this)).clock());
             ++state.cursor;
         }
+    }
+
+    function _processAllowlistPointerPage(BlocklistRotationStorage storage state) private {
+        uint256 length = state.sources.length;
+        uint256 cursor = state.candidateAllowlistPointerCursor;
+        Projection storage candidate = state.projections[state.pendingGeneration];
+        if (cursor >= length) {
+            if (candidate.vestingSourceAllowlistHandoffCount == 0) return;
+            cursor = 0;
+        }
+        uint256 remaining = length - cursor;
+        uint256 pageLength = remaining > BLOCKLIST_ROTATION_PAGE_SIZE ? BLOCKLIST_ROTATION_PAGE_SIZE : remaining;
+        uint256 end = cursor + pageLength;
+        uint48 timepoint = IForageTokenSourceView(address(this)).clock();
+        while (cursor < end) {
+            address source = state.sources[cursor];
+            _registerPendingVestingSource(source, state.pendingAllowlist, true);
+            _syncSource(source, address(0), false, true, timepoint);
+            ++cursor;
+        }
+        state.candidateAllowlistPointerCursor = cursor;
     }
 
     function activateBlocklistRotation() external onlyFreshDelegateCall {
@@ -426,6 +484,12 @@ contract ForageTokenStateModule {
             revert AllowlistReindexUnavailable();
         }
         if (allowlistAddress() != nextAllowlist) revert AllowlistReindexUnavailable();
+        Projection storage candidate = state.projections[state.pendingGeneration];
+        if (state.candidateAllowlistPointerCursor > state.sources.length) revert AllowlistReindexUnavailable();
+        uint256 unscanned = state.sources.length - state.candidateAllowlistPointerCursor;
+        uint256 treasuryUnaligned = _vestingSourceAllowlist(_initialTreasurySource) == nextAllowlist ? 0 : 1;
+        uint256 pendingSources = candidate.vestingSourceAllowlistHandoffCount + unscanned + treasuryUnaligned;
+        if (pendingSources != 0) revert VestingSourceAllowlistHandoffIncomplete(pendingSources);
         address previousAllowlist = state.generationAllowlists[state.activeGeneration];
         (uint256 generation, uint48 activationTime) = _activateProjection(state, _blocklist, nextAllowlist);
         emit AllowlistReindexActivated(previousAllowlist, nextAllowlist, generation, activationTime);
@@ -443,6 +507,7 @@ contract ForageTokenStateModule {
         state.cursor = 0;
         state.processed = 0;
         state.dirty = 0;
+        state.candidateAllowlistPointerCursor = 0;
         emit AllowlistReindexCancelled(candidateAllowlist, generation);
     }
 
@@ -469,6 +534,7 @@ contract ForageTokenStateModule {
         state.cursor = 0;
         state.processed = 0;
         state.dirty = 0;
+        state.candidateAllowlistPointerCursor = 0;
     }
 
     function setAuthorizedBurner(address burner, bool authorized) external onlyFreshDelegateCall {
@@ -484,16 +550,87 @@ contract ForageTokenStateModule {
     }
 
     function syncSourceFromToken(address source) external onlyFreshDelegateCall {
-        _syncSource(source, address(0), false, false);
+        _syncSource(source, address(0), false, false, IForageTokenSourceView(address(this)).clock());
     }
 
     function syncDelegation(address source, address newDelegate) external onlyFreshDelegateCall {
-        _syncSource(source, newDelegate, true, false);
+        _syncSource(source, newDelegate, true, false, IForageTokenSourceView(address(this)).clock());
+    }
+
+    function _registerPendingVestingSource(address source, address candidateAllowlist, bool allowRegistration)
+        private
+    {
+        if (source.code.length == 0) return;
+        address activeAllowlist = allowlistAddress();
+        (bool activeSystem, address beneficiary) = _currentVestingSourceRegistration(source, activeAllowlist);
+        if (!activeSystem || beneficiary == address(0)) return;
+        (bool candidateSystem, address candidateBeneficiary) =
+            _currentVestingSourceRegistration(source, candidateAllowlist);
+        if (candidateSystem && candidateBeneficiary == beneficiary) return;
+        if (!allowRegistration) revert VestingSourceRegistrationRequired(source, beneficiary);
+        IAllowlistSystemRegistrar(candidateAllowlist).setSystemAccount(source, true);
+        (candidateSystem, candidateBeneficiary) = _currentVestingSourceRegistration(source, candidateAllowlist);
+        if (!candidateSystem || candidateBeneficiary != beneficiary) {
+            revert VestingSourceRegistrationRequired(source, beneficiary);
+        }
     }
 
     function syncVoteEligibility(address account) external onlyFreshDelegateCall {
-        _syncSource(account, address(0), false, false);
-        _syncVestingSources(account);
+        if (account == address(0)) return;
+        uint48 timepoint = IForageTokenSourceView(address(this)).clock();
+        if (_voteEligibilitySyncCount != 0 && _voteEligibilitySyncTimepoint != timepoint) {
+            revert VoteEligibilitySyncPending(_voteEligibilitySyncTimepoint);
+        }
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        if (state.pendingAllowlist != address(0)) {
+            if (msg.sender == allowlistAddress()) {
+                _registerPendingVestingSource(account, state.pendingAllowlist, true);
+            } else if (msg.sender == state.pendingAllowlist) {
+                _registerPendingVestingSource(account, state.pendingAllowlist, false);
+            }
+        }
+        if (state.pendingVoteEligibilitySyncs[account]) {
+            state.pendingVoteEligibilitySyncCursors[account] = type(uint256).max;
+            emit VoteEligibilitySyncQueued(account, timepoint, _voteEligibilitySyncCount);
+            return;
+        }
+        if (_voteEligibilitySyncCount == 0) _voteEligibilitySyncTimepoint = timepoint;
+        state.pendingVoteEligibilitySyncs[account] = true;
+        state.pendingVoteEligibilitySyncCursors[account] = type(uint256).max;
+        ++_voteEligibilitySyncCount;
+        emit VoteEligibilitySyncQueued(account, timepoint, _voteEligibilitySyncCount);
+    }
+
+    function processPendingVoteEligibilitySync(address account)
+        external
+        onlyFreshDelegateCall
+        returns (bool complete)
+    {
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        if (!state.pendingVoteEligibilitySyncs[account]) revert NoPendingVoteEligibilitySync(account);
+        uint48 timepoint = _voteEligibilitySyncTimepoint;
+        uint256 cursor = state.pendingVoteEligibilitySyncCursors[account];
+        if (cursor == type(uint256).max) {
+            _syncSource(account, address(0), false, false, timepoint);
+            cursor = _vestingSourcesByBeneficiary[account].length();
+        } else if (cursor != 0) {
+            EnumerableSet.AddressSet storage sources = _vestingSourcesByBeneficiary[account];
+            if (cursor > sources.length()) cursor = sources.length();
+            if (cursor != 0) {
+                _syncSource(sources.at(cursor - 1), address(0), false, false, timepoint);
+                --cursor;
+            }
+        }
+        complete = cursor == 0;
+        if (complete) {
+            delete state.pendingVoteEligibilitySyncs[account];
+            delete state.pendingVoteEligibilitySyncCursors[account];
+            --_voteEligibilitySyncCount;
+            if (_voteEligibilitySyncCount == 0) _voteEligibilitySyncTimepoint = 0;
+        } else {
+            state.pendingVoteEligibilitySyncCursors[account] = cursor;
+        }
+        emit VoteEligibilitySyncProgress(account, cursor, complete);
     }
 
     function syncInitialVestingSources() external onlyFreshDelegateCall {
@@ -502,10 +639,12 @@ contract ForageTokenStateModule {
             rotation.generationAllowlists[0] = allowlistAddress();
         }
         address teamSource = _initialTeamVestingSource;
-        if (teamSource != address(0)) _syncSource(teamSource, address(0), false, false);
+        if (teamSource != address(0)) {
+            _syncSource(teamSource, address(0), false, false, IForageTokenSourceView(address(this)).clock());
+        }
         address treasurySource = _initialTreasurySource;
         if (treasurySource != address(0) && treasurySource != teamSource) {
-            _syncSource(treasurySource, address(0), false, false);
+            _syncSource(treasurySource, address(0), false, false, IForageTokenSourceView(address(this)).clock());
         }
     }
 
@@ -634,13 +773,12 @@ contract ForageTokenStateModule {
         return (epoch.generation, epoch.blocklist);
     }
 
-    function _planVoteTransitions(ForageTokenSourceEligibility memory eligibility, uint256 votes)
+    function _planVoteTransitions(ForageTokenSourceEligibility memory eligibility, uint256 votes, uint48 currentTime)
         private
-        view
+        pure
         returns (VoteTransitions memory transitions)
     {
         if (votes == 0 || !eligibility.allowlisted) return transitions;
-        uint48 currentTime = IForageTokenSourceView(address(this)).clock();
         int256 signedVotes = int256(votes);
         uint256 maximumTime = uint256(type(uint48).max);
         if (!eligibility.blocked) {
@@ -763,8 +901,7 @@ contract ForageTokenStateModule {
         return IForageTokenSourceView(address(this)).allowlist();
     }
 
-    function _maxVestingSourcesPerBeneficiary() private view returns (uint256 maximum) {
-        address allowlist_ = allowlistAddress();
+    function _maxVestingSourcesPerBeneficiary(address allowlist_) private view returns (uint256 maximum) {
         if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
         try IAllowlistVestingRegistry(allowlist_).maxVestingSourcesPerBeneficiary() returns (uint256 value) {
             maximum = value;
@@ -895,15 +1032,19 @@ contract ForageTokenStateModule {
         emit ForageUnlocked(account, lockerBalance, locker);
     }
 
-    function _syncSource(address source, address requestedDelegate, bool isDelegation, bool forceInventory) private {
+    function _syncSource(
+        address source,
+        address requestedDelegate,
+        bool isDelegation,
+        bool forceInventory,
+        uint48 timepoint
+    ) private {
         SourceSync memory sync = _prepareSourceSync(source, requestedDelegate, isDelegation, forceInventory);
+        sync.timepoint = timepoint;
         if (!sync.relevant) return;
         BlocklistRotationStorage storage rotation = _blocklistRotationStorage();
         _syncActiveProjection(rotation, sync);
         _syncPendingProjection(rotation, sync);
-        _updateRegisteredSourceMembership(
-            sync.source, sync.newDelegate, sync.votes, sync.registeredBeneficiary != address(0)
-        );
     }
 
     function _prepareSourceSync(address source, address requestedDelegate, bool isDelegation, bool forceInventory)
@@ -921,6 +1062,11 @@ contract ForageTokenStateModule {
         sync.relevant = forceInventory || sync.newDelegate != address(0) || rotation.sourceSeen[source]
             || active.sourceStates[source].delegatee != address(0) || active.processedSources[source]
             || _vestingBeneficiaryBySource[source] != address(0) || sync.registeredBeneficiary != address(0);
+        if (!sync.relevant && rotation.pendingAllowlist != address(0)) {
+            (bool candidateSystem, address candidateBeneficiary) =
+                _currentVestingSourceRegistration(source, rotation.pendingAllowlist);
+            sync.relevant = candidateSystem && candidateBeneficiary != address(0);
+        }
         if (!sync.relevant) return sync;
         if (sync.newDelegate != address(0) && sync.votes != 0) _requireNoPendingRegistration(source);
         _rejectUnregisteredVestingSource(source, sync.systemAccount, sync.registeredBeneficiary);
@@ -930,9 +1076,12 @@ contract ForageTokenStateModule {
 
     function _syncActiveProjection(BlocklistRotationStorage storage rotation, SourceSync memory sync) private {
         uint256 generation = rotation.activeGeneration;
-        ForageTokenStateUpdate memory update =
-            _sourceUpdate(sync, _blocklist, IForageTokenSourceView(address(this)).allowlist());
-        _applyProjectionSourceUpdate(rotation, generation, update);
+        address activeAllowlist = allowlistAddress();
+        ForageTokenStateUpdate memory update = _sourceUpdate(sync, _blocklist, activeAllowlist, sync.timepoint);
+        _applyProjectionSourceUpdate(rotation, generation, update, sync.timepoint);
+        _updateProjectionVestingSourceMembership(
+            rotation, generation, sync.source, sync.registeredBeneficiary, activeAllowlist
+        );
     }
 
     function _syncPendingProjection(BlocklistRotationStorage storage rotation, SourceSync memory sync) private {
@@ -941,18 +1090,22 @@ contract ForageTokenStateModule {
         address pendingAllowlist = rotation.pendingAllowlist;
         address allowlist_ =
             pendingAllowlist == address(0) ? IForageTokenSourceView(address(this)).allowlist() : pendingAllowlist;
-        ForageTokenStateUpdate memory update = _sourceUpdate(sync, rotation.pendingBlocklist, allowlist_);
-        _applyProjectionSourceUpdate(rotation, generation, update);
-    }
-
-    function _syncVestingSources(address beneficiary) private {
-        EnumerableSet.AddressSet storage sources = _vestingSourcesByBeneficiary[beneficiary];
-        uint256 sourceCount = sources.length();
-        if (sourceCount == 0) return;
-        uint256 maximum = _maxVestingSourcesPerBeneficiary();
-        if (sourceCount > maximum) revert TooManyVestingSources(beneficiary, sourceCount, maximum);
-        for (uint256 i = sourceCount; i > 0; --i) {
-            _syncSource(sources.at(i - 1), address(0), false, false);
+        SourceSync memory pendingSync = sync;
+        if (pendingAllowlist != address(0)) {
+            (pendingSync.systemAccount, pendingSync.registeredBeneficiary) =
+                _currentVestingSourceRegistration(sync.source, allowlist_);
+            _rememberRegisteredBeneficiary(sync.source, pendingSync.registeredBeneficiary);
+        }
+        ForageTokenStateUpdate memory update =
+            _sourceUpdate(pendingSync, rotation.pendingBlocklist, allowlist_, sync.timepoint);
+        _applyProjectionSourceUpdate(rotation, generation, update, sync.timepoint);
+        _updateProjectionVestingSourceMembership(
+            rotation, generation, sync.source, pendingSync.registeredBeneficiary, allowlist_
+        );
+        if (pendingAllowlist != address(0)) {
+            _updateVestingSourceAllowlistHandoff(
+                rotation.projections[generation], sync.source, pendingSync.registeredBeneficiary, pendingAllowlist
+            );
         }
     }
 
@@ -990,7 +1143,7 @@ contract ForageTokenStateModule {
         if (ok && returnSize != 0) revert UnsupportedLegacyVestingBeneficiary(source);
     }
 
-    function _sourceUpdate(SourceSync memory sync, address blocklist, address allowlist_)
+    function _sourceUpdate(SourceSync memory sync, address blocklist, address allowlist_, uint48 timepoint)
         private
         view
         returns (ForageTokenStateUpdate memory update)
@@ -1004,34 +1157,83 @@ contract ForageTokenStateModule {
             .sourceEligibilityForBlocklist(
             sync.source, sync.registeredBeneficiary, sync.registeredBeneficiary != address(0), blocklist, allowlist_
         );
+        eligibility.allowlisted = eligibility.systemAccount || eligibility.allowedUntil >= timepoint;
+        eligibility.blocked = eligibility.blockedUntil != 0 && eligibility.blockedUntil >= timepoint;
         if (eligibility.allowlisted && !eligibility.blocked) update.newBaseVotes = sync.votes;
-        VoteTransitions memory transitions = _planVoteTransitions(eligibility, sync.votes);
+        VoteTransitions memory transitions = _planVoteTransitions(eligibility, sync.votes, timepoint);
         update.firstTransitionTime = transitions.firstTime;
         update.firstTransitionDelta = transitions.firstDelta;
         update.secondTransitionTime = transitions.secondTime;
         update.secondTransitionDelta = transitions.secondDelta;
     }
 
-    function _updateRegisteredSourceMembership(
+    function _updateProjectionVestingSourceMembership(
+        BlocklistRotationStorage storage rotation,
+        uint256 generation,
         address source,
-        address delegatee,
-        uint256 votes,
-        bool currentlyRegistered
+        address registeredBeneficiary,
+        address allowlist_
     ) private {
         address beneficiary = _vestingBeneficiaryBySource[source];
+        if (registeredBeneficiary != address(0)) beneficiary = registeredBeneficiary;
         if (beneficiary == address(0)) return;
-        EnumerableSet.AddressSet storage sources = _vestingSourcesByBeneficiary[beneficiary];
-        uint256 maximum;
-        if (currentlyRegistered && delegatee != address(0) && votes != 0 && !sources.contains(source)) {
-            maximum = _maxVestingSourcesPerBeneficiary();
+        EnumerableSet.AddressSet storage sources =
+            rotation.projections[generation].vestingSourcesByBeneficiary[beneficiary];
+        if (registeredBeneficiary == address(0)) {
+            sources.remove(source);
+        } else if (!sources.contains(source)) {
+            uint256 maximum = _maxVestingSourcesPerBeneficiary(allowlist_);
+            uint256 count = sources.length();
+            if (count >= maximum) revert TooManyVestingSources(beneficiary, count, maximum);
+            sources.add(source);
         }
-        _updateVestingSourceMembership(source, delegatee, votes, maximum, currentlyRegistered);
+        _updateVestingSourceUnion(rotation, source, beneficiary);
+    }
+
+    function _updateVestingSourceUnion(BlocklistRotationStorage storage rotation, address source, address beneficiary)
+        private
+    {
+        bool registered =
+            rotation.projections[rotation.activeGeneration].vestingSourcesByBeneficiary[beneficiary].contains(source);
+        if (rotation.pendingGeneration != 0) {
+            registered = registered
+                || rotation.projections[rotation.pendingGeneration].vestingSourcesByBeneficiary[beneficiary].contains(
+                    source
+                );
+        }
+        EnumerableSet.AddressSet storage sources = _vestingSourcesByBeneficiary[beneficiary];
+        if (registered) sources.add(source);
+        else sources.remove(source);
+    }
+
+    function _updateVestingSourceAllowlistHandoff(
+        Projection storage projection,
+        address source,
+        address beneficiary,
+        address expectedAllowlist
+    ) private {
+        bool incomplete = beneficiary != address(0) && _vestingSourceAllowlist(source) != expectedAllowlist;
+        bool previous = projection.vestingSourceAllowlistHandoffs[source];
+        if (incomplete == previous) return;
+        projection.vestingSourceAllowlistHandoffs[source] = incomplete;
+        if (incomplete) ++projection.vestingSourceAllowlistHandoffCount;
+        else --projection.vestingSourceAllowlistHandoffCount;
+    }
+
+    function _vestingSourceAllowlist(address source) private view returns (address currentAllowlist) {
+        if (source.code.length == 0) revert IAllowlist.AllowlistUnavailable();
+        try IVestingSourceAllowlist(source).allowlist() returns (address value) {
+            currentAllowlist = value;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
     }
 
     function _applyProjectionSourceUpdate(
         BlocklistRotationStorage storage rotation,
         uint256 generation,
-        ForageTokenStateUpdate memory update
+        ForageTokenStateUpdate memory update,
+        uint48 timepoint
     ) private {
         Projection storage projection = rotation.projections[generation];
         bool pending = rotation.pendingBlocklist != address(0) && generation == rotation.pendingGeneration;
@@ -1041,14 +1243,17 @@ contract ForageTokenStateModule {
         }
         projection.projectedSources[update.source] = true;
         if (pending) ++rotation.dirty;
-        _syncProjectionSource(projection, update);
+        _syncProjectionSource(projection, update, timepoint);
         if (pending) --rotation.dirty;
     }
 
-    function _syncProjectionSource(Projection storage projection, ForageTokenStateUpdate memory update) private {
+    function _syncProjectionSource(
+        Projection storage projection,
+        ForageTokenStateUpdate memory update,
+        uint48 currentTime
+    ) private {
         VoteSourceState storage state = projection.sourceStates[update.source];
         address oldDelegate = state.delegatee;
-        uint48 currentTime = IForageTokenSourceView(address(this)).clock();
         if (oldDelegate != address(0)) {
             _adjustProjectionTransition(
                 projection, oldDelegate, state.firstTransitionTime, state.firstTransitionDelta, currentTime, false
@@ -1057,13 +1262,15 @@ contract ForageTokenStateModule {
                 projection, oldDelegate, state.secondTransitionTime, state.secondTransitionDelta, currentTime, false
             );
             if (oldDelegate == update.newDelegate) {
-                _changeProjectionVotes(projection, update.newDelegate, state.baseVotes, update.newBaseVotes);
+                _changeProjectionVotes(
+                    projection, update.newDelegate, state.baseVotes, update.newBaseVotes, currentTime
+                );
             } else {
-                _changeProjectionVotes(projection, oldDelegate, state.baseVotes, 0);
-                _changeProjectionVotes(projection, update.newDelegate, 0, update.newBaseVotes);
+                _changeProjectionVotes(projection, oldDelegate, state.baseVotes, 0, currentTime);
+                _changeProjectionVotes(projection, update.newDelegate, 0, update.newBaseVotes, currentTime);
             }
         } else {
-            _changeProjectionVotes(projection, update.newDelegate, 0, update.newBaseVotes);
+            _changeProjectionVotes(projection, update.newDelegate, 0, update.newBaseVotes, currentTime);
         }
         state.delegatee = update.newDelegate;
         state.baseVotes = uint208(update.newBaseVotes);
@@ -1118,35 +1325,18 @@ contract ForageTokenStateModule {
         }
     }
 
-    function _changeProjectionVotes(Projection storage projection, address delegatee, uint256 removed, uint256 added)
-        private
-    {
+    function _changeProjectionVotes(
+        Projection storage projection,
+        address delegatee,
+        uint256 removed,
+        uint256 added,
+        uint48 timepoint
+    ) private {
         if (delegatee == address(0) || (removed == 0 && added == 0)) return;
         uint256 currentVotes = projection.eligibleVotes[delegatee].latest();
         if (currentVotes < removed) revert EligibilityAccountingUnderflow(delegatee, currentVotes, removed);
         uint256 nextVotes = currentVotes - removed + added;
         if (nextVotes > type(uint208).max) revert EligibilityAccountingOverflow(delegatee, nextVotes);
-        projection.eligibleVotes[delegatee].push(IForageTokenSourceView(address(this)).clock(), uint208(nextVotes));
-    }
-
-    function _updateVestingSourceMembership(
-        address source,
-        address delegatee,
-        uint256 votes,
-        uint256 maximum,
-        bool currentlyRegistered
-    ) private {
-        address beneficiary = _vestingBeneficiaryBySource[source];
-        if (beneficiary == address(0)) return;
-        EnumerableSet.AddressSet storage sources = _vestingSourcesByBeneficiary[beneficiary];
-        if (currentlyRegistered && delegatee != address(0) && votes != 0) {
-            if (!sources.contains(source)) {
-                uint256 sourceCount = sources.length();
-                if (sourceCount >= maximum) revert TooManyVestingSources(beneficiary, sourceCount, maximum);
-                sources.add(source);
-            }
-        } else {
-            sources.remove(source);
-        }
+        projection.eligibleVotes[delegatee].push(timepoint, uint208(nextVotes));
     }
 }

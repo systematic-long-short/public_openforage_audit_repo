@@ -13,6 +13,10 @@ interface IForageGovernorGuardianSource {
     function guardianModule() external view returns (address);
 }
 
+interface IForageGovernorTimelockSource {
+    function timelock() external view returns (address);
+}
+
 /// @title CustodianRegistry
 /// @notice R-27/F11 registry shape for N trading custodians.
 /// @dev Hot-path checks are mapping lookups by custodian id; enumeration is only for off-chain/admin views.
@@ -176,6 +180,8 @@ contract CustodianRegistry is
     error FinalizeDelayNotElapsed();
     error ProposalExpired();
     error RenounceOwnershipDisabled();
+    error CanonicalTimelockRequired(address providedOwner, address governorTimelock);
+    error OwnershipChangesDisabled(address proposedOwner);
     error CustodianNAVDeltaCapExceeded(bytes32 id, uint256 navCapReference, uint256 newNAV);
     error CustodianNAVBaselineStateInvalid(
         bytes32 id, CustodianNAVBaselineStatus status, uint256 navCapReference, bool initialized
@@ -269,7 +275,10 @@ contract CustodianRegistry is
 
     function initialize(address initialOwner_, address forageGovernor_, address guardianModule_) external initializer {
         _requireFreshInitializationState();
-        if (initialOwner_ == address(0)) revert ZeroAddress();
+        address governorTimelock = IForageGovernorTimelockSource(forageGovernor_).timelock();
+        if (initialOwner_ != governorTimelock) {
+            revert CanonicalTimelockRequired(initialOwner_, governorTimelock);
+        }
         __Ownable_init(initialOwner_);
         __Ownable2Step_init();
         __Pausable_init();
@@ -504,28 +513,14 @@ contract CustodianRegistry is
         _emitNAVBaselineUpdated(id, state);
     }
 
-    /// @notice Return accounting is intentionally live while the custodian is paused.
-    function recordReturn(bytes32 id, uint256 amount)
+    function recordReturnWithNAVBasis(bytes32 id, uint256 amount, bool navAlreadyReduced)
         external
         freshOnly
         onlyAllowedCaller
-        whenNotPaused
         onlyCustodianRole(id, ROLE_ACCOUNTANT)
     {
-        uint256 deployed = _applyReturnAccounting(id, amount);
-        emit CustodianReturnRecorded(id, amount, deployed);
-    }
-
-    /// @notice Named escape hatch for return accounting while the registry-wide pause is active.
-    function recordEmergencyReturn(bytes32 id, uint256 amount)
-        external
-        freshOnly
-        onlyAllowedCaller
-        whenPaused
-        onlyCustodianRole(id, ROLE_ACCOUNTANT)
-    {
-        uint256 deployed = _applyReturnAccounting(id, amount);
-        emit CustodianEmergencyReturnRecorded(id, msg.sender, amount, deployed);
+        uint256 deployed = _applyReturnAccounting(id, amount, navAlreadyReduced);
+        if (paused()) emit CustodianEmergencyReturnRecorded(id, msg.sender, amount, deployed);
         emit CustodianReturnRecorded(id, amount, deployed);
     }
 
@@ -885,7 +880,10 @@ contract CustodianRegistry is
         ) revert InvalidBps();
     }
 
-    function _applyReturnAccounting(bytes32 id, uint256 amount) internal returns (uint256 deployed) {
+    function _applyReturnAccounting(bytes32 id, uint256 amount, bool navAlreadyReduced)
+        internal
+        returns (uint256 deployed)
+    {
         CustodianState storage state = _requireCustodian(id);
         if (amount == 0) revert ZeroAmount();
         if (amount > state.deployed) revert ExcessiveCustodianReturn(id, amount, state.deployed);
@@ -893,7 +891,7 @@ contract CustodianRegistry is
         deployed = state.deployed - amount;
         state.deployed = deployed;
         _totalDeployed -= amount;
-        _reduceNAVCapReference(id, state, amount);
+        _reduceNAVCapReference(id, state, navAlreadyReduced ? 0 : amount);
     }
 
     function _requireCustodian(bytes32 id) private view returns (CustodianState storage state) {
@@ -1253,12 +1251,12 @@ contract CustodianRegistry is
         if (module == address(0) || module.code.length == 0) revert InvalidGuardianModule(module);
     }
 
-    function transferOwnership(address newOwner) public override freshOnly onlyAllowedCaller onlyOwner {
-        super.transferOwnership(newOwner);
+    function transferOwnership(address newOwner) public pure override {
+        revert OwnershipChangesDisabled(newOwner);
     }
 
-    function acceptOwnership() public override freshOnly onlyAllowedCaller {
-        super.acceptOwnership();
+    function acceptOwnership() public pure override {
+        revert OwnershipChangesDisabled(address(0));
     }
 
     function upgradeToAndCall(address newImplementation, bytes memory data)

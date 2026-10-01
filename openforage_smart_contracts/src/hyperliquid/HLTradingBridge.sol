@@ -47,10 +47,8 @@ interface ICustodianRegistryAccountingPort {
     function ROLE_EXECUTOR() external view returns (bytes32);
     function guardianModule() external view returns (address);
     function hasCustodianRole(bytes32 id, bytes32 role, address account) external view returns (bool);
-    function paused() external view returns (bool);
     function recordDeployment(bytes32 id, uint256 amount) external;
-    function recordReturn(bytes32 id, uint256 amount) external;
-    function recordEmergencyReturn(bytes32 id, uint256 amount) external;
+    function recordReturnWithNAVBasis(bytes32 id, uint256 amount, bool navAlreadyReduced) external;
     function recordLoss(bytes32 id, uint256 amount) external returns (uint256 recordedAmount);
 }
 
@@ -405,7 +403,7 @@ contract HLTradingBridge is
 
         IERC20 token = IERC20(usdc);
         _consumeReconciledLiquidity(token, amount);
-        _recordCustodianReturn(amount);
+        _recordCustodianReturn(amount, navAlreadyReduced);
         token.forceApprove(riskusdVault, amount);
         IRISKUSDVaultCustodyPort(riskusdVault).returnCapitalWithNAVBasis(amount, navAlreadyReduced);
         token.forceApprove(riskusdVault, 0);
@@ -1112,14 +1110,10 @@ contract HLTradingBridge is
         registry.recordDeployment(registry.HYPERLIQUID_CUSTODIAN_ID(), usdcE6);
     }
 
-    function _recordCustodianReturn(uint256 usdcE6) internal {
+    function _recordCustodianReturn(uint256 usdcE6, bool navAlreadyReduced) internal {
         ICustodianRegistryAccountingPort registry = ICustodianRegistryAccountingPort(custodianRegistry);
         bytes32 id = registry.HYPERLIQUID_CUSTODIAN_ID();
-        if (registry.paused()) {
-            registry.recordEmergencyReturn(id, usdcE6);
-        } else {
-            registry.recordReturn(id, usdcE6);
-        }
+        registry.recordReturnWithNAVBasis(id, usdcE6, navAlreadyReduced);
     }
 
     function _enforceReturnCaps(uint256 amount) internal {

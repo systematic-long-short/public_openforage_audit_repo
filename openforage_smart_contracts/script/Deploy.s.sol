@@ -549,7 +549,8 @@ contract Deploy is Script {
         deployedGuardianModule = _proxy(
             implGuardianModule,
             abi.encodeCall(
-                GuardianModule.initialize, (predicted.forageGovernor, deployedTimelock, guardians, permissions)
+                GuardianModule.initializeWithCustodianRegistry,
+                (predicted.forageGovernor, deployedTimelock, predicted.custodianRegistry, guardians, permissions)
             )
         );
         _requirePredicted(deployedGuardianModule, predicted.guardianModule);
@@ -575,7 +576,9 @@ contract Deploy is Script {
         _requirePredicted(deployedBlocklist, predicted.blocklist);
         deployedCustodianRegistry = _proxy(
             implCustodianRegistry,
-            abi.encodeCall(CustodianRegistry.initialize, (cfg.deployer, deployedForageGovernor, deployedGuardianModule))
+            abi.encodeCall(
+                CustodianRegistry.initialize, (deployedTimelock, deployedForageGovernor, deployedGuardianModule)
+            )
         );
         _requirePredicted(deployedCustodianRegistry, predicted.custodianRegistry);
     }
@@ -758,8 +761,9 @@ contract Deploy is Script {
             cfg.hyperliquidSourceAccount,
             CAPACITY_CAP
         );
-        CustodianRegistry(deployedCustodianRegistry).proposeCustodianConfig(
-            config, vm.envUint("HYPERLIQUID_INITIAL_NAV")
+        _timelockCall(
+            deployedCustodianRegistry,
+            abi.encodeCall(CustodianRegistry.proposeCustodianConfig, (config, vm.envUint("HYPERLIQUID_INITIAL_NAV")))
         );
         _afterInitialCustodianConfigProposed();
 
@@ -798,7 +802,9 @@ contract Deploy is Script {
         registry.proposeRegistrar(cfg.keeper);
 
         for (uint256 i; i < targets.length;) {
-            if (targets[i] != deployedGuardianModule && targets[i] != deployedForageGovernor) {
+            if (targets[i] == deployedCustodianRegistry) {
+                _timelockCall(targets[i], abi.encodeCall(IAllowlistSettable.setAllowlist, (deployedAllowlist)));
+            } else if (targets[i] != deployedGuardianModule && targets[i] != deployedForageGovernor) {
                 IAllowlistSettable(targets[i]).setAllowlist(deployedAllowlist);
             }
             unchecked {

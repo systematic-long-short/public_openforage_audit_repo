@@ -158,6 +158,8 @@ const DOCUMENTED_NON_TRUST_BOUNDARY_SETTERS = {
     "probed caller-gate re-point through AllowlistGatedUpgradeable._setAllowlist: the target must be a contract whose isSystemAccount(this) staticcall returns or the call reverts AllowlistUnavailable, so a bad target cannot silently lock the gate.",
   "FORAGETreasury.sol:setAllowlist":
     "probed caller-gate re-point through AllowlistGatedUpgradeable._setAllowlist: the target must be a contract whose isSystemAccount(this) staticcall returns or the call reverts AllowlistUnavailable, so a bad target cannot silently lock the gate.",
+  "FORAGETreasury.sol:setVestingWalletAllowlist":
+    "owner and current-eligible forwarder restricted to a recorded Treasury wallet and the ForageToken's active or pending Allowlist; the route only completes a staged provider handoff and cannot select a foreign registry.",
   "USDCTreasury.sol:setAllowlist":
     "probed caller-gate re-point through AllowlistGatedUpgradeable._setAllowlist: the target must be a contract whose isSystemAccount(this) staticcall returns or the call reverts AllowlistUnavailable, so a bad target cannot silently lock the gate.",
   "ForageGovernor.sol:setAllowlist":
@@ -1752,6 +1754,8 @@ function checkForageRotationModule(source, filePath, failures) {
   const activate = setupFunction(source, "_activateProjection", filePath, "projection activation", failures);
   const sync = setupFunction(source, "_prepareSourceSync", filePath, "source inventory writer", failures);
   const sourceSync = setupFunction(source, "_syncSource", filePath, "source update router", failures);
+  const activeSync = setupFunction(source, "_syncActiveProjection", filePath, "active projection writer", failures);
+  const pendingSync = setupFunction(source, "_syncPendingProjection", filePath, "pending projection writer", failures);
   const beginCode = compactSolidity(start?.body || "");
   const allowlistStartCode = compactSolidity(allowlistStart?.body || "");
   const pageCoreCode = compactSolidity(pageCore?.body || "");
@@ -1764,9 +1768,14 @@ function checkForageRotationModule(source, filePath, failures) {
   const inventoryAppend = syncCode.indexOf("_recordVoteSource(rotation,source);");
   const beneficiaryWrite = syncCode.indexOf("_rememberRegisteredBeneficiary(source,sync.registeredBeneficiary);");
   const sourceSyncCode = compactSolidity(sourceSync?.body || "");
+  const activeSyncCode = compactSolidity(activeSync?.body || "");
+  const pendingSyncCode = compactSolidity(pendingSync?.body || "");
   const activeProjection = sourceSyncCode.indexOf("_syncActiveProjection(rotation,sync);");
   const pendingProjection = sourceSyncCode.indexOf("_syncPendingProjection(rotation,sync);");
-  const registeredMembership = sourceSyncCode.indexOf("_updateRegisteredSourceMembership(");
+  const activeProjectionUpdate = activeSyncCode.indexOf("_applyProjectionSourceUpdate(");
+  const activeMembershipUpdate = activeSyncCode.indexOf("_updateProjectionVestingSourceMembership(");
+  const pendingProjectionUpdate = pendingSyncCode.indexOf("_applyProjectionSourceUpdate(");
+  const pendingMembershipUpdate = pendingSyncCode.indexOf("_updateProjectionVestingSourceMembership(");
   const pendingProjectionCalls = sourceSyncCode.match(/_syncPendingProjection\(rotation,sync\);/g) || [];
   if (!page || !source.includes("uint256 private constant BLOCKLIST_ROTATION_PAGE_SIZE = 8;") ||
       !pageCoreCode.includes("remaining>BLOCKLIST_ROTATION_PAGE_SIZE") ||
@@ -1789,14 +1798,15 @@ function checkForageRotationModule(source, filePath, failures) {
     setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY-ORDER", "source inventory preparation must precede active and pending projection updates.");
   }
   if (
-    activeProjection < 0 || pendingProjection <= activeProjection || registeredMembership <= pendingProjection ||
-    pendingProjectionCalls.length !== 1
+    activeProjection < 0 || pendingProjection <= activeProjection || pendingProjectionCalls.length !== 1 ||
+    activeProjectionUpdate < 0 || activeMembershipUpdate <= activeProjectionUpdate ||
+    pendingProjectionUpdate < 0 || pendingMembershipUpdate <= pendingProjectionUpdate
   ) {
     setupFailure(
       failures,
       filePath,
       "SETUP-FORAGE-ROTATION-DUAL-WRITE",
-      "exactly one pending projection sync must follow the active sync and precede registered-source membership updates."
+      "one pending projection sync must follow the active sync, and each projection must update its own vesting membership after votes."
     );
   }
   if (
@@ -1914,15 +1924,17 @@ function checkForageMarkerSchema(tokenSource, moduleSource, tokenPath, modulePat
   const tokenStatusCode = compactSolidity(tokenStatus.body);
   const upgradeCode = compactSolidity(upgrade.body);
   const authorizeCode = compactSolidity(authorizeUpgrade.body);
-  const schema3Guard = "if(state.inventoryVersion!=1||state.projectionSchemaVersion!=3||state.epochs.length==0){revertLegacySourceInventoryUnavailable(_blocklist,address(0));}";
-  const schema3Status = "status.inventorySupported=state.inventoryVersion==1&&state.projectionSchemaVersion==3&&state.epochs.length!=0;";
+  const schema3Guard = "if(state.inventoryVersion!=1||state.projectionSchemaVersion!=3||state.vestingMembershipSchemaVersion!=1||state.epochs.length==0){revertLegacySourceInventoryUnavailable(_blocklist,address(0));}";
+  const schema3Status = "status.inventorySupported=state.inventoryVersion==1&&state.projectionSchemaVersion==3&&state.vestingMembershipSchemaVersion==1&&state.epochs.length!=0;";
   if (!moduleGuardCode.includes(schema3Guard) || !moduleStatusCode.includes(schema3Status)) {
-    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "only marker-ready schema 3 may report inventory support or pass the module guard.");
+    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "schema 3 plus the fresh membership marker must gate inventory support and module access.");
   }
   if (!initializeCode.includes("state.projectionSchemaVersion!=0") ||
       !initializeCode.includes("state.projectionSchemaVersion=3;") ||
+      !initializeCode.includes("state.vestingMembershipSchemaVersion!=0") ||
+      !initializeCode.includes("state.vestingMembershipSchemaVersion=1;") ||
       !initializeCode.includes("state.epochs.push(")) {
-    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "schema 3 must be set only by empty-state fresh initialization, with no legacy backfill.");
+    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "schema 3 and its membership marker must be set only by empty-state fresh initialization, with no legacy backfill.");
   }
   if (tokenStatusCode !== "return_requireFreshInventory();") {
     setupFailure(failures, tokenPath, "SETUP-FORAGE-LEGACY-REFUSAL", "the host status entry must typed-refuse unsupported marker storage.");

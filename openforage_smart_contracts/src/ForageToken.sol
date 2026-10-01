@@ -68,10 +68,13 @@ contract ForageToken is
     error BlocklistRotationIncomplete(uint256 cursor, uint256 inventoryLength, uint256 processed, uint256 dirty);
     error AllowlistReindexInProgress(address pendingAllowlist);
     error AllowlistReindexUnavailable();
+    error VestingSourceAllowlistHandoffIncomplete(uint256 pendingSources);
     error UnsupportedLegacyVestingBeneficiary(address source);
     error ProjectionGenerationExhausted();
     error InvalidProjectionGeneration(uint256 generation);
     error UnauthorizedTokenQuery(address caller);
+    error VoteEligibilitySyncPending(uint48 timepoint);
+    error NoPendingVoteEligibilitySync(address account);
 
     // Events
     event TokensReleased(address indexed to, uint256 amount);
@@ -112,6 +115,8 @@ contract ForageToken is
         address indexed oldAllowlist, address indexed newAllowlist, uint256 indexed generation, uint48 activationTime
     );
     event AllowlistReindexCancelled(address indexed candidateAllowlist, uint256 indexed generation);
+    event VoteEligibilitySyncQueued(address indexed account, uint48 timepoint, uint256 pendingCount);
+    event VoteEligibilitySyncProgress(address indexed account, uint256 remainingSources, bool complete);
 
     // Constants
     uint256 public constant TOTAL_SUPPLY = 100_000_000 * 10 ** 18;
@@ -153,9 +158,11 @@ contract ForageToken is
     address private _initialTeamVestingSource;
     address private _initialTreasurySource;
     mapping(address => mapping(address => bool)) private _explicitZeroResetRequired;
+    uint256 private _voteEligibilitySyncCount;
+    uint48 private _voteEligibilitySyncTimepoint;
 
     /// @dev Reserved storage gap for future upgrades
-    uint256[36] private __gap;
+    uint256[34] private __gap;
 
     ForageTokenStateModule private immutable _STATE_MODULE;
 
@@ -377,6 +384,7 @@ contract ForageToken is
     }
 
     function delegate(address delegatee) public override freshInventoryReady onlyAllowedCaller {
+        _requireVoteEligibilitySyncTimepoint();
         address account = _msgSender();
         _requireNotBlocked(account);
         if (delegatee != address(0)) {
@@ -388,6 +396,7 @@ contract ForageToken is
 
     function getVotes(address account) public view override returns (uint256) {
         _requireFreshInventory();
+        _requireNoPendingVoteEligibilitySync();
         uint256 checkpointVotes = super.getVotes(account);
         address blocklist_ = _blocklist;
         if (!_isDelegateeEligibleNow(account, blocklist_)) return 0;
@@ -397,6 +406,7 @@ contract ForageToken is
     }
 
     function getPastVotes(address account, uint256 timepoint) public view override returns (uint256) {
+        _requireNoPendingVoteEligibilitySync();
         uint256 checkpointVotes = super.getPastVotes(account, timepoint);
         ForageTokenPastProjection memory projection = _readPastProjection(account, timepoint);
         if (_wasBlockedAt(account, timepoint, projection.blocklist, projection.allowlist)) return 0;
@@ -426,13 +436,13 @@ contract ForageToken is
 
     function syncVoteEligibility(address account) external {
         ForageTokenRotationStatus memory status = _requireFreshInventory();
-        if (
-            msg.sender != allowlist() && msg.sender != _blocklist && msg.sender != status.pendingBlocklist
-                && msg.sender != status.pendingAllowlist
-        ) {
-            revert UnauthorizedEligibilityObserver(msg.sender);
+        bool observer = msg.sender == allowlist() || msg.sender == _blocklist || msg.sender == status.pendingBlocklist
+            || msg.sender == status.pendingAllowlist;
+        if (observer) {
+            _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncVoteEligibility, (account)));
+            return;
         }
-        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncVoteEligibility, (account)));
+        _delegateStateModule(abi.encodeCall(ForageTokenStateModule.processPendingVoteEligibilitySync, (account)));
     }
 
     /// @notice OF-16-003: CRITICAL INTEGRATION REQUIREMENT — When burn causes balance < locked,
@@ -584,6 +594,7 @@ contract ForageToken is
     }
 
     function setBlocklist(address blocklist_) external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         ForageTokenRotationStatus memory status = _readRotationStatus();
         if (blocklist_ == address(0)) revert ZeroAddress();
         _requireValidBlocklist(blocklist_);
@@ -606,10 +617,12 @@ contract ForageToken is
     }
 
     function processBlocklistRotation() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.processBlocklistRotation, ()));
     }
 
     function activateBlocklistRotation() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         ForageTokenRotationStatus memory status = _readRotationStatus();
         if (!status.rotationActive) revert BlocklistRotationUnavailable();
         _unregisterBlocklistObserverStrict(status.activeBlocklist);
@@ -652,6 +665,7 @@ contract ForageToken is
         override(ERC20Upgradeable, ERC20VotesUpgradeable)
     {
         if (!_isInitializing()) _requireFreshInventory();
+        if (!_isInitializing()) _requireVoteEligibilitySyncTimepoint();
         // Lock enforcement: check unlocked balance before transfer
         // Skip on mints (from == 0), burns (to == 0), contract self-transfer, and lock-exempt senders
         if (from != address(0) && to != address(0) && from != address(this) && !_lockExempt[from]) {
@@ -725,6 +739,7 @@ contract ForageToken is
     }
 
     function setAllowlist(address allowlist_) external freshInventoryReady onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         address oldAllowlist = allowlist();
         if (oldAllowlist == allowlist_) {
             _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncInitialVestingSources, ()));
@@ -750,10 +765,12 @@ contract ForageToken is
     }
 
     function processAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.processAllowlistReindex, ()));
     }
 
     function activateAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         ForageTokenRotationStatus memory status = _readRotationStatus();
         address nextAllowlist = status.pendingAllowlist;
         if (!status.allowlistReindexActive || nextAllowlist == address(0)) revert AllowlistReindexUnavailable();
@@ -764,6 +781,7 @@ contract ForageToken is
     }
 
     function cancelAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {
+        _requireNoPendingVoteEligibilitySync();
         ForageTokenRotationStatus memory status = _readRotationStatus();
         address candidateAllowlist = status.pendingAllowlist;
         if (!status.allowlistReindexActive || candidateAllowlist == address(0)) revert AllowlistReindexUnavailable();
@@ -777,6 +795,17 @@ contract ForageToken is
 
     function _authorizeUpgrade(address) internal override onlyOwner {
         _requireFreshInventory();
+        _requireNoPendingVoteEligibilitySync();
+    }
+
+    function _requireNoPendingVoteEligibilitySync() private view {
+        if (_voteEligibilitySyncCount != 0) revert VoteEligibilitySyncPending(_voteEligibilitySyncTimepoint);
+    }
+
+    function _requireVoteEligibilitySyncTimepoint() private view {
+        if (_voteEligibilitySyncCount != 0 && clock() != _voteEligibilitySyncTimepoint) {
+            revert VoteEligibilitySyncPending(_voteEligibilitySyncTimepoint);
+        }
     }
 
     function _requireNotBlocked(address account) internal view {
