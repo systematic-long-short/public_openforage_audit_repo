@@ -27,15 +27,38 @@ interface IVaultRegistryWiringQuery {
     function pendingRISKUSDVault() external view returns (address);
 }
 
-interface IERC4626TotalAssets {
-    function totalAssets() external view returns (uint256);
+interface IERC4626LegitimateAssets {
+    function legitimateAssets() external view returns (uint256);
 }
 
 interface IManualCustodianNAVNormalizer {
-    function normalizeManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce)
+    function normalizeManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
         external
         view
         returns (bool shouldRecord, uint256 normalizedNav);
+}
+
+library RISKUSDVaultRedemptionBufferStorage {
+    uint256 internal constant UNINITIALIZED_WINDOW_START = type(uint256).max;
+
+    struct Layout {
+        uint256 weeklyWindowStart;
+        uint256 weeklyMintAmount;
+        uint256 dailyWindowStart;
+        uint256 dailyMintAmount;
+        uint256 freshDeploymentVersion;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.RISKUSDVaultRedemptionBuffer")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
 }
 
 /// @title RISKUSDVault - Central USDC pool for RISKUSD deposits and redemptions
@@ -108,10 +131,14 @@ contract RISKUSDVault is
     error InvalidBlocklist(address target);
     error InvalidVaultRegistryInterface(address target);
     error ManualAttestationNormalizationFailed(address custodian);
+    error InvalidManualNAVObservation(uint256 observedAt, uint256 currentTimestamp);
+    error ManualNAVAcknowledgementFailed(address custodian);
     error LossResolutionNotificationFailed(address registry);
     error DeploymentBufferEnumerationFailed(address target);
     error FirstDepositBelowMinimum(uint256 amount, uint256 minimum);
     error ModuleUnavailable();
+    error FreshDeploymentRequired(uint256 version);
+    error CustodianLossWriteDownFailed(address custodian, uint256 amount);
 
     // Events
     event Deposited(address indexed depositor, uint256 usdcAmount);
@@ -146,6 +173,9 @@ contract RISKUSDVault is
     event AttestationIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event CustodianNAVRecorded(uint256 nav, uint256 timestamp);
     event CustodianNAVAttested(uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, uint256 timestamp);
+    event AttestedLossAmountRecomputed(
+        uint256 indexed vaultId, uint256 indexed lossNonce, uint256 oldAmount, uint256 newAmount
+    );
     event ManualCustodianNAVDeferred(
         uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, address indexed custodian
     );
@@ -170,9 +200,9 @@ contract RISKUSDVault is
     uint256 public constant WEEKLY_WINDOW = 7 days;
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
+    uint256 private constant FRESH_DEPLOYMENT_VERSION = 2;
     uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
-    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR =
-        bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
+    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR = bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
     // State — immutable post-initialization
     IERC20 internal _usdc;
@@ -292,14 +322,27 @@ contract RISKUSDVault is
         }
     }
 
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(address usdc_, address riskusd_, address initialOwner_) external initializer {
-        _initializeCore(usdc_, riskusd_, initialOwner_);
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    modifier freshDeploymentOnly() {
+        _requireFreshDeployment();
+        _;
+    }
+
+    function initialize(address usdc_, address riskusd_, address vaultRegistry_, address initialOwner_)
+        external
+        onlyDuringConstructionBeforeInitialization
+        initializer
+    {
+        _initializeCore(usdc_, riskusd_, vaultRegistry_, initialOwner_);
     }
 
     /// @notice Fresh-deploy target initializer that sets the genesis custodian and loss reporter.
@@ -307,24 +350,31 @@ contract RISKUSDVault is
     function initializeTarget(
         address usdc_,
         address riskusd_,
+        address vaultRegistry_,
         address initialOwner_,
         address initialCustodian_,
         address initialLossReporter_
-    ) external initializer {
+    ) external onlyDuringConstructionBeforeInitialization initializer {
         if (initialCustodian_ == address(0) || initialLossReporter_ == address(0)) {
             revert ZeroAddress();
         }
-        _initializeCore(usdc_, riskusd_, initialOwner_);
+        _initializeCore(usdc_, riskusd_, vaultRegistry_, initialOwner_);
         _custodian = initialCustodian_;
         _lossReporter = initialLossReporter_;
         emit CustodianUpdated(address(0), initialCustodian_);
         emit LossReporterUpdated(address(0), initialLossReporter_);
     }
 
-    function _initializeCore(address usdc_, address riskusd_, address initialOwner_) internal {
+    function _initializeCore(address usdc_, address riskusd_, address vaultRegistry_, address initialOwner_) internal {
         if (usdc_ == address(0)) revert ZeroAddress();
         if (riskusd_ == address(0)) revert ZeroAddress();
+        if (vaultRegistry_ == address(0) || vaultRegistry_.code.length == 0) {
+            revert InvalidVaultRegistryInterface(vaultRegistry_);
+        }
         if (initialOwner_ == address(0)) revert ZeroAddress();
+        if (!_registryMatchesCurrentOrPendingVault(vaultRegistry_)) {
+            revert InvalidVaultRegistryInterface(vaultRegistry_);
+        }
 
         __Ownable_init(initialOwner_);
         __Ownable2Step_init();
@@ -332,6 +382,7 @@ contract RISKUSDVault is
 
         _usdc = IERC20(usdc_);
         _riskusd = IRISKUSD(riskusd_);
+        _vaultRegistry = IVaultRegistry(vaultRegistry_);
         _weeklyRedemptionCapBps = 500; // R-31/F2: 5% launch default
         _maxDeploymentRatioBps = 9500; // R-31/F2: 95% launch default
         _weeklyMintCapBps = 20000; // R-28: max 2x start-window supply per 7 days
@@ -347,10 +398,15 @@ contract RISKUSDVault is
         _dailyRedemptionWindowStart = block.timestamp;
         // _minReserveRatioBps defaults to 0
         // _custodian and _lossReporter default to address(0) unless a genesis initializer sets them.
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        buffers.freshDeploymentVersion = FRESH_DEPLOYMENT_VERSION;
+        buffers.weeklyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.dailyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
     }
 
-    function deposit(uint256 usdcAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function deposit(uint256 usdcAmount) external freshDeploymentOnly onlyAllowedCaller whenNotPaused nonReentrant {
         if (usdcAmount == 0) revert ZeroAmount();
+        _requirePublicAccountingRegistry();
         // OF-13-056: Block fresh user deposits during loss-pending window.
         // Exempt _lossReporter for protocol-controlled loss/yield accounting that must remain live.
         if (_lossPendingActive() && msg.sender != _lossReporter) revert LossPending();
@@ -371,6 +427,7 @@ contract RISKUSDVault is
             _enforceDailyMintCap(usdcAmount);
             _enforceWeeklyMintCap(usdcAmount);
         }
+        _recordRedemptionMint(usdcAmount);
         _totalDeposited += usdcAmount;
 
         // Pull USDC from depositor
@@ -385,17 +442,22 @@ contract RISKUSDVault is
         _assertSolvency();
     }
 
-    function redeem(uint256 riskusdAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function redeem(uint256 riskusdAmount) external freshDeploymentOnly onlyAllowedCaller whenNotPaused nonReentrant {
         if (riskusdAmount == 0) revert ZeroAmount();
+        _requirePublicAccountingRegistry();
         // OF-NEW-01 (12th audit): Block redemptions while loss is pending
         if (_lossPendingActive()) revert LossPending();
         _requireNotBlocked(msg.sender);
         uint256 backingAssetsBefore = solvencyBackingAssets();
         uint256 riskusdSupplyBefore = _riskusd.totalSupply();
 
-        // Weekly cap enforcement — read totalSupply BEFORE burn
-        _enforceWeeklyCap(riskusdAmount);
-        _enforceDailyRedemptionCap(riskusdAmount);
+        _seedRedemptionCapBases(riskusdSupplyBefore);
+        uint256 weeklyMintConsumed = _consumeWeeklyRedemptionMint(riskusdAmount);
+        uint256 dailyMintConsumed = _consumeDailyRedemptionMint(riskusdAmount);
+        uint256 weeklyCapCharge = riskusdAmount;
+        uint256 dailyCapCharge = riskusdAmount;
+        _enforceWeeklyCap(weeklyCapCharge, weeklyMintConsumed);
+        _enforceDailyRedemptionCap(dailyCapCharge, dailyMintConsumed);
 
         // Vault liquidity check
         uint256 balance = vaultUsdcBalance();
@@ -406,13 +468,22 @@ contract RISKUSDVault is
 
         // Update state before external calls (CEI)
         _totalRedeemed += riskusdAmount;
-        _weeklyRedemptionUsed += riskusdAmount;
-        _dailyRedemptionUsed += riskusdAmount;
+        _weeklyRedemptionUsed += weeklyCapCharge;
+        _dailyRedemptionUsed += dailyCapCharge;
+        _reduceWeeklyRedemptionBasis(weeklyCapCharge);
+        _reduceDailyRedemptionBasis(dailyCapCharge);
 
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
         _riskusd.burn(address(this), riskusdAmount);
-        _reduceMintActiveSupply(riskusdAmount);
+        if (_redemptionMintTrackingEnabled()) {
+            uint256 supplyAfterRedeem = _riskusd.totalSupply();
+            if (supplyAfterRedeem == 0) {
+                _resetRedemptionCapsForEmptySupply();
+            } else if (_lastActiveSupply == 0 || supplyAfterRedeem < _lastActiveSupply) {
+                _lastActiveSupply = supplyAfterRedeem;
+            }
+        }
 
         // Send USDC 1:1
         _usdc.safeTransfer(msg.sender, riskusdAmount);
@@ -428,7 +499,7 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-    function returnCapital(uint256 usdcAmount) external onlyAllowedCaller nonReentrant {
+    function returnCapital(uint256 usdcAmount) external freshDeploymentOnly onlyAllowedCaller nonReentrant {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         _returnCapital(usdcAmount, true);
@@ -436,6 +507,7 @@ contract RISKUSDVault is
 
     function returnCapitalWithNAVBasis(uint256 usdcAmount, bool navAlreadyReduced)
         external
+        freshDeploymentOnly
         onlyAllowedCaller
         nonReentrant
     {
@@ -454,6 +526,7 @@ contract RISKUSDVault is
         if (countReturnedSinceLastAttestation) {
             _returnedSinceLastAttestation += usdcAmount;
         }
+        _recomputeLatestLossAmount();
 
         // Pull USDC from custodian
         _usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
@@ -486,10 +559,13 @@ contract RISKUSDVault is
     /// @notice Governance-configured manual attestation path for emergency custodian fallback.
     /// @dev The reporter is set via two-stage owner/governance handoff. Manual attestations
     /// enter the same nonce-bound settlement path as custodian bridge attestations.
-    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyAllowedCaller {
+    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
+        external
+        onlyAllowedCaller
+        nonReentrant
+    {
         _delegateToModule();
     }
-
 
     // --- Loss Operations ---
 
@@ -509,7 +585,6 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-
     function replenish(uint256 usdcAmount) external onlyAllowedCaller nonReentrant {
         _delegateToModule();
     }
@@ -524,12 +599,6 @@ contract RISKUSDVault is
     // --- Admin Setters ---
 
     // ── VaultRegistry Wiring (OF-15-004 + CODEX-001) ──
-
-    /// @notice OF-15-004: Wire _vaultRegistry on deployed proxies. Called once after UUPS upgrade.
-    /// @dev CODEX-R1: onlyOwner prevents front-running if upgrade and init are not atomic.
-    function initializeV2(address vaultRegistry_) external onlyAllowedCaller onlyOwner reinitializer(2) {
-        _delegateToModule();
-    }
 
     /// @notice OF-15-004: Propose a new VaultRegistry address. Takes effect after FINALIZE_DELAY.
     function proposeVaultRegistry(address newRegistry_) external onlyAllowedCaller onlyOwner {
@@ -550,7 +619,6 @@ contract RISKUSDVault is
     function clearPendingVaultRegistry() external onlyAllowedCaller onlyOwner {
         _delegateToModule();
     }
-
 
     /// @notice OF-H02: setCustodian now only proposes — no instant effect.
     /// Use finalizeCustodian() or acceptCustodian() to complete the change.
@@ -744,9 +812,39 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-    /// @notice KYC-02: sets the caller allowlist. Ungated so the first wiring can land on a fresh proxy.
     function setAllowlist(address allowlist_) external onlyOwner {
+        _requireFreshDeployment();
+        if (allowlist() != address(0)) _checkAllowedCaller();
+        _requireAllowlistCandidate(allowlist_, msg.sender);
         _setAllowlist(allowlist_);
+    }
+
+    function _requireAllowlistCandidate(address registry, address caller) private view {
+        if (registry == address(0) || registry.code.length == 0) revert IAllowlist.AllowlistUnavailable();
+        _requireRegistryCaller(registry, caller);
+        _requireVaultSystemAccount(registry);
+    }
+
+    function _requireRegistryCaller(address registry, address caller) private view {
+        (bool ok, bytes memory returnedData) = registry.staticcall(abi.encodeCall(IAllowlist.isAllowed, (caller)));
+        if (!ok || returnedData.length != 32) revert IAllowlist.AllowlistUnavailable();
+        uint256 allowed;
+        assembly ("memory-safe") {
+            allowed := mload(add(returnedData, 0x20))
+        }
+        if (allowed == 0) revert IAllowlist.CallerNotAllowed(caller);
+        if (allowed != 1) revert IAllowlist.AllowlistUnavailable();
+    }
+
+    function _requireVaultSystemAccount(address registry) private view {
+        (bool ok, bytes memory returnedData) =
+            registry.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
+        if (!ok || returnedData.length != 32) revert IAllowlist.AllowlistUnavailable();
+        uint256 systemAccount;
+        assembly ("memory-safe") {
+            systemAccount := mload(add(returnedData, 0x20))
+        }
+        if (systemAccount != 1) revert IAllowlist.AllowlistUnavailable();
     }
 
     /// @notice KYC-03: sets the minimum first deposit for a wallet basis (basis 2 is the on-chain floor).
@@ -767,7 +865,6 @@ contract RISKUSDVault is
     function unpause() external onlyAllowedCaller {
         _delegateToModule();
     }
-
 
     // --- View Functions ---
 
@@ -978,14 +1075,13 @@ contract RISKUSDVault is
     function effectiveWeeklyRedemptionCap() public view returns (uint256) {
         uint256 effectiveSupply;
         if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
-            // Window expired — would reset using last active supply (OF-L21)
-            effectiveSupply = _lastActiveSupply > 0 ? _lastActiveSupply : _riskusd.totalSupply();
-        } else if (_windowStartSupply == 0) {
-            // No redemptions yet — use current supply
-            effectiveSupply = _riskusd.totalSupply();
+            effectiveSupply = _lastActiveSupply > 0
+                ? _lastActiveSupply
+                : _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
+        } else if (_windowStartSupply == 0 && _weeklyRedemptionUsed == 0) {
+            effectiveSupply = _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
         } else {
-            // Use only the window start supply — prevents cap inflation from mid-window deposits
-            effectiveSupply = _windowStartSupply;
+            effectiveSupply = _redemptionCapBasis(_windowStartSupply, _weeklyRedemptionUsed);
         }
         return effectiveSupply * _weeklyRedemptionCapBps / 10000;
     }
@@ -1002,13 +1098,11 @@ contract RISKUSDVault is
     function effectiveDailyRedemptionCap() public view returns (uint256) {
         uint256 effectiveSupply;
         if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) {
-            effectiveSupply = _dailyRedemptionWindowStartSupply > _riskusd.totalSupply()
-                ? _dailyRedemptionWindowStartSupply
-                : _riskusd.totalSupply();
-        } else if (_dailyRedemptionWindowStartSupply == 0) {
-            effectiveSupply = _riskusd.totalSupply();
+            effectiveSupply = _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _dailyRedemptionMintAmount());
+        } else if (_dailyRedemptionWindowStartSupply == 0 && _dailyRedemptionUsed == 0) {
+            effectiveSupply = _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _dailyRedemptionMintAmount());
         } else {
-            effectiveSupply = _dailyRedemptionWindowStartSupply;
+            effectiveSupply = _redemptionCapBasis(_dailyRedemptionWindowStartSupply, _dailyRedemptionUsed);
         }
         return effectiveSupply * _dailyRedemptionCapBps / 10000;
     }
@@ -1105,7 +1199,6 @@ contract RISKUSDVault is
 
     // --- Internal ---
 
-
     function _lossPendingActive() internal view returns (bool) {
         return _suspectedLossFreeze || _lossPending || _hasUnresolvedAttestedLoss() || _custodianNAVUnavailableOrStale()
             || _hasCurrentNAVShortfall();
@@ -1131,6 +1224,30 @@ contract RISKUSDVault is
         return _latestLossNonce != 0 && _latestLossNonce > _settledLossNonce && _latestLossVaultId != 0;
     }
 
+    function _recomputeLatestLossAmount() internal {
+        if (!_hasOpenAttestedLossNonce() || _latestLossAmount == 0) return;
+        uint256 oldAmount = _latestLossAmount;
+        uint256 adjustedNav = _adjustedCustodianNAVNoStaleFallback();
+        uint256 principal = _totalDeployed;
+        uint256 currentAmount = principal > adjustedNav ? principal - adjustedNav : 0;
+        if (currentAmount == oldAmount) return;
+        _latestLossAmount = currentAmount;
+        emit AttestedLossAmountRecomputed(_latestLossVaultId, _latestLossNonce, oldAmount, currentAmount);
+    }
+
+    function _reduceDailyRedemptionBasis(uint256 netCapCharge) internal {
+        if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) return;
+        uint256 basis = _dailyRedemptionWindowStartSupply;
+        if (basis == 0) return;
+        _dailyRedemptionWindowStartSupply = netCapCharge >= basis ? 0 : basis - netCapCharge;
+    }
+
+    function _reduceWeeklyRedemptionBasis(uint256 netCapCharge) internal {
+        if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) return;
+        uint256 basis = _windowStartSupply;
+        if (basis == 0) return;
+        _windowStartSupply = netCapCharge >= basis ? 0 : basis - netCapCharge;
+    }
 
     /// @dev OF-002: Safe depositor USDC computation with underflow protection.
     /// Returns 0 when outflows exceed inflows (high-loss scenario) instead of panicking.
@@ -1141,9 +1258,181 @@ contract RISKUSDVault is
         return inflows > outflows ? inflows - outflows : 0;
     }
 
-    function _enforceWeeklyCap(uint256 riskusdAmount) internal {
+    function _redemptionMintTrackingEnabled() internal view returns (bool) {
+        return address(_vaultRegistry) != address(0);
+    }
+
+    function _requirePublicAccountingRegistry() internal view {
+        address registry = address(_vaultRegistry);
+        if (registry == address(0)) revert VaultRegistryRequired();
+        if (registry.code.length == 0) revert InvalidVaultRegistryInterface(registry);
+
+        (bool ok, bytes memory data) =
+            registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.riskusdVault.selector));
+        if (!ok || data.length < 32) revert RISKUSDVaultMismatch();
+        if (!_registryAddressMatches(data, address(this))) {
+            (ok, data) =
+                registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.pendingRISKUSDVault.selector));
+            if (!ok || !_registryAddressMatches(data, address(this))) revert RISKUSDVaultMismatch();
+        }
+
+        (ok, data) = registry.staticcall(abi.encodeWithSelector(IVaultRegistry.getVaultsPage.selector, 0, 1));
+        if (!ok || data.length < 96) revert InvalidVaultRegistryInterface(registry);
+    }
+
+    function _registryAddressMatches(bytes memory data, address expected) private pure returns (bool) {
+        if (data.length < 32) return false;
+        uint256 returnedAddress;
+        assembly ("memory-safe") {
+            returnedAddress := mload(add(data, 0x20))
+        }
+        return returnedAddress <= type(uint160).max && address(uint160(returnedAddress)) == expected;
+    }
+
+    function _registryMatchesCurrentOrPendingVault(address registry) private view returns (bool) {
+        (bool ok, bytes memory data) =
+            registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.riskusdVault.selector));
+        if (ok && _registryAddressMatches(data, address(this))) return true;
+        (ok, data) = registry.staticcall(abi.encodeWithSelector(IVaultRegistryWiringQuery.pendingRISKUSDVault.selector));
+        return ok && _registryAddressMatches(data, address(this));
+    }
+
+    function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {
+        if (block.timestamp < storedStart + window) return storedStart;
+        uint256 elapsed = (block.timestamp - storedStart) / window;
+        return storedStart + elapsed * window;
+    }
+
+    function _weeklyRedemptionMintAmount() private view returns (uint256) {
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 activeStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        return buffers.weeklyWindowStart == activeStart ? buffers.weeklyMintAmount : 0;
+    }
+
+    function _dailyRedemptionMintAmount() private view returns (uint256) {
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 activeStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        return buffers.dailyWindowStart == activeStart ? buffers.dailyMintAmount : 0;
+    }
+
+    function _recordRedemptionMint(uint256 amount) internal {
+        if (!_redemptionMintTrackingEnabled()) return;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        if (
+            buffers.weeklyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+                && buffers.dailyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+        ) {
+            return;
+        }
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        buffers.weeklyMintAmount += amount;
+
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        buffers.dailyMintAmount += amount;
+    }
+
+    function _seedRedemptionCapBases(uint256 supply) private {
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        if (
+            buffers.weeklyWindowStart != RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+                || buffers.dailyWindowStart != RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+        ) {
+            return;
+        }
+
+        _weeklyRedemptionWindowStart = block.timestamp;
+        _dailyRedemptionWindowStart = block.timestamp;
+        _weeklyRedemptionUsed = 0;
+        _dailyRedemptionUsed = 0;
+        _windowStartSupply = supply;
+        _dailyRedemptionWindowStartSupply = supply;
+        _lastActiveSupply = supply;
+        buffers.weeklyWindowStart = block.timestamp;
+        buffers.dailyWindowStart = block.timestamp;
+    }
+
+    function _consumeWeeklyRedemptionMint(uint256 amount) internal returns (uint256 consumedMintAmount) {
+        if (!_redemptionMintTrackingEnabled()) return 0;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        consumedMintAmount = _min(amount, buffers.weeklyMintAmount);
+        buffers.weeklyMintAmount -= consumedMintAmount;
+    }
+
+    function _consumeDailyRedemptionMint(uint256 amount) internal returns (uint256 consumedMintAmount) {
+        if (!_redemptionMintTrackingEnabled()) return 0;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        consumedMintAmount = _min(amount, buffers.dailyMintAmount);
+        buffers.dailyMintAmount -= consumedMintAmount;
+    }
+
+    function _consumeLossRedemptionMint(uint256 amount) internal {
+        if (!_redemptionMintTrackingEnabled()) return;
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        if (
+            buffers.weeklyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+                && buffers.dailyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+        ) {
+            return;
+        }
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        uint256 weeklyOffset = _min(amount, buffers.weeklyMintAmount);
+        buffers.weeklyMintAmount -= weeklyOffset;
+
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        uint256 dailyOffset = _min(amount, buffers.dailyMintAmount);
+        buffers.dailyMintAmount -= dailyOffset;
+    }
+
+    function _resetRedemptionCapsForEmptySupply() private {
+        _weeklyRedemptionWindowStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        _dailyRedemptionWindowStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        _weeklyRedemptionUsed = 0;
+        _dailyRedemptionUsed = 0;
+        _windowStartSupply = 0;
+        _dailyRedemptionWindowStartSupply = 0;
+        _lastActiveSupply = 0;
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        buffers.weeklyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.weeklyMintAmount = 0;
+        buffers.dailyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.dailyMintAmount = 0;
+    }
+
+    function _enforceWeeklyCap(uint256 riskusdAmount, uint256 consumedMintAmount) internal {
         // Cache totalSupply to avoid redundant external calls (OF-056)
         uint256 cachedTotalSupply = _riskusd.totalSupply();
+        uint256 supplyWithoutCurrentWindowMint =
+            _supplyWithoutCurrentWindowMint(cachedTotalSupply, consumedMintAmount, _weeklyRedemptionMintAmount());
 
         // Lazy reset: if window has expired, reset used counter and advance window
         if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
@@ -1152,16 +1441,15 @@ contract RISKUSDVault is
             uint256 elapsed = (block.timestamp - _weeklyRedemptionWindowStart) / WEEKLY_WINDOW;
             _weeklyRedemptionWindowStart += elapsed * WEEKLY_WINDOW;
             // OF-L21: Use last active-window supply to prevent cap inflation via temporary deposits
-            _windowStartSupply = _lastActiveSupply > 0 ? _lastActiveSupply : cachedTotalSupply;
+            _windowStartSupply = _lastActiveSupply > 0 ? _lastActiveSupply : supplyWithoutCurrentWindowMint;
             // OF-007: Reset _lastActiveSupply for new window to prevent permanent cap ratchet-down
             _lastActiveSupply = cachedTotalSupply;
-        } else if (_windowStartSupply == 0) {
-            // First redemption ever — snapshot current supply
-            _windowStartSupply = cachedTotalSupply;
+        } else if (_windowStartSupply == 0 && _weeklyRedemptionUsed == 0) {
+            _windowStartSupply = supplyWithoutCurrentWindowMint;
         }
 
-        // Use only _windowStartSupply — prevents cap inflation from mid-window deposits (OF-014)
-        uint256 cap = _windowStartSupply * _weeklyRedemptionCapBps / 10000;
+        uint256 capBasis = _redemptionCapBasis(_windowStartSupply, _weeklyRedemptionUsed);
+        uint256 cap = capBasis * _weeklyRedemptionCapBps / 10000;
         if (_weeklyRedemptionUsed + riskusdAmount > cap) revert WeeklyRedemptionCapExceeded();
 
         // PHASE3-002: Min-track supply to prevent inflation via temporary large deposits
@@ -1169,21 +1457,22 @@ contract RISKUSDVault is
             (_lastActiveSupply > 0 && _lastActiveSupply < cachedTotalSupply) ? _lastActiveSupply : cachedTotalSupply;
     }
 
-    function _enforceDailyRedemptionCap(uint256 riskusdAmount) internal {
+    function _enforceDailyRedemptionCap(uint256 riskusdAmount, uint256 consumedMintAmount) internal {
         uint256 cachedTotalSupply = _riskusd.totalSupply();
+        uint256 supplyWithoutCurrentWindowMint =
+            _supplyWithoutCurrentWindowMint(cachedTotalSupply, consumedMintAmount, _dailyRedemptionMintAmount());
 
         if (block.timestamp >= _dailyRedemptionWindowStart + DAILY_WINDOW) {
             _dailyRedemptionUsed = 0;
             uint256 elapsed = (block.timestamp - _dailyRedemptionWindowStart) / DAILY_WINDOW;
             _dailyRedemptionWindowStart += elapsed * DAILY_WINDOW;
-            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply > cachedTotalSupply
-                ? _dailyRedemptionWindowStartSupply
-                : cachedTotalSupply;
-        } else if (_dailyRedemptionWindowStartSupply == 0) {
-            _dailyRedemptionWindowStartSupply = cachedTotalSupply;
+            _dailyRedemptionWindowStartSupply = supplyWithoutCurrentWindowMint;
+        } else if (_dailyRedemptionWindowStartSupply == 0 && _dailyRedemptionUsed == 0) {
+            _dailyRedemptionWindowStartSupply = supplyWithoutCurrentWindowMint;
         }
 
-        uint256 cap = _dailyRedemptionWindowStartSupply * _dailyRedemptionCapBps / 10000;
+        uint256 capBasis = _redemptionCapBasis(_dailyRedemptionWindowStartSupply, _dailyRedemptionUsed);
+        uint256 cap = capBasis * _dailyRedemptionCapBps / 10000;
         if (_dailyRedemptionUsed + riskusdAmount > cap) revert DailyRedemptionCapExceeded();
     }
 
@@ -1265,18 +1554,21 @@ contract RISKUSDVault is
         return a < b ? a : b;
     }
 
-    function _reduceMintActiveSupply(uint256 riskusdAmount) internal {
-        if (block.timestamp < _weeklyMintWindowStart + WEEKLY_WINDOW) {
-            _weeklyMintUsed = riskusdAmount >= _weeklyMintUsed ? 0 : _weeklyMintUsed - riskusdAmount;
-        }
-        if (block.timestamp < _dailyMintWindowStart + DAILY_WINDOW) {
-            _dailyMintUsed = riskusdAmount >= _dailyMintUsed ? 0 : _dailyMintUsed - riskusdAmount;
-        }
-        if (block.number == _mintUsedBlockNumber) {
-            _mintUsedThisBlock = riskusdAmount >= _mintUsedThisBlock ? 0 : _mintUsedThisBlock - riskusdAmount;
-        }
+    function _supplyWithoutCurrentWindowMint(uint256 supply, uint256 consumedOffset, uint256 remainingMint)
+        private
+        pure
+        returns (uint256)
+    {
+        if (consumedOffset > type(uint256).max - remainingMint) revert InvalidState();
+        uint256 trackedMint = consumedOffset + remainingMint;
+        if (trackedMint > supply) revert InvalidState();
+        return supply - trackedMint;
     }
 
+    function _redemptionCapBasis(uint256 basis, uint256 used) private pure returns (uint256) {
+        if (used > type(uint256).max - basis) revert InvalidState();
+        return basis + used;
+    }
 
     function _assertBackingMarginNotDecreased(uint256 backingAssetsBefore, uint256 riskusdSupplyBefore) internal view {
         uint256 backingAssetsAfter = solvencyBackingAssets();
@@ -1338,10 +1630,13 @@ contract RISKUSDVault is
     /// @notice Stage a stranded-token rescue for delayed execution.
     /// @dev The protected USDC/RISKUSD assets remain non-rescuable. The recipient is blocklist-checked
     /// at proposal and again at execution so a newly blocked recipient cannot receive delayed funds.
-    function proposeTokenRescue(address token, uint256 amount, address recipient) external onlyAllowedCaller onlyOwner {
+    function proposeTokenRescue(address token, uint256 amount, address recipient)
+        external
+        onlyAllowedCaller
+        onlyOwner
+    {
         _delegateToModule();
     }
-
 
     /// @notice Execute a staged stranded-token rescue after the one-day announcement delay.
     /// @dev Intentionally remains owner-only and blocklist-checked at execution time.
@@ -1358,23 +1653,30 @@ contract RISKUSDVault is
     // --- Allowlist Gate Overrides ---
 
     /// @notice KYC-02: the caller gate is the first check on UUPS upgrades and ownership handoff.
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshDeploymentOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
     /// @notice KYC-02: two-step ownership proposals require an allowlisted caller.
-    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+    function transferOwnership(address newOwner) public override freshDeploymentOnly onlyAllowedCaller {
         super.transferOwnership(newOwner);
     }
 
     /// @notice KYC-02: two-step ownership acceptance requires an allowlisted caller.
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshDeploymentOnly onlyAllowedCaller {
         super.acceptOwnership();
     }
 
     // --- UUPS ---
 
     function _authorizeUpgrade(address) internal override onlyOwner {
+        _requireFreshDeployment();
         _pendingCustodian = address(0);
         _pendingLossReporter = address(0);
         // OF-002 (11th audit): Clear proposal timestamps on upgrade
@@ -1390,7 +1692,6 @@ contract RISKUSDVault is
         _manualAttestationReporterProposedAt = 0;
     }
 
-
     function _requireNotBlocked(address account) internal view {
         address blocklist_ = _blocklist;
         if (blocklist_ != address(0) && IBlocklist(blocklist_).isBlocked(account)) {
@@ -1402,7 +1703,7 @@ contract RISKUSDVault is
 
     /// @notice Sets the delegatecall target for the moved admin, NAV, loss, registry and rescue cluster.
     /// @dev Only the owner can wire the module; an unset module makes every moved selector revert ModuleUnavailable.
-    function setVaultModule(address module_) external onlyOwner {
+    function setVaultModule(address module_) external freshDeploymentOnly onlyAllowedCaller onlyOwner {
         if (module_.code.length == 0) revert ZeroAddress();
         VaultModuleStorage storage $ = _getVaultModuleStorage();
         address previous = $.module;
@@ -1417,6 +1718,7 @@ contract RISKUSDVault is
 
     /// @notice Any selector the vault does not declare goes through the caller gate to the module.
     fallback() external {
+        _requireFreshDeployment();
         _checkAllowedCaller();
         _delegateToModule();
         assembly {
@@ -1428,6 +1730,7 @@ contract RISKUSDVault is
     /// @dev Delegates the call to the module: reverts with the module's returndata on failure and
     ///      falls through on success, so a forwarder's trailing modifier code (nonReentrant) runs.
     function _delegateToModule() internal {
+        _requireFreshDeployment();
         address module = _getVaultModuleStorage().module;
         if (module.code.length == 0) revert ModuleUnavailable();
         assembly {
@@ -1438,6 +1741,10 @@ contract RISKUSDVault is
         }
     }
 
+    function _requireFreshDeployment() private view {
+        uint256 version = RISKUSDVaultRedemptionBufferStorage.layout().freshDeploymentVersion;
+        if (version != FRESH_DEPLOYMENT_VERSION) revert FreshDeploymentRequired(version);
+    }
 
     // --- Deposit / Redeem ---
 
@@ -1445,4 +1752,3 @@ contract RISKUSDVault is
     /// 1:1 based on the requested amount, not measured receipt. If USDC ever adds transfer fees,
     /// the 1:1 invariant would break. Monitor USDC for fee-on-transfer changes.
 }
-

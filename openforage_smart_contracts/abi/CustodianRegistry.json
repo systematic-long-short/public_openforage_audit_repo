@@ -126,6 +126,47 @@
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancelLossReservation",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "enum CustodianRegistry.LossIdentityKind"
+      },
+      {
+        "name": "vaultId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "identity",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -732,6 +773,35 @@
   },
   {
     "type": "function",
+    "name": "navCapBaseline",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "baselineStatus",
+        "type": "uint8",
+        "internalType": "enum CustodianRegistry.CustodianNAVBaselineStatus"
+      },
+      {
+        "name": "navReference",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "baselineReady",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -1013,6 +1083,11 @@
             "internalType": "uint16"
           }
         ]
+      },
+      {
+        "name": "navCapReference",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -1100,7 +1175,7 @@
   },
   {
     "type": "function",
-    "name": "recordEmergencyReturn",
+    "name": "recordLoss",
     "inputs": [
       {
         "name": "id",
@@ -1113,7 +1188,52 @@
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
+    "outputs": [
+      {
+        "name": "recordedAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recordLossWithIdentity",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "enum CustodianRegistry.LossIdentityKind"
+      },
+      {
+        "name": "vaultId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "identity",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "cumulativePrincipal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "recordedAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1136,7 +1256,35 @@
   },
   {
     "type": "function",
-    "name": "recordReturn",
+    "name": "recordNAVWithRelation",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "nav",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reportEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "relationData",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recordReturnWithNAVBasis",
     "inputs": [
       {
         "name": "id",
@@ -1147,6 +1295,11 @@
         "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "navAlreadyReduced",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -1158,6 +1311,45 @@
     "inputs": [],
     "outputs": [],
     "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "reserveLossIdentity",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "enum CustodianRegistry.LossIdentityKind"
+      },
+      {
+        "name": "vaultId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "identity",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "principalAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reservedIdentity",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1177,6 +1369,19 @@
         "name": "allowed",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -1252,7 +1457,7 @@
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -1278,6 +1483,25 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1390,6 +1614,161 @@
       },
       {
         "name": "deployed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianLossIdentityApplied",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "vaultId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lossNonce",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "cumulativePrincipal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianLossIdentityReserved",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "vaultId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "lossNonce",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "principalAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianLossRecorded",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "deployed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianNAVBaselineUpdated",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "status",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum CustodianRegistry.CustodianNAVBaselineStatus"
+      },
+      {
+        "name": "navReference",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "initialized",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianNAVLossRelationRecorded",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "reportEpoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "attestedVaultId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "attestedLossNonceThrough",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "manualLossTicketThrough",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1745,6 +2124,38 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CanonicalTimelockRequired",
+    "inputs": [
+      {
+        "name": "providedOwner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "governorTimelock",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CustodianDeployCapExceeded",
     "inputs": [
       {
@@ -1766,6 +2177,53 @@
   },
   {
     "type": "error",
+    "name": "CustodianLossRelationInvalid",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "provided",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CustodianNAVBaselineStateInvalid",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "status",
+        "type": "uint8",
+        "internalType": "enum CustodianRegistry.CustodianNAVBaselineStatus"
+      },
+      {
+        "name": "navCapReference",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "initialized",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CustodianNAVDeltaCapExceeded",
     "inputs": [
       {
@@ -1774,7 +2232,7 @@
         "internalType": "bytes32"
       },
       {
-        "name": "previousNAV",
+        "name": "navCapReference",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -1851,6 +2309,17 @@
   },
   {
     "type": "error",
+    "name": "CustodianRegistryFreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "layoutVersion",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CustodianReturnPerCallCapExceeded",
     "inputs": [
       {
@@ -1914,6 +2383,32 @@
   },
   {
     "type": "error",
+    "name": "ExcessiveCustodianLoss",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "custodianDeployed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalDeployed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ExcessiveCustodianReturn",
     "inputs": [
       {
@@ -1950,6 +2445,59 @@
   },
   {
     "type": "error",
+    "name": "FreshInitializationOnExistingState",
+    "inputs": [
+      {
+        "name": "layoutVersion",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "custodianCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalDeployed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianGovernorUnavailable",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianModuleLookupFailed",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianRotationRetired",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidBps",
     "inputs": []
   },
@@ -1967,6 +2515,17 @@
     "type": "error",
     "name": "InvalidCustodianKind",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidGuardianModule",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2060,6 +2619,17 @@
   },
   {
     "type": "error",
+    "name": "OwnershipChangesDisabled",
+    "inputs": [
+      {
+        "name": "proposedOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ProposalExpired",
     "inputs": []
   },
@@ -2067,6 +2637,27 @@
     "type": "error",
     "name": "RenounceOwnershipDisabled",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StaleCustodianConfigEpoch",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expected",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "actual",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
   },
   {
     "type": "error",

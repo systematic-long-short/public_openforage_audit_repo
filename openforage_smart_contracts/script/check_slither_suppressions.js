@@ -9,7 +9,7 @@
 // line-keyed suppressions silently drift every time a file grows.
 //
 // Each suppression must:
-//   1. carry a stable `id` (40+ hex chars) plus a human `name` (for review),
+//   1. carry a stable `idDigest` (40+ hex chars) plus a human `name` (for review),
 //   2. carry the audit metadata: created, expires, rationale, owner,
 //   3. not be expired,
 //   4. not exceed max_suppression_days from creation,
@@ -19,6 +19,37 @@
 
 const fs = require("fs");
 
+function renderStandardLogLine(record) {
+  const information = String(record.information).replace(/[\r\n]+/g, "\\n");
+  return (
+    `severity=${record.severity} group=${record.groupId} log=${record.logId} ` +
+    `SERVICE=${record.service} SUB-SERVICE=${record.subService} ` +
+    `COMPONENT=${record.component} FUNCTION=${record.function} ` +
+    `FILE:${record.file}:${record.line} information=${information}`
+  );
+}
+
+let diagnosticLogId = 0;
+
+function writeDiagnosticError(information) {
+  diagnosticLogId += 1;
+  process.stderr.write(
+    `${renderStandardLogLine({
+      severity: "ERROR",
+      timestamp: new Date().toISOString(),
+      groupId: "-",
+      logId: diagnosticLogId,
+      service: "scripts",
+      subService: "smart_contracts",
+      component: "check_slither_suppressions",
+      function: "writeDiagnosticError",
+      file: "openforage_smart_contracts/script/check_slither_suppressions.js",
+      line: 27,
+      information,
+    })}\n`,
+  );
+}
+
 const RESULT_PATH = process.argv[2] || "/tmp/openforage-slither-results.json";
 const SUPPRESSION_PATH = process.argv[3] || "slither_suppressions.json";
 const SENTINEL = "OPENFORAGE_SLITHER_SUPPRESSION_GATE_R37";
@@ -27,7 +58,7 @@ const ID_REGEX = /^[0-9a-f]{16,}$/;
 const PROHIBITED_WAIVER_TEXT = [/placeholder/i, /pending\s+re-triage/i, /CI stays green/i];
 
 function fail(message) {
-  console.error(`${SENTINEL}_FAIL ${message}`);
+  writeDiagnosticError(`${SENTINEL}_FAIL ${message}`);
   process.exit(1);
 }
 
@@ -48,13 +79,13 @@ function summarize(detector) {
 }
 
 function validateSuppression(entry, index, maxSuppressionDays) {
-  for (const field of ["detector", "file", "id", "name", "created", "expires", "rationale", "owner"]) {
+  for (const field of ["detector", "file", "idDigest", "name", "created", "expires", "rationale", "owner"]) {
     if (entry[field] === undefined || entry[field] === null || entry[field] === "") {
       fail(`suppression ${index} is missing required field ${field}`);
     }
   }
-  if (!ID_REGEX.test(entry.id)) {
-    fail(`suppression ${index} has malformed id ${entry.id} (expect hex, ≥16 chars)`);
+  if (!ID_REGEX.test(entry.idDigest)) {
+    fail(`suppression ${index} has malformed id ${entry.idDigest} (expect hex, ≥16 chars)`);
   }
   const created = Date.parse(`${entry.created}T00:00:00Z`);
   const expires = Date.parse(`${entry.expires}T00:00:00Z`);
@@ -95,10 +126,10 @@ const suppressions = suppressionFile.suppressions || [];
 const suppressionById = new Map();
 for (const [index, entry] of suppressions.entries()) {
   validateSuppression(entry, index, maxSuppressionDays);
-  if (suppressionById.has(entry.id)) {
-    fail(`suppression ${index} duplicates id ${entry.id} (already used at index ${suppressionById.get(entry.id)})`);
+  if (suppressionById.has(entry.idDigest)) {
+    fail(`suppression ${index} duplicates id ${entry.idDigest} (already used at index ${suppressionById.get(entry.idDigest)})`);
   }
-  suppressionById.set(entry.id, index);
+  suppressionById.set(entry.idDigest, index);
 }
 
 const detectors = result.results.detectors;
@@ -119,12 +150,12 @@ const stale = [...suppressionById.entries()]
 
 if (unsuppressed.length > 0) {
   for (const detector of unsuppressed) {
-    console.error(`unsuppressed: ${summarize(detector)}`);
+    writeDiagnosticError(`unsuppressed: ${summarize(detector)}`);
   }
 }
 if (stale.length > 0) {
   for (const { id, index, entry } of stale) {
-    console.error(`stale: suppression[${index}] ${entry.detector}|${entry.file}|${entry.name} id=${id.slice(0, 16)} no longer matches any finding`);
+    writeDiagnosticError(`stale: suppression[${index}] ${entry.detector}|${entry.file}|${entry.name} id=${id.slice(0, 16)} no longer matches any finding`);
   }
 }
 

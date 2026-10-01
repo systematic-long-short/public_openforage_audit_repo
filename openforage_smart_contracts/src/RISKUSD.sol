@@ -70,6 +70,7 @@ contract RISKUSD is
     /// @dev OF-16-015: EnumerableSet for on-chain enumeration of exempt addresses.
     /// Uses 2 storage slots (length + mapping) from the gap.
     using EnumerableSet for EnumerableSet.AddressSet;
+
     EnumerableSet.AddressSet private _exemptAddressSet;
     address internal _blocklist;
 
@@ -91,10 +92,8 @@ contract RISKUSD is
         // OF-I02: UUPSUpgradeable has no init in OZ 5.x (stateless)
     }
 
-    /// @notice KYC-01: wire the shared caller allowlist on the fresh contract (pkt-investor-gate-0105).
-    /// @dev Not gated itself: it is the call that makes the gate usable, and onlyOwner already guards it.
     function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+        _transitionAllowlist(allowlist_);
     }
 
     function mint(address to, uint256 amount) external onlyAllowedCaller whenNotPaused nonReentrant {

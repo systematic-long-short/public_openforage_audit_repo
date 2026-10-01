@@ -11,10 +11,18 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import "./AllowlistGatedUpgradeable.sol";
 import "./DelegatingVestingWallet.sol";
+import "./interfaces/IAllowlist.sol";
 import "./interfaces/IAllowlistSystemRegistrar.sol";
+import {ForageTokenRotationStatus} from "./modules/ForageTokenStateModule.sol";
 
 interface IFORAGETreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
+}
+
+interface IFORAGETreasuryAllowlistState {
+    function allowlist() external view returns (address);
+
+    function blocklistRotationStatus() external view returns (ForageTokenRotationStatus memory);
 }
 
 /// @title FORAGETreasury
@@ -44,6 +52,12 @@ contract FORAGETreasury is
     error RoundAlreadyPublished(uint256 roundId);
     error UnauthorizedDistributor();
     error CapNotShrunk();
+    error FreshTreasuryStateRequired(uint256 layoutVersion);
+    error FreshInitializationOnExistingState(uint256 layoutVersion, address forageToken);
+    error ForageTokenAllowlistStateUnavailable(address forageToken);
+    error AllowlistNotForageTokenProvider(address candidate, address activeAllowlist, address pendingAllowlist);
+    error VestingWalletNotRecorded(address wallet);
+    error VestingWalletAllowlistMismatch(address wallet, address expected, address actual);
 
     uint256 public constant AGENT_PROGRAM_CAP = 30_000_000e18;
     uint256 public constant DEPOSITOR_PROGRAM_CAP = 10_000_000e18;
@@ -51,6 +65,7 @@ contract FORAGETreasury is
     uint256 public constant AGENT_CLAIM_COOLDOWN = 1 days;
     bytes32 public constant AGENT_REWARD_LANE = keccak256("FORAGE_AGENT_REWARD");
     bytes32 public constant DEPOSITOR_REWARD_LANE = keccak256("FORAGE_DEPOSITOR_REWARD");
+    uint256 private constant FRESH_LAYOUT_VERSION = 1;
 
     struct Round {
         bytes32 root;
@@ -77,8 +92,10 @@ contract FORAGETreasury is
     uint256 private _distributorDailyCap;
     uint256 private _distributorUsedToday;
     uint256 private _distributorDayStart;
+    uint256 private _freshLayoutVersion;
+    mapping(address => bool) public isTreasuryVestingWallet;
 
-    uint256[35] private __gap;
+    uint256[33] private __gap;
 
     event AgentRootPublished(uint256 indexed roundId, bytes32 root, uint256 totalAmount, uint64 deadline);
     event DepositorRootPublished(uint256 indexed roundId, bytes32 root, uint256 totalAmount, uint64 deadline);
@@ -87,31 +104,49 @@ contract FORAGETreasury is
     event PartnershipDistributed(address indexed beneficiary, address indexed wallet, uint256 amount);
     event RoundSwept(uint256 indexed roundId, address indexed recipient, uint256 amount);
     event BlocklistSet(address indexed blocklist);
+    event VestingWalletAllowlistForwarded(
+        address indexed wallet, address indexed previousAllowlist, address indexed nextAllowlist
+    );
 
     constructor() {
         _disableInitializers();
     }
 
+    modifier freshOnly() {
+        if (_freshLayoutVersion != FRESH_LAYOUT_VERSION) {
+            revert FreshTreasuryStateRequired(_freshLayoutVersion);
+        }
+        _;
+    }
+
     function initialize(address forageToken_, address owner_) external initializer {
+        if (_freshLayoutVersion != 0 || address(_forageToken) != address(0)) {
+            revert FreshInitializationOnExistingState(_freshLayoutVersion, address(_forageToken));
+        }
         if (forageToken_ == address(0) || owner_ == address(0)) revert ZeroAddress();
         __Ownable_init(owner_);
         __Ownable2Step_init();
         _forageToken = IERC20(forageToken_);
         _distributorDailyCap = 1_000_000e18;
+        _freshLayoutVersion = FRESH_LAYOUT_VERSION;
     }
 
-    function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
+    function setBlocklist(address blocklist_) external freshOnly onlyAllowedCaller onlyOwner {
         if (blocklist_ == address(0)) revert ZeroAddress();
         blocklist = blocklist_;
         emit BlocklistSet(blocklist_);
     }
 
-    function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+    function setAllowlist(address allowlist_) external freshOnly onlyOwner {
+        bool initialBinding = allowlist() == address(0);
+        _requireTokenAllowlistProvider(allowlist_, initialBinding);
+        _transitionAllowlist(allowlist_);
+        _requireTokenAllowlistProvider(allowlist(), initialBinding);
     }
 
     function publishAgentRoot(uint256 roundId, bytes32 root, uint256 totalAmount, uint64 deadline)
         external
+        freshOnly
         onlyAllowedCaller
         onlyOwner
     {
@@ -125,6 +160,7 @@ contract FORAGETreasury is
 
     function publishDepositorRoot(uint256 roundId, bytes32 root, uint256 totalAmount, uint64 deadline)
         external
+        freshOnly
         onlyAllowedCaller
         onlyOwner
     {
@@ -138,11 +174,12 @@ contract FORAGETreasury is
 
     function claimAgent(uint256 roundId, address account, uint256 amount, bytes32[] calldata proof)
         external
+        freshOnly
         onlyAllowedCaller
         nonReentrant
     {
         if (msg.sender != account) revert Unauthorized();
-        if (_isBlocked(account)) revert BlockedRecipient();
+        _requireAgentBeneficiary(account);
         uint256 lastClaimAt = lastAgentClaimAt[account];
         if (lastClaimAt != 0 && block.timestamp < lastClaimAt + AGENT_CLAIM_COOLDOWN) {
             revert ClaimCooldownActive();
@@ -158,6 +195,7 @@ contract FORAGETreasury is
 
     function claimDepositor(uint256 roundId, address account, uint256 amount, bytes32[] calldata proof)
         external
+        freshOnly
         onlyAllowedCaller
         nonReentrant
     {
@@ -173,6 +211,7 @@ contract FORAGETreasury is
 
     function claimAgentFor(uint256 roundId, address account, uint256 amount, bytes32[] calldata proof)
         external
+        freshOnly
         onlyAllowedCaller
         nonReentrant
     {
@@ -199,14 +238,24 @@ contract FORAGETreasury is
         uint64 start,
         uint64 duration,
         uint64 cliff
-    ) external onlyAllowedCaller onlyOwner nonReentrant returns (address wallet) {
+    ) external freshOnly onlyAllowedCaller onlyOwner nonReentrant returns (address wallet) {
         if (beneficiary == address(0) || delegatee == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         if (totalPartnershipDistributed + amount > PARTNERSHIP_PROGRAM_CAP) revert ProgramCapExceeded();
         if (_isBlocked(beneficiary) || _isBlocked(delegatee)) revert BlockedRecipient();
 
-        wallet = address(new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this), allowlist()));
-        IAllowlistSystemRegistrar(allowlist()).setSystemAccount(wallet, true);
+        address distributionAllowlist = allowlist();
+        _requireTokenAllowlistProvider(distributionAllowlist, false);
+        wallet = address(
+            new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this), distributionAllowlist)
+        );
+        isTreasuryVestingWallet[wallet] = true;
+        IAllowlistSystemRegistrar(distributionAllowlist).setSystemAccount(wallet, true);
+        _requireTokenAllowlistProvider(allowlist(), false);
+        address registeredAllowlist = DelegatingVestingWallet(wallet).allowlist();
+        if (registeredAllowlist != distributionAllowlist) {
+            revert VestingWalletAllowlistMismatch(wallet, distributionAllowlist, registeredAllowlist);
+        }
         DelegatingVestingWallet(wallet).setInitialDelegatee(delegatee);
         DelegatingVestingWallet(wallet).setBlocklist(blocklist);
         _forageToken.safeTransfer(wallet, amount);
@@ -216,28 +265,61 @@ contract FORAGETreasury is
         emit PartnershipDistributed(beneficiary, wallet, amount);
     }
 
-    function sweepExpiredAgentRound(uint256 roundId, address recipient) external onlyAllowedCaller nonReentrant {
+    function setVestingWalletAllowlist(address wallet, address candidateAllowlist)
+        external
+        freshOnly
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
+        if (!isTreasuryVestingWallet[wallet] || wallet.code.length == 0) revert VestingWalletNotRecorded(wallet);
+        _requireTokenAllowlistProvider(allowlist(), false);
+        _requireTokenAllowlistProvider(candidateAllowlist, false);
+        DelegatingVestingWallet vestingWallet = DelegatingVestingWallet(wallet);
+        address previousAllowlist = vestingWallet.allowlist();
+        if (previousAllowlist == candidateAllowlist) return;
+        vestingWallet.setAllowlist(candidateAllowlist);
+        _requireTokenAllowlistProvider(allowlist(), false);
+        _requireTokenAllowlistProvider(candidateAllowlist, false);
+        address updatedAllowlist = vestingWallet.allowlist();
+        if (updatedAllowlist != candidateAllowlist) {
+            revert VestingWalletAllowlistMismatch(wallet, candidateAllowlist, updatedAllowlist);
+        }
+        emit VestingWalletAllowlistForwarded(wallet, previousAllowlist, updatedAllowlist);
+    }
+
+    function sweepExpiredAgentRound(uint256 roundId, address recipient)
+        external
+        freshOnly
+        onlyAllowedCaller
+        nonReentrant
+    {
         if (msg.sender != owner()) revert Unauthorized();
         _sweep(agentRounds[roundId], roundId, recipient);
     }
 
-    function sweepExpiredDepositorRound(uint256 roundId, address recipient) external onlyAllowedCaller nonReentrant {
+    function sweepExpiredDepositorRound(uint256 roundId, address recipient)
+        external
+        freshOnly
+        onlyAllowedCaller
+        nonReentrant
+    {
         if (msg.sender != owner()) revert Unauthorized();
         _sweep(depositorRounds[roundId], roundId, recipient);
     }
 
-    function setDistributor(address distributor_) external onlyAllowedCaller onlyOwner {
+    function setDistributor(address distributor_) external freshOnly onlyAllowedCaller onlyOwner {
         if (distributor_ == address(0)) revert ZeroAddress();
         _pendingDistributor = distributor_;
     }
 
-    function acceptDistributor() external onlyAllowedCaller {
+    function acceptDistributor() external freshOnly onlyAllowedCaller {
         if (msg.sender != _pendingDistributor) revert UnauthorizedDistributor();
         _distributor = msg.sender;
         _pendingDistributor = address(0);
     }
 
-    function shrinkDistributorDailyCap(uint256 newCap) external onlyAllowedCaller onlyOwner {
+    function shrinkDistributorDailyCap(uint256 newCap) external freshOnly onlyAllowedCaller onlyOwner {
         if (newCap >= _distributorDailyCap) revert CapNotShrunk();
         _distributorDailyCap = newCap;
     }
@@ -262,15 +344,21 @@ contract FORAGETreasury is
         revert RenounceOwnershipDisabled();
     }
 
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
-    function transferOwnership(address newOwner) public override onlyAllowedCaller {
+    function transferOwnership(address newOwner) public override freshOnly onlyAllowedCaller {
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshOnly onlyAllowedCaller {
         super.acceptOwnership();
     }
 
@@ -329,5 +417,46 @@ contract FORAGETreasury is
         }
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _requireAgentBeneficiary(address account) private view {
+        address allowlist_ = allowlist();
+        if (allowlist_ == address(0)) revert IAllowlist.AllowlistUnavailable();
+        bool allowed;
+        try IAllowlist(allowlist_).isAllowed(account) returns (bool result) {
+            allowed = result;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+        if (!allowed) revert IAllowlist.CallerNotAllowed(account);
+        if (_isBlocked(account)) revert BlockedRecipient();
+    }
+
+    function _forageTokenAllowlistProviders()
+        private
+        view
+        returns (address activeAllowlist, address pendingAllowlist)
+    {
+        address forageToken_ = address(_forageToken);
+        if (forageToken_.code.length == 0) revert ForageTokenAllowlistStateUnavailable(forageToken_);
+        IFORAGETreasuryAllowlistState tokenState = IFORAGETreasuryAllowlistState(forageToken_);
+        try tokenState.allowlist() returns (address currentAllowlist) {
+            activeAllowlist = currentAllowlist;
+        } catch {
+            revert ForageTokenAllowlistStateUnavailable(forageToken_);
+        }
+        try tokenState.blocklistRotationStatus() returns (ForageTokenRotationStatus memory status) {
+            if (status.allowlistReindexActive) pendingAllowlist = status.pendingAllowlist;
+        } catch {
+            revert ForageTokenAllowlistStateUnavailable(forageToken_);
+        }
+    }
+
+    function _requireTokenAllowlistProvider(address candidateAllowlist, bool allowInitialBinding) private view {
+        if (candidateAllowlist == address(0)) revert IAllowlist.AllowlistUnavailable();
+        (address activeAllowlist, address pendingAllowlist) = _forageTokenAllowlistProviders();
+        if (candidateAllowlist == activeAllowlist || candidateAllowlist == pendingAllowlist) return;
+        if (allowInitialBinding && activeAllowlist == address(0) && pendingAllowlist == address(0)) return;
+        revert AllowlistNotForageTokenProvider(candidateAllowlist, activeAllowlist, pendingAllowlist);
+    }
+
+    function _authorizeUpgrade(address) internal override freshOnly onlyOwner {}
 }

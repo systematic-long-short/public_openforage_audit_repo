@@ -18,6 +18,14 @@ import "../interfaces/IAllowlist.sol";
 import "../AllowlistGatedUpgradeable.sol";
 import "../RISKUSDVault.sol";
 
+interface ICustodianLossWriteDownPort {
+    function recordLossWriteDown(uint256 amount) external returns (uint256 writtenDown);
+}
+
+interface ICustodianManualNAVAcknowledger {
+    function acknowledgeManualCustodianNAV(uint256 submittedRawNav) external returns (bool);
+}
+
 /// @title RISKUSDVaultModule - delegatecall target for RISKUSDVault's admin, NAV, loss,
 ///        vault-registry and rescue cluster.
 /// @notice Each moved function mirrors its selector and body; the vault's forwarder runs the
@@ -92,6 +100,8 @@ contract RISKUSDVaultModule is
     error InvalidBlocklist(address target);
     error InvalidVaultRegistryInterface(address target);
     error ManualAttestationNormalizationFailed(address custodian);
+    error InvalidManualNAVObservation(uint256 observedAt, uint256 currentTimestamp);
+    error ManualNAVAcknowledgementFailed(address custodian);
     error LossResolutionNotificationFailed(address registry);
     error DeploymentBufferEnumerationFailed(address target);
     error FirstDepositBelowMinimum(uint256 amount, uint256 minimum);
@@ -130,6 +140,9 @@ contract RISKUSDVaultModule is
     event AttestationIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event CustodianNAVRecorded(uint256 nav, uint256 timestamp);
     event CustodianNAVAttested(uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, uint256 timestamp);
+    event AttestedLossAmountRecomputed(
+        uint256 indexed vaultId, uint256 indexed lossNonce, uint256 oldAmount, uint256 newAmount
+    );
     event ManualCustodianNAVDeferred(
         uint256 indexed vaultId, uint256 nav, uint256 indexed lossNonce, address indexed custodian
     );
@@ -153,9 +166,6 @@ contract RISKUSDVaultModule is
     uint256 public constant WEEKLY_WINDOW = 7 days;
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
-    uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
-    bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR =
-        bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
     // State — immutable post-initialization
     IERC20 internal _usdc;
@@ -286,7 +296,7 @@ contract RISKUSDVaultModule is
 
     // --- Moved Functions ---
 
-    function deployCapital(uint256 usdcAmount) external onlyDelegateCall    {
+    function deployCapital(uint256 usdcAmount) external onlyDelegateCall {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         if (usdcAmount == 0) revert ZeroAmount();
@@ -317,7 +327,7 @@ contract RISKUSDVaultModule is
         _assertSolvency();
     }
 
-    function recordCustodianNAV(uint256 nav) external onlyDelegateCall  {
+    function recordCustodianNAV(uint256 nav) external onlyDelegateCall {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         _requireNotBlocked(msg.sender);
@@ -325,7 +335,7 @@ contract RISKUSDVaultModule is
         _recordCustodianNAV(0, nav, 0, block.timestamp);
     }
 
-    function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyDelegateCall  {
+    function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyDelegateCall {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         _requireNotBlocked(msg.sender);
@@ -334,7 +344,8 @@ contract RISKUSDVaultModule is
     }
 
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
-        external onlyDelegateCall
+        external
+        onlyDelegateCall
     {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
@@ -344,32 +355,44 @@ contract RISKUSDVaultModule is
         _recordCustodianNAV(vaultId, nav, lossNonce, observedAt);
     }
 
-    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyDelegateCall  {
+    function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
+        external
+        onlyDelegateCall
+    {
+        address custodian_ = _custodian;
+        uint256 submittedRawNav = nav;
         if (msg.sender != _manualAttestationReporter) revert UnauthorizedManualAttestationReporter();
         if (_manualAttestationReporter == address(0)) revert UnauthorizedManualAttestationReporter();
+        if (observedAt == 0 || observedAt > block.timestamp || block.timestamp - observedAt > 1 days) {
+            revert InvalidManualNAVObservation(observedAt, block.timestamp);
+        }
         _requireNotBlocked(msg.sender);
 
-        (bool shouldRecord, uint256 normalizedNav) = _normalizeManualCustodianNAV(vaultId, nav, lossNonce);
+        (bool shouldRecord, uint256 normalizedNav) =
+            _normalizeManualCustodianNAV(custodian_, vaultId, submittedRawNav, lossNonce, observedAt);
         if (!shouldRecord) {
-            emit ManualCustodianNAVDeferred(vaultId, nav, lossNonce, _custodian);
+            emit ManualCustodianNAVDeferred(vaultId, submittedRawNav, lossNonce, custodian_);
             return;
         }
 
-        nav = normalizedNav;
-        _recordCustodianNAV(vaultId, nav, lossNonce, block.timestamp);
+        _recordCustodianNAV(vaultId, normalizedNav, lossNonce, observedAt);
+        if (!ICustodianManualNAVAcknowledger(custodian_).acknowledgeManualCustodianNAV(submittedRawNav)) {
+            revert ManualNAVAcknowledgementFailed(custodian_);
+        }
     }
 
-    function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyDelegateCall   {
+    function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyDelegateCall {
         _burnForLoss(vaultId, riskusdAmount, 0);
     }
 
     function coverAndBurnForLoss(uint256 vaultId, uint256 riskusdAmount, uint256 coverUsdcAmount)
-        external onlyDelegateCall
+        external
+        onlyDelegateCall
     {
         _burnForLoss(vaultId, riskusdAmount, coverUsdcAmount);
     }
 
-    function replenish(uint256 usdcAmount) external onlyDelegateCall   {
+    function replenish(uint256 usdcAmount) external onlyDelegateCall {
         if (msg.sender != _lossReporter) revert UnauthorizedLossReporter();
         if (usdcAmount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
@@ -383,7 +406,7 @@ contract RISKUSDVaultModule is
         emit Replenished(usdcAmount);
     }
 
-    function finalizeAttestedLoss(uint256 vaultId, uint256 lossNonce, uint256 amount) external onlyDelegateCall  {
+    function finalizeAttestedLoss(uint256 vaultId, uint256 lossNonce, uint256 amount) external onlyDelegateCall {
         if (msg.sender != _custodian) revert UnauthorizedCustodian();
         if (_custodian == address(0)) revert UnauthorizedCustodian();
         if (amount == 0) revert ZeroAmount();
@@ -400,22 +423,14 @@ contract RISKUSDVaultModule is
         emit AttestedLossFinalized(vaultId, lossNonce, amount);
     }
 
-    function initializeV2(address vaultRegistry_) external onlyDelegateCall    {
-        if (vaultRegistry_ == address(0)) revert ZeroAddress();
-        _requireVaultRegistryMatchesThisVault(vaultRegistry_);
-        _requireVaultRegistryInterface(vaultRegistry_);
-        _vaultRegistry = IVaultRegistry(vaultRegistry_);
-        emit VaultRegistryUpdated(address(0), vaultRegistry_);
-    }
-
-    function proposeVaultRegistry(address newRegistry_) external onlyDelegateCall   {
+    function proposeVaultRegistry(address newRegistry_) external onlyDelegateCall {
         if (newRegistry_ == address(0)) revert ZeroAddress();
         _pendingVaultRegistry = newRegistry_;
         _pendingVaultRegistryTimestamp = uint48(block.timestamp);
         emit VaultRegistryProposed(address(_vaultRegistry), newRegistry_);
     }
 
-    function finalizeVaultRegistry() external onlyDelegateCall   {
+    function finalizeVaultRegistry() external onlyDelegateCall {
         if (_pendingVaultRegistry == address(0)) revert NoPendingVaultRegistry();
         if (block.timestamp < uint256(_pendingVaultRegistryTimestamp) + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -432,7 +447,7 @@ contract RISKUSDVaultModule is
         emit VaultRegistryUpdated(oldRegistry, address(_vaultRegistry));
     }
 
-    function acceptVaultRegistry() external onlyDelegateCall  {
+    function acceptVaultRegistry() external onlyDelegateCall {
         if (msg.sender != _pendingVaultRegistry) revert NotPendingVaultRegistry();
         if (block.timestamp < uint256(_pendingVaultRegistryTimestamp) + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -449,19 +464,19 @@ contract RISKUSDVaultModule is
         emit VaultRegistryUpdated(oldRegistry, address(_vaultRegistry));
     }
 
-    function clearPendingVaultRegistry() external onlyDelegateCall   {
+    function clearPendingVaultRegistry() external onlyDelegateCall {
         _pendingVaultRegistry = address(0);
         _pendingVaultRegistryTimestamp = 0;
     }
 
-    function setCustodian(address custodian_) external onlyDelegateCall   {
+    function setCustodian(address custodian_) external onlyDelegateCall {
         if (custodian_ == address(0)) revert ZeroAddress();
         _pendingCustodian = custodian_;
         _custodianProposedAt = block.timestamp; // OF-002 (11th audit)
         emit CustodianSetByOwner(_custodian, custodian_);
     }
 
-    function finalizeCustodian() external onlyDelegateCall   {
+    function finalizeCustodian() external onlyDelegateCall {
         if (_pendingCustodian == address(0)) revert ZeroAddress();
         if (block.timestamp < _custodianProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _custodianProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -472,14 +487,14 @@ contract RISKUSDVaultModule is
         emit CustodianUpdated(oldCustodian, _custodian);
     }
 
-    function setLossReporter(address lossReporter_) external onlyDelegateCall   {
+    function setLossReporter(address lossReporter_) external onlyDelegateCall {
         if (lossReporter_ == address(0)) revert ZeroAddress();
         _pendingLossReporter = lossReporter_;
         _lossReporterProposedAt = block.timestamp; // OF-002 (11th audit)
         emit LossReporterSetByOwner(_lossReporter, lossReporter_);
     }
 
-    function finalizeLossReporter() external onlyDelegateCall   {
+    function finalizeLossReporter() external onlyDelegateCall {
         if (_pendingLossReporter == address(0)) revert ZeroAddress();
         if (block.timestamp < _lossReporterProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _lossReporterProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -490,14 +505,14 @@ contract RISKUSDVaultModule is
         emit LossReporterUpdated(oldReporter, _lossReporter);
     }
 
-    function proposeCustodian(address newCustodian_) external onlyDelegateCall   {
+    function proposeCustodian(address newCustodian_) external onlyDelegateCall {
         if (newCustodian_ == address(0)) revert ZeroAddress();
         _pendingCustodian = newCustodian_;
         _custodianProposedAt = block.timestamp; // OF-002 (11th audit)
         emit CustodianProposed(_custodian, newCustodian_);
     }
 
-    function acceptCustodian() external onlyDelegateCall  {
+    function acceptCustodian() external onlyDelegateCall {
         if (msg.sender != _pendingCustodian) revert NotPendingCustodian();
         if (block.timestamp < _custodianProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _custodianProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -508,19 +523,19 @@ contract RISKUSDVaultModule is
         emit CustodianUpdated(oldCustodian, _custodian);
     }
 
-    function clearPendingCustodian() external onlyDelegateCall   {
+    function clearPendingCustodian() external onlyDelegateCall {
         _pendingCustodian = address(0);
         _custodianProposedAt = 0;
     }
 
-    function proposeLossReporter(address newLossReporter_) external onlyDelegateCall   {
+    function proposeLossReporter(address newLossReporter_) external onlyDelegateCall {
         if (newLossReporter_ == address(0)) revert ZeroAddress();
         _pendingLossReporter = newLossReporter_;
         _lossReporterProposedAt = block.timestamp; // OF-002 (11th audit)
         emit LossReporterProposed(_lossReporter, newLossReporter_);
     }
 
-    function acceptLossReporter() external onlyDelegateCall  {
+    function acceptLossReporter() external onlyDelegateCall {
         if (msg.sender != _pendingLossReporter) revert NotPendingLossReporter();
         if (block.timestamp < _lossReporterProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _lossReporterProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -531,12 +546,12 @@ contract RISKUSDVaultModule is
         emit LossReporterUpdated(oldReporter, _lossReporter);
     }
 
-    function clearPendingLossReporter() external onlyDelegateCall   {
+    function clearPendingLossReporter() external onlyDelegateCall {
         _pendingLossReporter = address(0);
         _lossReporterProposedAt = 0;
     }
 
-    function setMaxDeploymentRatioBps(uint256 bps_) external onlyDelegateCall   {
+    function setMaxDeploymentRatioBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > 10000) revert InvalidDeploymentRatio();
 
         uint256 oldRatio = _maxDeploymentRatioBps;
@@ -545,7 +560,7 @@ contract RISKUSDVaultModule is
         emit MaxDeploymentRatioUpdated(oldRatio, bps_);
     }
 
-    function setWeeklyRedemptionCapBps(uint256 bps_) external onlyDelegateCall   {
+    function setWeeklyRedemptionCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ == 0 || bps_ > 10000) revert InvalidParameter();
 
         uint256 oldBps = _weeklyRedemptionCapBps;
@@ -554,7 +569,7 @@ contract RISKUSDVaultModule is
         emit WeeklyRedemptionCapBpsUpdated(oldBps, bps_);
     }
 
-    function setWeeklyMintCapBps(uint256 bps_) external onlyDelegateCall   {
+    function setWeeklyMintCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > 20000) revert InvalidParameter();
 
         uint256 oldBps = _weeklyMintCapBps;
@@ -563,7 +578,7 @@ contract RISKUSDVaultModule is
         emit WeeklyMintCapBpsUpdated(oldBps, bps_);
     }
 
-    function setDailyMintCapBps(uint256 bps_) external onlyDelegateCall   {
+    function setDailyMintCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > 10000) revert InvalidParameter();
 
         uint256 oldBps = _dailyMintCapBps;
@@ -572,7 +587,7 @@ contract RISKUSDVaultModule is
         emit DailyMintCapBpsUpdated(oldBps, bps_);
     }
 
-    function setDailyRedemptionCapBps(uint256 bps_) external onlyDelegateCall   {
+    function setDailyRedemptionCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > 10000) revert InvalidParameter();
 
         uint256 oldBps = _dailyRedemptionCapBps;
@@ -581,14 +596,14 @@ contract RISKUSDVaultModule is
         emit DailyRedemptionCapBpsUpdated(oldBps, bps_);
     }
 
-    function setManualAttestationReporter(address reporter_) external onlyDelegateCall   {
+    function setManualAttestationReporter(address reporter_) external onlyDelegateCall {
         if (reporter_ == address(0)) revert ZeroAddress();
         _pendingManualAttestationReporter = reporter_;
         _manualAttestationReporterProposedAt = block.timestamp;
         emit ManualAttestationReporterProposed(_manualAttestationReporter, reporter_);
     }
 
-    function finalizeManualAttestationReporter() external onlyDelegateCall   {
+    function finalizeManualAttestationReporter() external onlyDelegateCall {
         if (_pendingManualAttestationReporter == address(0)) revert NoPendingManualAttestationReporter();
         if (block.timestamp < _manualAttestationReporterProposedAt + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -601,7 +616,7 @@ contract RISKUSDVaultModule is
         emit ManualAttestationReporterUpdated(old, _manualAttestationReporter);
     }
 
-    function acceptManualAttestationReporter() external onlyDelegateCall  {
+    function acceptManualAttestationReporter() external onlyDelegateCall {
         if (msg.sender != _pendingManualAttestationReporter) revert NotPendingManualAttestationReporter();
         if (block.timestamp < _manualAttestationReporterProposedAt + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -614,12 +629,12 @@ contract RISKUSDVaultModule is
         emit ManualAttestationReporterUpdated(old, _manualAttestationReporter);
     }
 
-    function clearPendingManualAttestationReporter() external onlyDelegateCall   {
+    function clearPendingManualAttestationReporter() external onlyDelegateCall {
         _pendingManualAttestationReporter = address(0);
         _manualAttestationReporterProposedAt = 0;
     }
 
-    function setPerBlockMintCap(uint256 bps_, uint256 maxAmount_) external onlyDelegateCall   {
+    function setPerBlockMintCap(uint256 bps_, uint256 maxAmount_) external onlyDelegateCall {
         if (bps_ == 0 || bps_ > 10000 || maxAmount_ == 0) revert InvalidParameter();
 
         uint256 oldBps = _perBlockMintCapBps;
@@ -630,7 +645,7 @@ contract RISKUSDVaultModule is
         emit PerBlockMintCapUpdated(oldBps, bps_, oldMax, maxAmount_);
     }
 
-    function setDeploymentBufferBps(uint256 bps_) external onlyDelegateCall   {
+    function setDeploymentBufferBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > 10000) revert InvalidParameter();
 
         uint256 oldBps = _deploymentBufferBps;
@@ -639,7 +654,7 @@ contract RISKUSDVaultModule is
         emit DeploymentBufferBpsUpdated(oldBps, bps_);
     }
 
-    function setSuspectedLossFreeze(bool frozen) external onlyDelegateCall  {
+    function setSuspectedLossFreeze(bool frozen) external onlyDelegateCall {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert UnauthorizedPauseControl(msg.sender);
         }
@@ -648,7 +663,7 @@ contract RISKUSDVaultModule is
         emit SuspectedLossFreezeSet(frozen);
     }
 
-    function shrinkWeeklyRedemptionCapBps(uint256 bps_) external onlyDelegateCall   {
+    function shrinkWeeklyRedemptionCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ == 0) revert InvalidParameter();
         if (bps_ > _weeklyRedemptionCapBps) revert CapTighteningOnly();
 
@@ -658,7 +673,7 @@ contract RISKUSDVaultModule is
         emit WeeklyRedemptionCapBpsUpdated(oldBps, bps_);
     }
 
-    function shrinkWeeklyMintCapBps(uint256 bps_) external onlyDelegateCall   {
+    function shrinkWeeklyMintCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > _weeklyMintCapBps) revert CapTighteningOnly();
 
         uint256 oldBps = _weeklyMintCapBps;
@@ -667,7 +682,7 @@ contract RISKUSDVaultModule is
         emit WeeklyMintCapBpsUpdated(oldBps, bps_);
     }
 
-    function shrinkDailyMintCapBps(uint256 bps_) external onlyDelegateCall   {
+    function shrinkDailyMintCapBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > _dailyMintCapBps) revert CapTighteningOnly();
 
         uint256 oldBps = _dailyMintCapBps;
@@ -676,9 +691,7 @@ contract RISKUSDVaultModule is
         emit DailyMintCapBpsUpdated(oldBps, bps_);
     }
 
-    function shrinkPerBlockMintCap(uint256 bps_, uint256 maxAmount_)
-        external onlyDelegateCall
-    {
+    function shrinkPerBlockMintCap(uint256 bps_, uint256 maxAmount_) external onlyDelegateCall {
         if (bps_ > _perBlockMintCapBps || maxAmount_ > _perBlockMintCapMax) {
             revert CapTighteningOnly();
         }
@@ -691,7 +704,7 @@ contract RISKUSDVaultModule is
         emit PerBlockMintCapUpdated(oldBps, bps_, oldMax, maxAmount_);
     }
 
-    function tightenMaxDeploymentRatioBps(uint256 bps_) external onlyDelegateCall   {
+    function tightenMaxDeploymentRatioBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > _maxDeploymentRatioBps || bps_ > 10000) revert CapTighteningOnly();
 
         uint256 oldRatio = _maxDeploymentRatioBps;
@@ -700,7 +713,7 @@ contract RISKUSDVaultModule is
         emit MaxDeploymentRatioUpdated(oldRatio, bps_);
     }
 
-    function tightenDeploymentBufferBps(uint256 bps_) external onlyDelegateCall   {
+    function tightenDeploymentBufferBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ < _deploymentBufferBps || bps_ > 10000) revert CapTighteningOnly();
 
         uint256 oldBps = _deploymentBufferBps;
@@ -709,7 +722,7 @@ contract RISKUSDVaultModule is
         emit DeploymentBufferBpsUpdated(oldBps, bps_);
     }
 
-    function setAttestationIntervalSeconds(uint256 interval_) external onlyDelegateCall   {
+    function setAttestationIntervalSeconds(uint256 interval_) external onlyDelegateCall {
         if (interval_ < 1 hours || interval_ > 30 days) revert InvalidAttestationInterval();
 
         uint256 oldInterval = _attestationIntervalSeconds;
@@ -718,7 +731,7 @@ contract RISKUSDVaultModule is
         emit AttestationIntervalUpdated(oldInterval, interval_);
     }
 
-    function setMinReserveRatioBps(uint256 bps_) external onlyDelegateCall   {
+    function setMinReserveRatioBps(uint256 bps_) external onlyDelegateCall {
         if (bps_ > 10000) revert InvalidReserveRatio();
 
         uint256 oldRatio = _minReserveRatioBps;
@@ -727,14 +740,14 @@ contract RISKUSDVaultModule is
         emit MinReserveRatioUpdated(oldRatio, bps_);
     }
 
-    function setForageGovernor(address newGovernor_) external onlyDelegateCall   {
+    function setForageGovernor(address newGovernor_) external onlyDelegateCall {
         if (newGovernor_ == address(0)) revert ZeroAddress();
         _pendingForageGovernor = newGovernor_;
         _pendingForageGovernorProposedAt = block.timestamp;
         emit ForageGovernorProposed(_forageGovernor, newGovernor_);
     }
 
-    function finalizeForageGovernor() external onlyDelegateCall   {
+    function finalizeForageGovernor() external onlyDelegateCall {
         if (_pendingForageGovernor == address(0)) revert NoPendingForageGovernor();
         if (block.timestamp < _pendingForageGovernorProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
         if (block.timestamp > _pendingForageGovernorProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
@@ -745,12 +758,12 @@ contract RISKUSDVaultModule is
         emit ForageGovernorSet(old, _forageGovernor);
     }
 
-    function clearPendingForageGovernor() external onlyDelegateCall   {
+    function clearPendingForageGovernor() external onlyDelegateCall {
         _pendingForageGovernor = address(0);
         _pendingForageGovernorProposedAt = 0;
     }
 
-    function setBlocklist(address blocklist_) external onlyDelegateCall   {
+    function setBlocklist(address blocklist_) external onlyDelegateCall {
         if (blocklist_ == address(0)) revert ZeroAddress();
         _requireValidBlocklist(blocklist_);
         address oldBlocklist = _blocklist;
@@ -758,29 +771,29 @@ contract RISKUSDVaultModule is
         emit BlocklistSet(oldBlocklist, blocklist_);
     }
 
-    function setMinimumFirstDeposit(uint8 basis, uint256 amount) external onlyDelegateCall   {
+    function setMinimumFirstDeposit(uint8 basis, uint256 amount) external onlyDelegateCall {
         _minimumFirstDeposit[basis] = amount;
     }
 
-    function pause() external onlyDelegateCall  {
+    function pause() external onlyDelegateCall {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert UnauthorizedPauseControl(msg.sender);
         }
         _pause();
     }
 
-    function unpause() external onlyDelegateCall  {
+    function unpause() external onlyDelegateCall {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
             revert UnauthorizedPauseControl(msg.sender);
         }
         _unpause();
     }
 
-    function proposeTokenRescue(address token, uint256 amount, address recipient) external onlyDelegateCall   {
+    function proposeTokenRescue(address token, uint256 amount, address recipient) external onlyDelegateCall {
         _stageRescue(token, recipient, amount, uint64(block.timestamp));
     }
 
-    function executeTokenRescue(address token) external onlyDelegateCall    {
+    function executeTokenRescue(address token) external onlyDelegateCall {
         _requireRescuableToken(token);
         PendingTokenRescue memory pending = _pendingTokenRescues[token];
         if (pending.readyAt == 0) revert InvalidState();
@@ -798,7 +811,7 @@ contract RISKUSDVaultModule is
         if (lossNonce != 0 && lossNonce <= _latestLossNonce) revert StaleLossNonce();
         if (lossNonce != 0 && vaultId == 0) revert InvalidVaultId();
         if (lossNonce != 0) {
-            _requireActiveVault(vaultId);
+            _requireActiveVault(vaultId, nav);
             uint256 pendingVaultId = _pendingLossVaultIdForBinding();
             if (pendingVaultId != 0 && vaultId != pendingVaultId) revert VaultIdMismatch();
         }
@@ -838,6 +851,10 @@ contract RISKUSDVaultModule is
         uint256 totalLossAmount = riskusdAmount + coverUsdcAmount;
         if (totalLossAmount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
+        bool hadUnresolvedAttestedLoss = _hasUnresolvedAttestedLoss();
+        uint256 attestedVaultId = _latestLossVaultId;
+        uint256 attestedLossNonce = _latestLossNonce;
+        uint256 attestedLossAmount = _latestLossAmount;
         // Verify vault binding when a target attested-loss nonce is open.
         uint256 pendingVaultId = _pendingLossVaultIdForBinding();
         if (pendingVaultId != 0 && vaultId != pendingVaultId) revert VaultIdMismatch();
@@ -858,28 +875,34 @@ contract RISKUSDVaultModule is
             uint256 deployedReduction = directLoss > _totalDeployed ? _totalDeployed : directLoss;
             _totalDeployed -= deployedReduction;
             _totalLostCapital += deployedReduction;
+            if (deployedReduction > 0) {
+                _recomputeLatestLossAmount();
+                _recordCustodianLossWriteDown(deployedReduction);
+            }
         }
 
         // OF-001 (11th audit): Clear loss pending when all acknowledged loss is consumed
-        if (_totalAcknowledgedLoss == 0 && _lossPending) {
+        if (_totalAcknowledgedLoss == 0 && _lossPending && !hadUnresolvedAttestedLoss) {
             _clearLossPendingAndNotifyRegistry();
         }
+
+        (uint256 weeklyBasisDebit, uint256 dailyBasisDebit) = _consumeLossRedemptionMint(riskusdAmount);
 
         // OF-I06: Adjust _windowStartSupply if within current redemption window
         // to prevent the weekly cap from being based on stale (pre-burn) supply.
         if (block.timestamp < _weeklyRedemptionWindowStart + WEEKLY_WINDOW && _windowStartSupply > 0) {
-            _windowStartSupply = _windowStartSupply >= riskusdAmount ? _windowStartSupply - riskusdAmount : 0;
+            _windowStartSupply = _windowStartSupply >= weeklyBasisDebit ? _windowStartSupply - weeklyBasisDebit : 0;
         }
         // Mirror OF-I06 on the daily redemption basis: a burn inside the current daily window
         // must not leave the daily cap computed from stale (pre-burn) supply either.
         if (block.timestamp < _dailyRedemptionWindowStart + DAILY_WINDOW && _dailyRedemptionWindowStartSupply > 0) {
-            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply >= riskusdAmount
-                ? _dailyRedemptionWindowStartSupply - riskusdAmount
+            _dailyRedemptionWindowStartSupply = _dailyRedemptionWindowStartSupply >= dailyBasisDebit
+                ? _dailyRedemptionWindowStartSupply - dailyBasisDebit
                 : 0;
         }
         // OF-014: Also adjust _lastActiveSupply to prevent next window inheriting pre-burn supply
-        if (_lastActiveSupply > riskusdAmount) {
-            _lastActiveSupply -= riskusdAmount;
+        if (_lastActiveSupply > weeklyBasisDebit) {
+            _lastActiveSupply -= weeklyBasisDebit;
         } else {
             _lastActiveSupply = 0;
         }
@@ -894,6 +917,33 @@ contract RISKUSDVaultModule is
             // Burn from caller (the loss reporter holds the RISKUSD)
             _riskusd.burn(msg.sender, riskusdAmount);
             emit LossBurned(riskusdAmount);
+            uint256 supplyAfterLoss = _riskusd.totalSupply();
+            if (supplyAfterLoss == 0) {
+                _resetRedemptionCapsForEmptySupply();
+            } else if (_lastActiveSupply == 0 || supplyAfterLoss < _lastActiveSupply) {
+                _lastActiveSupply = supplyAfterLoss;
+            }
+        }
+
+        if (
+            hadUnresolvedAttestedLoss && _custodian.code.length != 0 && vaultId == attestedVaultId
+                && totalLossAmount == attestedLossAmount && !_hasCurrentNAVShortfall()
+        ) {
+            _clearLossPendingAndNotifyRegistry();
+            emit AttestedLossFinalized(attestedVaultId, attestedLossNonce, attestedLossAmount);
+        }
+    }
+
+    function _recordCustodianLossWriteDown(uint256 amount) internal {
+        address custodian_ = _custodian;
+        if (custodian_.code.length == 0) return;
+
+        try ICustodianLossWriteDownPort(custodian_).recordLossWriteDown(amount) returns (uint256 writtenDown) {
+            if (writtenDown != amount) {
+                revert RISKUSDVault.CustodianLossWriteDownFailed(custodian_, amount);
+            }
+        } catch {
+            revert RISKUSDVault.CustodianLossWriteDownFailed(custodian_, amount);
         }
     }
 
@@ -914,6 +964,9 @@ contract RISKUSDVaultModule is
         (bool ok, bytes memory data) =
             vaultRegistry_.staticcall(abi.encodeWithSelector(IVaultRegistry.getVaultsPage.selector, 0, 1));
         if (!ok || data.length < 96) revert InvalidVaultRegistryInterface(vaultRegistry_);
+        (ok, data) =
+            vaultRegistry_.staticcall(abi.encodeWithSelector(IVaultRegistry.activeRegisteredTierAssets.selector));
+        if (!ok || data.length != 32) revert InvalidVaultRegistryInterface(vaultRegistry_);
     }
 
     function _isGuardianModule(address caller) internal view returns (bool) {
@@ -994,28 +1047,44 @@ contract RISKUSDVaultModule is
         return _latestLossNonce != 0 && _latestLossNonce > _settledLossNonce && _latestLossVaultId != 0;
     }
 
+    function _recomputeLatestLossAmount() internal {
+        if (!_hasOpenAttestedLossNonce() || _latestLossAmount == 0) return;
+        uint256 oldAmount = _latestLossAmount;
+        uint256 adjustedNav = _adjustedCustodianNAVNoStaleFallback();
+        uint256 principal = _totalDeployed;
+        uint256 currentAmount = principal > adjustedNav ? principal - adjustedNav : 0;
+        if (currentAmount == oldAmount) return;
+        _latestLossAmount = currentAmount;
+        emit AttestedLossAmountRecomputed(_latestLossVaultId, _latestLossNonce, oldAmount, currentAmount);
+    }
+
     function _pendingLossVaultIdForBinding() internal view returns (uint256) {
         if (_hasUnresolvedAttestedLoss()) return _latestLossVaultId;
         return _lossPendingVaultId;
     }
 
-    function _requireActiveVault(uint256 vaultId) internal view {
-        if (address(_vaultRegistry) != address(0)) {
-            VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
-            if (vc.status != VaultStatus.Active) revert VaultNotActive();
-        }
+    function _requireActiveVault(uint256 vaultId, uint256 nav) internal view {
+        if (address(_vaultRegistry) == address(0)) revert VaultRegistryRequired();
+        VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
+        if (vc.vaultId != vaultId) revert InvalidVaultId();
+        if (vc.status == VaultStatus.Active) return;
+        if (vc.status != VaultStatus.Paused && vc.status != VaultStatus.WindingDown) revert VaultNotActive();
+        if (nav >= _totalDeployed) revert VaultNotActive();
     }
 
-    function _normalizeManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce)
-        internal
-        view
-        returns (bool shouldRecord, uint256 normalizedNav)
-    {
-        address custodian_ = _custodian;
+    function _normalizeManualCustodianNAV(
+        address custodian_,
+        uint256 vaultId,
+        uint256 nav,
+        uint256 lossNonce,
+        uint256 observedAt
+    ) internal view returns (bool shouldRecord, uint256 normalizedNav) {
         if (custodian_.code.length == 0) revert ManualAttestationNormalizationFailed(custodian_);
 
         (bool ok, bytes memory data) = custodian_.staticcall(
-            abi.encodeCall(IManualCustodianNAVNormalizer.normalizeManualCustodianNAV, (vaultId, nav, lossNonce))
+            abi.encodeCall(
+                IManualCustodianNAVNormalizer.normalizeManualCustodianNAV, (vaultId, nav, lossNonce, observedAt)
+            )
         );
         if (!ok || data.length < 64) revert ManualAttestationNormalizationFailed(custodian_);
 
@@ -1043,6 +1112,59 @@ contract RISKUSDVaultModule is
         }
     }
 
+    function _consumeLossRedemptionMint(uint256 amount)
+        internal
+        returns (uint256 weeklyBasisDebit, uint256 dailyBasisDebit)
+    {
+        if (address(_vaultRegistry) == address(0) || amount == 0) return (amount, amount);
+
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        if (
+            buffers.weeklyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+                && buffers.dailyWindowStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START
+        ) {
+            return (amount, amount);
+        }
+        uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        if (buffers.weeklyWindowStart != weeklyStart) {
+            buffers.weeklyWindowStart = weeklyStart;
+            buffers.weeklyMintAmount = 0;
+        }
+        uint256 weeklyOffset = amount < buffers.weeklyMintAmount ? amount : buffers.weeklyMintAmount;
+        buffers.weeklyMintAmount -= weeklyOffset;
+        weeklyBasisDebit = amount - weeklyOffset;
+
+        uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        if (buffers.dailyWindowStart != dailyStart) {
+            buffers.dailyWindowStart = dailyStart;
+            buffers.dailyMintAmount = 0;
+        }
+        uint256 dailyOffset = amount < buffers.dailyMintAmount ? amount : buffers.dailyMintAmount;
+        buffers.dailyMintAmount -= dailyOffset;
+        dailyBasisDebit = amount - dailyOffset;
+    }
+
+    function _resetRedemptionCapsForEmptySupply() private {
+        _weeklyRedemptionWindowStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
+        _dailyRedemptionWindowStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
+        _weeklyRedemptionUsed = 0;
+        _dailyRedemptionUsed = 0;
+        _windowStartSupply = 0;
+        _dailyRedemptionWindowStartSupply = 0;
+        _lastActiveSupply = 0;
+        RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        buffers.weeklyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.weeklyMintAmount = 0;
+        buffers.dailyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
+        buffers.dailyMintAmount = 0;
+    }
+
+    function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {
+        if (block.timestamp < storedStart + window) return storedStart;
+        uint256 elapsed = (block.timestamp - storedStart) / window;
+        return storedStart + elapsed * window;
+    }
+
     function _enforceDeploymentBuffer(uint256 additionalDeployment) internal view {
         if (_deploymentBufferBps == 0) return;
         if (address(_vaultRegistry) == address(0)) revert VaultRegistryRequired();
@@ -1053,74 +1175,11 @@ contract RISKUSDVaultModule is
     }
 
     function _activeRegisteredTierAssets() internal view returns (uint256 assets) {
-        (bool usedActivePagination, uint256 activeAssets) = _activeRegisteredTierAssetsFromActivePages();
-        if (usedActivePagination) return activeAssets;
-
-        return _activeRegisteredTierAssetsFromHistoricalPages();
-    }
-
-    function _activeRegisteredTierAssetsFromActivePages()
-        internal
-        view
-        returns (bool usedActivePagination, uint256 assets)
-    {
-        uint256 offset = 0;
-        uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
-        while (true) {
-            (bool ok, bytes memory data) = address(_vaultRegistry)
-                .staticcall(abi.encodeWithSelector(GET_ACTIVE_VAULTS_PAGE_SELECTOR, offset, pageLimit));
-            if (!ok) return (false, 0);
-
-            usedActivePagination = true;
-            (uint256[] memory vaultIds, uint256 nextOffset, uint256 total) =
-                abi.decode(data, (uint256[], uint256, uint256));
-            if (vaultIds.length == 0) break;
-            for (uint256 i; i < vaultIds.length;) {
-                assets += _activeVaultTierAssets(vaultIds[i]);
-                unchecked {
-                    ++i;
-                }
-            }
-            if (nextOffset >= total || nextOffset <= offset) break;
-            offset = nextOffset;
-        }
-    }
-
-    function _activeRegisteredTierAssetsFromHistoricalPages() internal view returns (uint256 assets) {
-        uint256 offset = 0;
-        uint256 pageLimit = DEPLOYMENT_BUFFER_SCAN_LIMIT;
-        while (true) {
-            try _vaultRegistry.getVaultsPage(offset, pageLimit) returns (
-                uint256[] memory vaultIds, uint256 nextOffset, uint256 total
-            ) {
-                if (vaultIds.length == 0) break;
-                for (uint256 i; i < vaultIds.length;) {
-                    assets += _activeVaultTierAssets(vaultIds[i]);
-                    unchecked {
-                        ++i;
-                    }
-                }
-                if (nextOffset >= total || nextOffset <= offset) break;
-                offset = nextOffset;
-            } catch {
-                revert DeploymentBufferEnumerationFailed(address(_vaultRegistry));
-            }
-        }
-    }
-
-    function _activeVaultTierAssets(uint256 vaultId) internal view returns (uint256 assets) {
-        VaultConfig memory vc = _vaultRegistry.getVault(vaultId);
-        if (vc.status == VaultStatus.Active) {
-            for (uint256 j; j < 4;) {
-                address tierVault = vc.tierVaults[j];
-                if (tierVault != address(0)) {
-                    assets += IERC4626TotalAssets(tierVault).totalAssets();
-                }
-                unchecked {
-                    ++j;
-                }
-            }
-        }
+        address registry = address(_vaultRegistry);
+        (bool ok, bytes memory data) =
+            registry.staticcall(abi.encodeWithSelector(IVaultRegistry.activeRegisteredTierAssets.selector));
+        if (!ok || data.length != 32) revert DeploymentBufferEnumerationFailed(registry);
+        assets = abi.decode(data, (uint256));
     }
 
     function _assertSolvency() internal {

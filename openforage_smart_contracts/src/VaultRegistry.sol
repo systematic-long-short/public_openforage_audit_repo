@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
+import "./interfaces/IAllowlist.sol";
 import "./interfaces/IVaultRegistry.sol";
 
 /// @dev OF-14-001: Minimal interface for RISKUSDVault lossPending query in startWindDown.
@@ -18,6 +19,12 @@ interface IRISKUSDVaultLossQuery {
 interface ITierVaultAccountingQuery {
     function totalSupply() external view returns (uint256);
     function totalAssets() external view returns (uint256);
+    function legitimateAssets() external view returns (uint256);
+    function yieldSource() external view returns (address);
+}
+
+interface ITierVaultYieldSourceRoute {
+    function vaultRegistry() external view returns (address);
 }
 
 /// @title VaultRegistry — Central on-chain registry of all strategy vaults
@@ -67,6 +74,15 @@ contract VaultRegistry is
     error Deprecated(); // OF-15-004: dead code marker
     error InvalidRISKUSDVaultInterface(address target);
     error ResidualTierVaultAssets(address tierVault, uint256 assets);
+    error TierVaultProbeFailed(uint8 tier, address tierVault, bytes4 selector);
+    error TierVaultRegistryRouteMismatch(address tierVault, address yieldSource, address registry);
+    error TierVaultSystemCallerRequired(address tierVault, address allowlist);
+    error TierVaultRegistrationInvariant(address tierVault, uint256 expectedVaultId, uint256 actualVaultId);
+    error TierVaultAggregateInvariant(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket);
+    error VaultRegistryFreshDeploymentRequired(uint8 layoutVersion);
+    error FreshInitializationOnExistingState(
+        uint8 layoutVersion, uint256 nextVaultId, uint256 vaultCount, uint256 activeVaultCount, address currentOwner
+    );
 
     // ── Events ──
     event VaultAdded(uint256 indexed vaultId, string name, string abbreviation);
@@ -77,11 +93,21 @@ contract VaultRegistry is
     event YieldSplitsUpdated(uint256 indexed vaultId);
     event AbbreviationReleased(uint256 indexed vaultId, string abbreviation);
     event TierVaultsReleased(uint256 indexed vaultId);
+    event TierVaultReleaseDeferred(
+        uint256 indexed vaultId,
+        uint8 indexed tier,
+        address indexed tierVault,
+        uint256 supply,
+        uint256 totalAssets,
+        uint8 blockingTier
+    );
     event YieldSplitsProposed(uint256 indexed vaultId); // OF-13-010
     event CapacityCapProposed(uint256 indexed vaultId, uint256 newCap); // OF-13-028
     event RISKUSDVaultProposed(address indexed current, address indexed pending); // OF-15-004
     event RISKUSDVaultUpdated(address indexed oldVault, address indexed newVault); // OF-15-004
-    event LossResolutionBlockMigrated(uint256 oldValue, uint256 newValue);
+    event TierVaultAssetsUpdated(
+        address indexed tierVault, uint256 indexed vaultId, uint256 previousF, uint256 currentF
+    );
 
     // ── Storage ──
     uint256 private _nextVaultId;
@@ -93,7 +119,6 @@ contract VaultRegistry is
     mapping(address => bool) private _tierVaultUsed;
 
     /// @dev OF-14-001: RISKUSDVault reference for lossPending query in startWindDown.
-    /// Set via reinitializer(2) at upgrade time.
     /// INVARIANT: Must point to the canonical RISKUSDVault used by target treasury and custodian accounting.
     address private _riskusdVault;
 
@@ -103,6 +128,7 @@ contract VaultRegistry is
         uint16[4] fundingBps;
         uint256 proposedAt;
     }
+
     mapping(uint256 => PendingYieldSplits) private _pendingYieldSplits;
 
     /// @dev OF-13-028: Pending capacity cap for propose/finalize flow
@@ -110,6 +136,7 @@ contract VaultRegistry is
         uint256 capacityCap;
         uint256 proposedAt;
     }
+
     mapping(uint256 => PendingCapacityCap) private _pendingCapacityCap;
 
     /// @dev OF-15-004: Pending RISKUSDVault address for two-step setter.
@@ -128,7 +155,30 @@ contract VaultRegistry is
     uint256[] private _activeVaultIds;
     mapping(uint256 => uint256) private _activeVaultIndexPlusOne;
 
-    uint256[42] private __gap; // 44 - active index slots
+    struct RegisteredTierVaultAssets {
+        uint256 vaultId;
+        uint256 fundedAssets;
+    }
+
+    mapping(address => RegisteredTierVaultAssets) private _registeredTierVaultAssets;
+    uint256 private _activeRegisteredTierAssets;
+    uint256 private _inactiveRegisteredTierAssets;
+
+    struct TierVaultCacheMigration {
+        uint8 phase;
+        uint8 version;
+        uint256 snapshotVaultCount;
+        uint256 clearCursor;
+        uint256 rebuildCursor;
+        uint256 activeAssets;
+        uint256 inactiveAssets;
+        uint256 activeVaultCount;
+    }
+
+    TierVaultCacheMigration private _tierVaultCacheMigration;
+    uint8 private _freshLayoutVersion;
+    uint256[31] private __gap;
+    uint8 private constant _FRESH_LAYOUT_VERSION = 1;
 
     // ── Constructor (disable initializers on implementation) ──
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -136,19 +186,54 @@ contract VaultRegistry is
         _disableInitializers();
     }
 
+    modifier freshOnly() {
+        _requireFreshLayout();
+        _;
+    }
+
     // ── Initializer ──
-    function initialize(address initialOwner_) external initializer {
+    function initialize(address initialOwner_, address riskusdVault_) external initializer {
+        _requireFreshInitializationState();
         if (initialOwner_ == address(0)) revert ZeroAddress();
+        if (riskusdVault_ == address(0)) revert ZeroAddress();
 
         __Ownable_init(initialOwner_);
         __Ownable2Step_init();
         // OF-I02: UUPSUpgradeable has no init in OZ 5.x (stateless)
 
         _nextVaultId = 1;
+        _riskusdVault = riskusdVault_;
+        _freshLayoutVersion = _FRESH_LAYOUT_VERSION;
+        emit RISKUSDVaultUpdated(address(0), riskusdVault_);
     }
 
-    function setAllowlist(address allowlist_) external onlyOwner {
-        _setAllowlist(allowlist_);
+    function setAllowlist(address allowlist_) external freshOnly onlyOwner {
+        _transitionAllowlist(allowlist_);
+    }
+
+    function _requireFreshInitializationState() private view {
+        address currentOwner = owner();
+        if (
+            address(this).code.length != 0 || _freshLayoutVersion != 0 || _nextVaultId != 0
+                || _deprecated_vaultCount != 0 || _allVaultIds.length != 0 || _activeVaultIds.length != 0
+                || _riskusdVault != address(0) || _pendingRISKUSDVault != address(0) || _pendingRISKUSDVaultTimestamp != 0
+                || _lastLossResolutionBlock != 0 || allowlist() != address(0) || _activeRegisteredTierAssets != 0
+                || _inactiveRegisteredTierAssets != 0 || _tierVaultCacheMigration.phase != 0
+                || _tierVaultCacheMigration.version != 0 || _tierVaultCacheMigration.snapshotVaultCount != 0
+                || _tierVaultCacheMigration.clearCursor != 0 || _tierVaultCacheMigration.rebuildCursor != 0
+                || _tierVaultCacheMigration.activeAssets != 0 || _tierVaultCacheMigration.inactiveAssets != 0
+                || _tierVaultCacheMigration.activeVaultCount != 0 || currentOwner != address(0)
+        ) {
+            revert FreshInitializationOnExistingState(
+                _freshLayoutVersion, _nextVaultId, _allVaultIds.length, _activeVaultIds.length, currentOwner
+            );
+        }
+    }
+
+    function _requireFreshLayout() private view {
+        if (_freshLayoutVersion != _FRESH_LAYOUT_VERSION) {
+            revert VaultRegistryFreshDeploymentRequired(_freshLayoutVersion);
+        }
     }
 
     // ── Vault Registration ──
@@ -161,70 +246,85 @@ contract VaultRegistry is
         uint256[4] calldata lockupDurations_,
         uint16[4] calldata yieldSplitsBps_,
         uint16[4] calldata fundingBps_
-    ) external onlyAllowedCaller onlyOwner returns (uint256) {
-        if (bytes(name_).length == 0) revert EmptyName();
-        if (bytes(abbreviation_).length == 0) revert EmptyAbbreviation();
+    ) external freshOnly onlyAllowedCaller onlyOwner returns (uint256) {
+        uint256 vaultId;
+        {
+            if (bytes(name_).length == 0) revert EmptyName();
+            if (bytes(abbreviation_).length == 0) revert EmptyAbbreviation();
 
-        // OF-003: Validate tier vault addresses are non-zero, intra-vault unique,
-        // AND globally unique across all registered vaults.
-        for (uint256 i; i < 4;) {
-            if (tierVaults_[i] == address(0)) revert ZeroAddress();
-            if (_tierVaultUsed[tierVaults_[i]]) revert DuplicateTierVault();
-            unchecked {
-                ++i;
-            }
-        }
-        // PHASE2-021: Ensure all tier vault addresses are unique within this vault
-        for (uint256 i; i < 4;) {
-            for (uint256 j = i + 1; j < 4;) {
-                if (tierVaults_[i] == tierVaults_[j]) revert DuplicateTierVault();
+            // OF-003: Validate tier vault addresses are non-zero, intra-vault unique,
+            // AND globally unique across all registered vaults.
+            for (uint256 i; i < 4;) {
+                if (tierVaults_[i] == address(0)) revert ZeroAddress();
+                if (_tierVaultUsed[tierVaults_[i]]) revert DuplicateTierVault();
                 unchecked {
-                    ++j;
+                    ++i;
                 }
             }
-            unchecked {
-                ++i;
+            // PHASE2-021: Ensure all tier vault addresses are unique within this vault
+            for (uint256 i; i < 4;) {
+                for (uint256 j = i + 1; j < 4;) {
+                    if (tierVaults_[i] == tierVaults_[j]) revert DuplicateTierVault();
+                    unchecked {
+                        ++j;
+                    }
+                }
+                unchecked {
+                    ++i;
+                }
             }
-        }
-        if (stakingQueue_ == address(0)) revert ZeroAddress();
-        if (capacityCap_ == 0) revert ZeroCapacity();
-        if (lockupDurations_[0] != 0) revert NonZeroTier0Lockup();
+            if (stakingQueue_ == address(0)) revert ZeroAddress();
+            if (capacityCap_ == 0) revert ZeroCapacity();
+            if (lockupDurations_[0] != 0) revert NonZeroTier0Lockup();
 
-        for (uint256 i; i < 4;) {
-            if (yieldSplitsBps_[i] == 0) revert ZeroYieldSplit(uint8(i));
-            if (uint256(yieldSplitsBps_[i]) + uint256(fundingBps_[i]) > 10000) revert InvalidSplitTotal(uint8(i));
-            unchecked {
-                ++i;
+            for (uint256 i; i < 4;) {
+                if (yieldSplitsBps_[i] == 0) revert ZeroYieldSplit(uint8(i));
+                if (uint256(yieldSplitsBps_[i]) + uint256(fundingBps_[i]) > 10000) revert InvalidSplitTotal(uint8(i));
+                unchecked {
+                    ++i;
+                }
             }
-        }
 
-        bytes32 abbrHash = keccak256(bytes(abbreviation_));
-        if (_abbreviationToVaultId[abbrHash] != 0) revert DuplicateAbbreviation(abbreviation_);
+            bytes32 abbrHash = keccak256(bytes(abbreviation_));
+            if (_abbreviationToVaultId[abbrHash] != 0) revert DuplicateAbbreviation(abbreviation_);
 
-        uint256 vaultId = _nextVaultId;
+            uint256[4] memory tierAssets;
+            for (uint8 i; i < 4; ++i) {
+                tierAssets[i] = _validateAndReadTierVault(tierVaults_[i], i);
+            }
 
-        VaultConfig storage v = _vaults[vaultId];
-        v.vaultId = vaultId;
-        v.name = name_;
-        v.abbreviation = abbreviation_;
-        v.tierVaults = tierVaults_;
-        v.stakingQueue = stakingQueue_;
-        v.capacityCap = capacityCap_;
-        v.lockupDurations = lockupDurations_;
-        v.yieldSplitsBps = yieldSplitsBps_;
-        v.fundingBps = fundingBps_;
-        v.status = VaultStatus.Active;
+            vaultId = _nextVaultId;
 
-        _abbreviationToVaultId[abbrHash] = vaultId;
-        _allVaultIds.push(vaultId);
-        _addActiveVaultId(vaultId);
-        _nextVaultId = vaultId + 1;
+            VaultConfig storage v = _vaults[vaultId];
+            v.vaultId = vaultId;
+            v.name = name_;
+            v.abbreviation = abbreviation_;
+            v.tierVaults = tierVaults_;
+            v.stakingQueue = stakingQueue_;
+            v.capacityCap = capacityCap_;
+            v.lockupDurations = lockupDurations_;
+            v.yieldSplitsBps = yieldSplitsBps_;
+            v.fundingBps = fundingBps_;
+            v.status = VaultStatus.Active;
 
-        // OF-003: Mark all tier vault addresses as used globally
-        for (uint256 i; i < 4;) {
-            _tierVaultUsed[tierVaults_[i]] = true;
-            unchecked {
-                ++i;
+            _abbreviationToVaultId[abbrHash] = vaultId;
+            _allVaultIds.push(vaultId);
+            _addActiveVaultId(vaultId);
+            _nextVaultId = vaultId + 1;
+
+            // OF-003: Mark all tier vault addresses as used globally
+            for (uint256 i; i < 4;) {
+                address tierVault = tierVaults_[i];
+                uint256 fundedAssets = tierAssets[i];
+                _tierVaultUsed[tierVault] = true;
+                _registeredTierVaultAssets[tierVault] =
+                    RegisteredTierVaultAssets({vaultId: vaultId, fundedAssets: fundedAssets});
+                _activeRegisteredTierAssets =
+                    _addTierAssets(tierVault, _activeRegisteredTierAssets, fundedAssets, uint8(VaultStatus.Active));
+                if (fundedAssets != 0) emit TierVaultAssetsUpdated(tierVault, vaultId, 0, fundedAssets);
+                unchecked {
+                    ++i;
+                }
             }
         }
 
@@ -234,11 +334,12 @@ contract VaultRegistry is
     }
 
     // ── Vault Lifecycle ──
-    function pauseVault(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function pauseVault(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
 
+        _moveVaultTierAssets(vaultId, vault, false, VaultStatus.Paused);
         vault.status = VaultStatus.Paused;
         _removeActiveVaultId(vaultId);
 
@@ -246,10 +347,11 @@ contract VaultRegistry is
     }
 
     // OF-L01: Resume a paused vault
-    function resumeVault(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function resumeVault(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Paused) revert VaultNotPaused();
+        _moveVaultTierAssets(vaultId, vault, true, VaultStatus.Active);
         vault.status = VaultStatus.Active;
         _addActiveVaultId(vaultId);
         emit VaultResumed(vaultId);
@@ -269,7 +371,7 @@ contract VaultRegistry is
     /// @dev OF-16-002: Added loss resolution cooldown. startWindDown reverts if a loss was
     /// resolved within LOSS_COOLDOWN_BLOCKS to prevent same-block TOCTOU race between
     /// lossPending check and status transition.
-    function startWindDown(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function startWindDown(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status == VaultStatus.WindingDown) revert VaultAlreadyWindingDown();
@@ -288,6 +390,7 @@ contract VaultRegistry is
         }
 
         if (vault.status == VaultStatus.Active) {
+            _moveVaultTierAssets(vaultId, vault, false, VaultStatus.WindingDown);
             _removeActiveVaultId(vaultId);
         }
         vault.status = VaultStatus.WindingDown;
@@ -295,7 +398,7 @@ contract VaultRegistry is
         emit VaultWindingDown(vaultId);
     }
 
-    function releaseAbbreviation(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function releaseAbbreviation(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
@@ -312,37 +415,54 @@ contract VaultRegistry is
     /// @notice Release only empty tier vault addresses for a winding-down vault.
     /// @dev Tier vaults with live share supply remain globally reserved to prevent
     /// legacy holder state from being reused under a new vault identity.
-    function releaseTierVaults(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function releaseTierVaults(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.WindingDown) revert VaultNotWindingDown();
 
-        address[4] memory tierVaults = vault.tierVaults;
-        bool anyUsed = false;
-        for (uint256 i; i < 4;) {
-            if (_tierVaultUsed[tierVaults[i]] && _tierVaultIsReleasable(tierVaults[i])) {
-                _tierVaultUsed[tierVaults[i]] = false;
-                vault.tierVaults[i] = address(0);
-                anyUsed = true;
-            }
-            unchecked {
-                ++i;
+        uint256[4] memory supplies;
+        uint256[4] memory assets;
+        _preflightTierVaults(vault.tierVaults, supplies, assets);
+        bool higherTierBlocked;
+        uint8 blockingTier;
+        bool released;
+        for (uint8 i = 1; i < 4; ++i) {
+            address tierVault = vault.tierVaults[i];
+            if (tierVault == address(0)) continue;
+            if (supplies[i] == 0 && assets[i] == 0) {
+                _releaseTierVault(vaultId, vault, i, tierVault);
+                released = true;
+            } else {
+                if (!higherTierBlocked) blockingTier = i;
+                higherTierBlocked = true;
+                emit TierVaultReleaseDeferred(vaultId, i, tierVault, supplies[i], assets[i], i);
             }
         }
-        if (!anyUsed) revert TierVaultsNotUsed();
 
-        emit TierVaultsReleased(vaultId);
+        address tierZero = vault.tierVaults[0];
+        if (tierZero != address(0)) {
+            if (supplies[0] == 0 && assets[0] == 0 && !higherTierBlocked) {
+                _releaseTierVault(vaultId, vault, 0, tierZero);
+                released = true;
+            } else {
+                uint8 blocker = supplies[0] != 0 || assets[0] != 0 ? 0 : blockingTier;
+                emit TierVaultReleaseDeferred(vaultId, 0, tierZero, supplies[0], assets[0], blocker);
+            }
+        }
+
+        if (released) emit TierVaultsReleased(vaultId);
     }
 
     // ── Vault Configuration Updates ──
     /// @notice OF-15-006: setCapacityCap now delegates to proposeCapacityCap (no instant effect).
-    function setCapacityCap(uint256 vaultId, uint256 capacityCap_) external onlyAllowedCaller onlyOwner {
+    function setCapacityCap(uint256 vaultId, uint256 capacityCap_) external freshOnly onlyAllowedCaller onlyOwner {
         proposeCapacityCap(vaultId, capacityCap_);
     }
 
     /// @notice OF-15-006: setYieldSplits now delegates to proposeYieldSplits (no instant effect).
     function setYieldSplits(uint256 vaultId, uint16[4] calldata yieldSplitsBps_, uint16[4] calldata fundingBps_)
         external
+        freshOnly
         onlyAllowedCaller
         onlyOwner
     {
@@ -353,6 +473,7 @@ contract VaultRegistry is
     /// @dev OF-16-009: Require Active vault for defense-in-depth (WindingDown config has no effect).
     function proposeYieldSplits(uint256 vaultId, uint16[4] calldata yieldSplitsBps_, uint16[4] calldata fundingBps_)
         public
+        freshOnly
         onlyAllowedCaller
         onlyOwner
     {
@@ -376,7 +497,7 @@ contract VaultRegistry is
 
     /// @notice OF-13-010: Finalize proposed yield splits after FINALIZE_DELAY.
     /// @dev OF-21-048: Re-validate vault status at finalize time.
-    function finalizeYieldSplits(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function finalizeYieldSplits(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         PendingYieldSplits storage pending = _pendingYieldSplits[vaultId];
         if (pending.proposedAt == 0) revert NoPendingYieldSplits();
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -395,7 +516,7 @@ contract VaultRegistry is
 
     /// @notice OF-13-028: Propose a new capacity cap with FINALIZE_DELAY.
     /// @dev OF-16-009: Require Active vault for defense-in-depth.
-    function proposeCapacityCap(uint256 vaultId, uint256 capacityCap_) public onlyAllowedCaller onlyOwner {
+    function proposeCapacityCap(uint256 vaultId, uint256 capacityCap_) public freshOnly onlyAllowedCaller onlyOwner {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         if (vault.status != VaultStatus.Active) revert VaultNotActive();
@@ -408,7 +529,7 @@ contract VaultRegistry is
 
     /// @notice OF-13-028: Finalize proposed capacity cap after FINALIZE_DELAY.
     /// @dev OF-21-048: Re-validate vault status at finalize time.
-    function finalizeCapacityCap(uint256 vaultId) external onlyAllowedCaller onlyOwner {
+    function finalizeCapacityCap(uint256 vaultId) external freshOnly onlyAllowedCaller onlyOwner {
         PendingCapacityCap storage pending = _pendingCapacityCap[vaultId];
         if (pending.proposedAt == 0) revert NoPendingCapacityCap();
         if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
@@ -426,19 +547,20 @@ contract VaultRegistry is
     }
 
     // ── View functions ──
-    function getVault(uint256 vaultId) external view returns (VaultConfig memory) {
+    function getVault(uint256 vaultId) external view freshOnly returns (VaultConfig memory) {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) revert InvalidVaultId();
         return vault;
     }
 
-    function getActiveVaults() external view returns (uint256[] memory) {
+    function getActiveVaults() external view freshOnly returns (uint256[] memory) {
         return _activeVaultIds;
     }
 
     function getActiveVaultsPage(uint256 offset, uint256 limit)
         external
         view
+        freshOnly
         returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
     {
         total = _activeVaultIds.length;
@@ -461,13 +583,14 @@ contract VaultRegistry is
         nextOffset = end;
     }
 
-    function getAllVaults() external view returns (uint256[] memory) {
+    function getAllVaults() external view freshOnly returns (uint256[] memory) {
         return _allVaultIds;
     }
 
     function getVaultsPage(uint256 offset, uint256 limit)
         external
         view
+        freshOnly
         returns (uint256[] memory ids, uint256 nextOffset, uint256 total)
     {
         total = _allVaultIds.length;
@@ -490,18 +613,22 @@ contract VaultRegistry is
         nextOffset = end;
     }
 
-    function vaultCount() external view returns (uint256) {
+    function activeRegisteredTierAssets() external view freshOnly returns (uint256) {
+        return _activeRegisteredTierAssets;
+    }
+
+    function vaultCount() external view freshOnly returns (uint256) {
         return _allVaultIds.length;
     }
 
-    function getVaultByAbbreviation(string calldata abbreviation_) external view returns (uint256) {
+    function getVaultByAbbreviation(string calldata abbreviation_) external view freshOnly returns (uint256) {
         uint256 vaultId = _abbreviationToVaultId[keccak256(bytes(abbreviation_))];
         if (vaultId == 0) revert VaultNotFound();
         return vaultId;
     }
 
     // ── Deposit Status ──
-    function isDepositOpen(uint256 vaultId) external view returns (bool) {
+    function isDepositOpen(uint256 vaultId) external view freshOnly returns (bool) {
         VaultConfig storage vault = _vaults[vaultId];
         if (vault.vaultId == 0) return false;
         return vault.status == VaultStatus.Active;
@@ -509,56 +636,8 @@ contract VaultRegistry is
 
     // ── RISKUSDVault Wiring (OF-15-004 + CODEX-001) ──
 
-    /// @notice OF-15-004: Wire _riskusdVault on deployed proxies. Called once after UUPS upgrade.
-    /// @dev CODEX-R1: onlyOwner prevents front-running if upgrade and init are not atomic.
-    function initializeV2(address riskusdVault_) external onlyAllowedCaller onlyOwner reinitializer(2) {
-        if (riskusdVault_ == address(0)) revert ZeroAddress();
-        _riskusdVault = riskusdVault_;
-        emit RISKUSDVaultUpdated(address(0), riskusdVault_);
-    }
-
-    /// @notice Migrates the retired loss-resolution timestamp slot to block-number semantics.
-    /// @dev Existing upgraded proxies may hold a Unix timestamp in this slot from older code.
-    /// Such values are greater than block.number and would keep wind-down cooldown active
-    /// indefinitely. Fresh deployments and already-migrated block values are left unchanged.
-    function initializeV3() external onlyAllowedCaller onlyOwner reinitializer(3) {
-        uint256 oldValue = _lastLossResolutionBlock;
-        if (oldValue > block.number) {
-            _lastLossResolutionBlock = 0;
-            emit LossResolutionBlockMigrated(oldValue, 0);
-        }
-    }
-
-    /// @notice Rebuilds the active-vault pagination index for upgraded registries.
-    /// @dev Fresh deployments maintain the index from add/pause/resume/wind-down.
-    function initializeV4() external onlyAllowedCaller onlyOwner reinitializer(4) {
-        _rebuildActiveVaultIndex();
-    }
-
-    function _rebuildActiveVaultIndex() internal {
-        uint256 activeLen = _activeVaultIds.length;
-        for (uint256 i; i < activeLen;) {
-            delete _activeVaultIndexPlusOne[_activeVaultIds[i]];
-            unchecked {
-                ++i;
-            }
-        }
-        delete _activeVaultIds;
-
-        uint256 len = _allVaultIds.length;
-        for (uint256 i; i < len;) {
-            uint256 vaultId = _allVaultIds[i];
-            if (_vaults[vaultId].status == VaultStatus.Active) {
-                _addActiveVaultId(vaultId);
-            }
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     /// @notice OF-15-004: Propose a new RISKUSDVault address. Takes effect after FINALIZE_DELAY.
-    function proposeRISKUSDVault(address newVault_) external onlyAllowedCaller onlyOwner {
+    function proposeRISKUSDVault(address newVault_) external freshOnly onlyAllowedCaller onlyOwner {
         if (newVault_ == address(0)) revert ZeroAddress();
         _pendingRISKUSDVault = newVault_;
         _pendingRISKUSDVaultTimestamp = uint48(block.timestamp);
@@ -567,7 +646,7 @@ contract VaultRegistry is
 
     /// @notice OF-15-004: Finalize the proposed RISKUSDVault after FINALIZE_DELAY.
     /// @dev OF-21-061: Verify reciprocal wiring — new vault must reference this registry.
-    function finalizeRISKUSDVault() external onlyAllowedCaller onlyOwner {
+    function finalizeRISKUSDVault() external freshOnly onlyAllowedCaller onlyOwner {
         if (_pendingRISKUSDVault == address(0)) revert NoPendingRISKUSDVault();
         if (block.timestamp < uint256(_pendingRISKUSDVaultTimestamp) + _finalizeDelay()) {
             revert FinalizeDelayNotElapsed();
@@ -588,31 +667,60 @@ contract VaultRegistry is
     }
 
     /// @notice OF-15-004: Clear a pending RISKUSDVault proposal without finalizing.
-    function clearPendingRISKUSDVault() external onlyAllowedCaller onlyOwner {
+    function clearPendingRISKUSDVault() external freshOnly onlyAllowedCaller onlyOwner {
         _pendingRISKUSDVault = address(0);
         _pendingRISKUSDVaultTimestamp = 0;
     }
 
     /// @notice OF-16-002: Called by RISKUSDVault after loss is resolved.
     /// Records timestamp to enforce cooldown before wind-down.
-    function notifyLossResolved() external onlyAllowedCaller {
+    function notifyLossResolved() external freshOnly onlyAllowedCaller {
         if (msg.sender != _riskusdVault) revert NotRISKUSDVault(); // OF-21-002: dedicated auth error
         _lastLossResolutionBlock = block.number;
     }
 
+    function onTierVaultAssetsChanged() external freshOnly onlyAllowedCaller {
+        RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[msg.sender];
+        uint256 vaultId = cached.vaultId;
+        if (vaultId == 0 || !_tierVaultUsed[msg.sender]) {
+            revert TierVaultRegistrationInvariant(msg.sender, 0, vaultId);
+        }
+        VaultConfig storage vault = _vaults[vaultId];
+        if (vault.vaultId != vaultId) {
+            revert TierVaultRegistrationInvariant(msg.sender, vaultId, vault.vaultId);
+        }
+        uint8 tier = _registeredTierIndex(vault, msg.sender, vaultId);
+        _requireTierVaultRegistryRoute(msg.sender, tier);
+        uint256 previousF = cached.fundedAssets;
+        uint256 currentF = _readTierVaultFundedAssets(msg.sender, tier);
+        if (currentF == previousF) return;
+        if (vault.status == VaultStatus.Active) {
+            _activeRegisteredTierAssets = _replaceTierAssets(
+                msg.sender, _activeRegisteredTierAssets, previousF, currentF, uint8(VaultStatus.Active)
+            );
+        } else if (vault.status == VaultStatus.Paused || vault.status == VaultStatus.WindingDown) {
+            _inactiveRegisteredTierAssets =
+                _replaceTierAssets(msg.sender, _inactiveRegisteredTierAssets, previousF, currentF, uint8(vault.status));
+        } else {
+            revert TierVaultAggregateInvariant(msg.sender, uint256(vault.status), currentF, uint8(vault.status));
+        }
+        cached.fundedAssets = currentF;
+        emit TierVaultAssetsUpdated(msg.sender, vaultId, previousF, currentF);
+    }
+
     /// @notice View the current RISKUSDVault address.
-    function riskusdVault() external view returns (address) {
+    function riskusdVault() external view freshOnly returns (address) {
         return _riskusdVault;
     }
 
-    function pendingRISKUSDVault() external view returns (address) {
+    function pendingRISKUSDVault() external view freshOnly returns (address) {
         return _pendingRISKUSDVault;
     }
 
     /// @notice OF-16-018: Cross-contract reference consistency check.
     /// Returns true only if VaultRegistry→RISKUSDVault and RISKUSDVault→VaultRegistry
     /// point to each other. Fails silently (returns false) on any call failure.
-    function verifyWiring() external view returns (bool) {
+    function verifyWiring() external view freshOnly returns (bool) {
         if (_riskusdVault == address(0)) return false;
         (bool ok, bytes memory data) = _riskusdVault.staticcall(abi.encodeWithSignature("vaultRegistry()"));
         if (!ok || data.length < 32) return false;
@@ -629,24 +737,183 @@ contract VaultRegistry is
         if (!ok || data.length < 32) revert InvalidRISKUSDVaultInterface(vault_);
     }
 
-    function _tierVaultIsReleasable(address tierVault) private view returns (bool) {
-        if (tierVault == address(0)) return false;
-        try ITierVaultAccountingQuery(tierVault).totalSupply() returns (uint256 supply) {
-            if (supply != 0) return false;
-        } catch {
-            return false;
+    function _preflightTierVaults(address[4] storage tierVaults, uint256[4] memory supplies, uint256[4] memory assets)
+        private
+        view
+    {
+        for (uint8 i; i < 4; ++i) {
+            address tierVault = tierVaults[i];
+            if (tierVault == address(0)) continue;
+            supplies[i] = _readTierVaultValue(tierVault, i, ITierVaultAccountingQuery.totalSupply.selector);
+            assets[i] = _readTierVaultValue(tierVault, i, ITierVaultAccountingQuery.totalAssets.selector);
         }
-        try ITierVaultAccountingQuery(tierVault).totalAssets() returns (uint256 assets) {
-            if (assets != 0) revert ResidualTierVaultAssets(tierVault, assets);
-        } catch (bytes memory reason) {
-            if (reason.length != 0) {
-                assembly {
-                    revert(add(reason, 32), mload(reason))
-                }
+    }
+
+    function _readTierVaultValue(address tierVault, uint8 tier, bytes4 selector) private view returns (uint256 value) {
+        if (tierVault.code.length == 0) revert TierVaultProbeFailed(tier, tierVault, selector);
+        (bool success, bytes memory data) = tierVault.staticcall(abi.encodeWithSelector(selector));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, tierVault, selector);
+        value = abi.decode(data, (uint256));
+    }
+
+    function _releaseTierVault(uint256 vaultId, VaultConfig storage vault, uint8 tier, address tierVault) private {
+        RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[tierVault];
+        if (cached.vaultId != vaultId) {
+            revert TierVaultRegistrationInvariant(tierVault, vaultId, cached.vaultId);
+        }
+        _inactiveRegisteredTierAssets = _subtractTierAssets(
+            tierVault, _inactiveRegisteredTierAssets, cached.fundedAssets, uint8(VaultStatus.WindingDown)
+        );
+        delete _registeredTierVaultAssets[tierVault];
+        _tierVaultUsed[tierVault] = false;
+        vault.tierVaults[tier] = address(0);
+    }
+
+    function _validateAndReadTierVault(address tierVault, uint8 tier) private view returns (uint256 fundedAssets) {
+        address source = _readRouteAddress(
+            tierVault,
+            tier,
+            tierVault,
+            ITierVaultAccountingQuery.yieldSource.selector,
+            abi.encodeWithSelector(ITierVaultAccountingQuery.yieldSource.selector)
+        );
+        if (source.code.length == 0) revert TierVaultRegistryRouteMismatch(tierVault, source, address(0));
+        address registry = _readRouteAddress(
+            source,
+            tier,
+            tierVault,
+            ITierVaultYieldSourceRoute.vaultRegistry.selector,
+            abi.encodeWithSelector(ITierVaultYieldSourceRoute.vaultRegistry.selector)
+        );
+        if (registry != address(this)) revert TierVaultRegistryRouteMismatch(tierVault, source, registry);
+        address currentAllowlist = allowlist();
+        if (!_isSystemTierCaller(currentAllowlist, tierVault, tier)) {
+            revert TierVaultSystemCallerRequired(tierVault, currentAllowlist);
+        }
+        fundedAssets = _readTierVaultFundedAssets(tierVault, tier);
+    }
+
+    function _readRouteAddress(address target, uint8 tier, address tierVault, bytes4 selector, bytes memory callData)
+        private
+        view
+        returns (address value)
+    {
+        if (target.code.length == 0) revert TierVaultProbeFailed(tier, tierVault, selector);
+        (bool success, bytes memory data) = target.staticcall(callData);
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, tierVault, selector);
+        uint256 raw;
+        assembly ("memory-safe") {
+            raw := mload(add(data, 32))
+        }
+        if (raw > type(uint160).max) revert TierVaultProbeFailed(tier, tierVault, selector);
+        value = address(uint160(raw));
+    }
+
+    function _isSystemTierCaller(address currentAllowlist, address tierVault, uint8 tier) private view returns (bool) {
+        bytes4 selector = IAllowlist.isSystemAccount.selector;
+        if (currentAllowlist.code.length == 0) revert TierVaultProbeFailed(tier, currentAllowlist, selector);
+        (bool success, bytes memory data) = currentAllowlist.staticcall(abi.encodeWithSelector(selector, tierVault));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, currentAllowlist, selector);
+        uint256 value;
+        assembly ("memory-safe") {
+            value := mload(add(data, 32))
+        }
+        if (value > 1) revert TierVaultProbeFailed(tier, currentAllowlist, selector);
+        return value == 1;
+    }
+
+    function _requireTierVaultRegistryRoute(address tierVault, uint8 tier) private view {
+        address source = _readRouteAddress(
+            tierVault,
+            tier,
+            tierVault,
+            ITierVaultAccountingQuery.yieldSource.selector,
+            abi.encodeWithSelector(ITierVaultAccountingQuery.yieldSource.selector)
+        );
+        if (source.code.length == 0) revert TierVaultRegistryRouteMismatch(tierVault, source, address(0));
+        address registry = _readRouteAddress(
+            source,
+            tier,
+            tierVault,
+            ITierVaultYieldSourceRoute.vaultRegistry.selector,
+            abi.encodeWithSelector(ITierVaultYieldSourceRoute.vaultRegistry.selector)
+        );
+        if (registry != address(this)) revert TierVaultRegistryRouteMismatch(tierVault, source, registry);
+    }
+
+    function _readTierVaultFundedAssets(address tierVault, uint8 tier) private view returns (uint256 fundedAssets) {
+        fundedAssets = _readTierVaultValue(tierVault, tier, ITierVaultAccountingQuery.legitimateAssets.selector);
+    }
+
+    function _registeredTierIndex(VaultConfig storage vault, address tierVault, uint256 vaultId)
+        private
+        view
+        returns (uint8)
+    {
+        for (uint8 tier; tier < 4; ++tier) {
+            if (vault.tierVaults[tier] == tierVault) return tier;
+        }
+        revert TierVaultRegistrationInvariant(tierVault, vaultId, 0);
+    }
+
+    function _moveVaultTierAssets(
+        uint256 vaultId,
+        VaultConfig storage vault,
+        bool toActive,
+        VaultStatus destinationStatus
+    ) private {
+        for (uint8 tier; tier < 4; ++tier) {
+            address tierVault = vault.tierVaults[tier];
+            if (tierVault == address(0)) continue;
+            RegisteredTierVaultAssets storage cached = _registeredTierVaultAssets[tierVault];
+            if (cached.vaultId != vaultId) {
+                revert TierVaultRegistrationInvariant(tierVault, vaultId, cached.vaultId);
             }
-            return false;
+            if (toActive) {
+                _inactiveRegisteredTierAssets = _subtractTierAssets(
+                    tierVault, _inactiveRegisteredTierAssets, cached.fundedAssets, uint8(vault.status)
+                );
+                _activeRegisteredTierAssets = _addTierAssets(
+                    tierVault, _activeRegisteredTierAssets, cached.fundedAssets, uint8(VaultStatus.Active)
+                );
+            } else {
+                _activeRegisteredTierAssets = _subtractTierAssets(
+                    tierVault, _activeRegisteredTierAssets, cached.fundedAssets, uint8(VaultStatus.Active)
+                );
+                _inactiveRegisteredTierAssets = _addTierAssets(
+                    tierVault, _inactiveRegisteredTierAssets, cached.fundedAssets, uint8(destinationStatus)
+                );
+            }
         }
-        return true;
+    }
+
+    function _replaceTierAssets(address tierVault, uint256 aggregate, uint256 previousF, uint256 currentF, uint8 bucket)
+        private
+        pure
+        returns (uint256)
+    {
+        uint256 remaining = _subtractTierAssets(tierVault, aggregate, previousF, bucket);
+        return _addTierAssets(tierVault, remaining, currentF, bucket);
+    }
+
+    function _subtractTierAssets(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket)
+        private
+        pure
+        returns (uint256)
+    {
+        if (amount > aggregate) revert TierVaultAggregateInvariant(tierVault, aggregate, amount, bucket);
+        return aggregate - amount;
+    }
+
+    function _addTierAssets(address tierVault, uint256 aggregate, uint256 amount, uint8 bucket)
+        private
+        pure
+        returns (uint256)
+    {
+        if (amount > type(uint256).max - aggregate) {
+            revert TierVaultAggregateInvariant(tierVault, aggregate, amount, bucket);
+        }
+        return aggregate + amount;
     }
 
     function _addActiveVaultId(uint256 vaultId) private {
@@ -671,11 +938,11 @@ contract VaultRegistry is
     }
 
     // ── Ownership ──
-    function transferOwnership(address newOwner) public override onlyAllowedCaller onlyOwner {
+    function transferOwnership(address newOwner) public override freshOnly onlyAllowedCaller onlyOwner {
         super.transferOwnership(newOwner);
     }
 
-    function acceptOwnership() public override onlyAllowedCaller {
+    function acceptOwnership() public override freshOnly onlyAllowedCaller {
         super.acceptOwnership();
     }
 
@@ -684,11 +951,17 @@ contract VaultRegistry is
     }
 
     // ── UUPS ──
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {
+    function _authorizeUpgrade(address) internal override freshOnly onlyOwner {
         // OF-15-004: Clear pending RISKUSDVault proposal on upgrade to prevent stale proposals
         _pendingRISKUSDVault = address(0);
         _pendingRISKUSDVaultTimestamp = 0;

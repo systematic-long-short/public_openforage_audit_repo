@@ -40,10 +40,44 @@ abstract contract AllowlistGatedUpgradeable is Initializable {
 
     function _setAllowlist(address allowlist_) internal {
         if (allowlist_ == address(0) || allowlist_.code.length == 0) revert IAllowlist.AllowlistUnavailable();
-        (bool ok, bytes memory ret) =
-            allowlist_.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
+        (bool ok, bytes memory ret) = allowlist_.staticcall(abi.encodeCall(IAllowlist.isSystemAccount, (address(this))));
         if (!ok || ret.length != 32) revert IAllowlist.AllowlistUnavailable();
 
+        _writeAllowlist(allowlist_);
+    }
+
+    function _transitionAllowlist(address allowlist_) internal {
+        _validateAllowlistTransition(allowlist_);
+        _writeAllowlist(allowlist_);
+    }
+
+    function _validateAllowlistTransition(address allowlist_) internal view {
+        if (address(_getAllowlistGatedStorage().allowlist) != address(0)) _checkAllowedCaller();
+        _requireTransitionCandidate(allowlist_, msg.sender);
+    }
+
+    function _requireTransitionCandidate(address candidate, address caller) private view {
+        if (candidate == address(0) || candidate.code.length == 0) revert IAllowlist.AllowlistUnavailable();
+        if (!_readCanonicalBoolean(candidate, abi.encodeCall(IAllowlist.isAllowed, (caller)))) {
+            revert IAllowlist.CallerNotAllowed(caller);
+        }
+        if (!_readCanonicalBoolean(candidate, abi.encodeCall(IAllowlist.isSystemAccount, (address(this))))) {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+    }
+
+    function _readCanonicalBoolean(address target, bytes memory callData) private view returns (bool) {
+        (bool ok, bytes memory returnedData) = target.staticcall(callData);
+        if (!ok || returnedData.length != 32) revert IAllowlist.AllowlistUnavailable();
+        uint256 value;
+        assembly ("memory-safe") {
+            value := mload(add(returnedData, 0x20))
+        }
+        if (value > 1) revert IAllowlist.AllowlistUnavailable();
+        return value == 1;
+    }
+
+    function _writeAllowlist(address allowlist_) private {
         AllowlistGatedStorage storage $ = _getAllowlistGatedStorage();
         address previous = address($.allowlist);
         $.allowlist = IAllowlist(allowlist_);

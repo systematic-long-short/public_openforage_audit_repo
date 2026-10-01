@@ -1,86 +1,43 @@
-# Audit Scope
+# Audit scope
 
-## Source Scope
+## Candidate and source map
 
-This snapshot is limited to the public-safe portion of one component tree:
+This candidate is based on the previous PR #9 head `6efd4cd86a9b2fec7f484c0da073f71385900308`, the base of this update. The older head `ef049358efb6496f8304faef11a99c34d2610e62` and earlier commits are historical. If committed, the public candidate will have one parent, `6efd4cd86a9b2fec7f484c0da073f71385900308`. This review does not update the remote branch or PR.
 
-- `openforage_smart_contracts/`
+The direct map contains 60 files: 34 production source, interface, library, and module files; 18 ABI artifacts; and 8 selected deployment-script and interface files. It explicitly includes `GuardianAuthorityClassifier.sol`. The exact private source inventory contains no unmapped first-party source, interface, library, module, or ABI path. Every mapped byte is checked against the exact source. The two root Gitlinks and all nine recursive pins stay unchanged.
 
-The production Solidity files in `contracts/src/` and ABI files in
-`contracts/abi/` are copied byte-for-byte from private OpenForage commit
-`e5c2c76d55e197044e30392c407b52af598a1681` (26 Solidity files and 18 ABI
-files). A deterministic per-file SHA-256 inventory comparison confirmed exact
-parity. Tests and helpers were selected individually for the current source
-changes and investor eligibility gate; the private `contracts/` tree was not
-copied wholesale. Generated artifacts, deployment manifests, local caches,
-private environment files, private audit provenance, and unrelated monorepo
-trees are omitted.
+Only the eight selected script/interface paths in the explicit map are copied. All other private scripts and tools, audit records, packet text, run logs, credentials, deployment records, and unlisted paths remain excluded. No first-party contract test path is copied.
 
-The refresh includes the `Allowlist` registry and caller-gate mixin, plus the
-RISKUSD vault and staking-queue delegate modules. The mainnet dry-run script
-contains no hard-coded sequencer feed address; the feed is supplied by
-configuration, with a deterministic placeholder in the dry-run path.
+## Finding scope and review status
 
-## Documentation Scope
+The historical record preserves all 155 Analysis 1–8 identities and their original counts. Warning 28 keeps its dated missing-capture gap. Analysis 9 has 21 findings and 11 related cases; see its [source dispositions](smart_contract_audits/2026-09-29-analysis-9-dispositions.md). Analysis 10 has 17 findings and one related case; see its [source dispositions](smart_contract_audits/2026-09-30-analysis-10-dispositions.md). Analysis 11 has 11 findings and three related cases; see its [source dispositions](smart_contract_audits/2026-10-01-analysis-11-dispositions.md). Analysis 9 acknowledgements remain `Other`; no finding is marked resolved.
 
-Documentation in this repository is intentionally narrow. It should help a
-reviewer identify what is present, how to install Solidity dependencies, and
-which local smart-contract checks to run.
+The Analysis 10 record says A10-17 remains open and whole-call gas fit remains unmeasured. The Treasury helper-readiness guard is accepted only as a bounded source correction; A9-02 is not fully closed. A9-03 remains bounded to net-basis accounting. Its related case is bounded at source level: ordinary redemption no longer refunds active-window public mint use. A redeemed position can leave daily or weekly mint headroom occupied until the window resets; no fairness guarantee is claimed. A9-06 remains open on cross-tier fairness and collectibility. A9-09 is accepted only for cash-backed pricing. A9-10 and A9-14 are bounded to fresh-state settlement and exact-nonce paths. A9-19 and A9-20 remain bounded source findings, not live-state proof. A9-21 whole-query gas remains unmeasured. A11-05's bounded source review retains two effectless proposal shapes that a Guardian cannot cancel. No legacy-proxy, deployment, or current Octane closure is claimed.
 
-Included documentation is scoped to:
+The earlier 72-row table retains 28 Queue and 44 Token triage items; all 72 independent-review statuses remain pending. The separate public analyzer table contains 47 analyzer identities: 7 Semgrep and 40 Slither. Each row pins its source lines to a candidate-file blob. The previous PR #9 head and base of this update is `6efd4cd86a9b2fec7f484c0da073f71385900308`; `ef049358efb6496f8304faef11a99c34d2610e62` and older commits are historical. Forty rows have bounded source-only review and seven remain pending. `SL-28` still needs a current `RISKUSDVault.sol` source rebind. No fresh full `audit-static` pass is established; retained Slither and Semgrep results remain red, suppression reconciliation is in progress, and the scanner-coverage gap remains open.
 
-- the June 9/10, 2026 mainnet-readiness audit package under
-  `documentation/smart_contract_audits/2026-06-09-audit/`;
-- the June 12, 2026 external-audit triage package under
-  `documentation/smart_contract_audits/2026-06-12-external-audit/`;
-- the June 17, 2026 external-audit closeout package under
-  `documentation/smart_contract_audits/2026-06-17-external-audit/`, limited to
-  public-safe assessments, fix records, acknowledgment worksheets, and overlap
-  analysis;
-- the target architecture and target user-journey projections used by that
-  audit's design-conformance pass;
-- the historical Cantina V12 remediation summary.
+## Policy boundaries
 
-It does not include unrelated implementation plans, operational runbooks,
-company records, benchmark notes, memory records, or private deployment
-procedures.
+- Only fresh deployments are supported. New code must refuse pre-fresh state before changing it. No legacy migration engine is supported.
+- The first upgrade is authorized by the implementation already installed. A source guard in the new implementation cannot prove the first upgrade path.
+- The Blocklist's legacy importer and interval-translation path are removed. Fresh initialization establishes its layout version, and each state-changing entrypoint requires that version before effects. The historical lookup uses checkpoint-only `wasBlockedAt`; the retained pre-checkpoint mapping is inert layout storage. Completed review 0645 accepts this fresh-only source repair at source level only; it proves no deployed or old-proxy state.
+- Holders at recognition own profit. Unpaid profit remains a separate claim and is payable only after cash arrives.
+- Withdrawal share pricing uses cash-backed value. Withdrawals pay available cash only and promise no payment date.
+- A reported custodian loss belongs to holders at report time. Transfers and exits that could avoid it stay frozen through settlement.
+- Loss settlement uses the configured keeper and existing checked return path. Reserve-covered loss does not use the depositor-tier loss-rate cap.
+- Fractional fee remainders carry across payments. Queue demotion keeps its original ID and standard-queue position.
+- One designated Guardian keeps one proposal slot under ordinary voting and timelock controls. It cannot veto its own authority change.
+- Only automatic expiry return from a higher tier is exempt from the Tier 0 admission cap. New admissions and manual reversions remain capped.
+- External vesting recipients need renewable approval and remain registered. Payment grants no system-account status.
+- The distributor is the trusted payer, not the recipient. A recipient gains no restricted-call permission.
+- Two Windows CLI rows remain failed. No Visual Studio license or toolchain was installed, purchased, or accepted.
 
-When code and documentation disagree, treat the code in this snapshot as the
-review target and ask the repository owner for clarification.
+These policy choices do not prove that every path follows them. The disposition record lists the source paths and remaining evidence gaps.
 
-## Submodules
+## Build, ABI, storage, and proof limits
 
-The Solidity dependency directories are Git submodules pinned to the source
-repository's current dependency commits:
+Forge 1.3.5 and Solc 0.8.24 compiled 131 public inputs in each profile with zero compiler errors. Default code generation completed, but the child exited 1 on three EIP-170 runtime-size overages: ForageGovernor 28,646 bytes (4,070 over), StakingQueue 27,382 bytes (2,806 over), and USDCTreasury 27,779 bytes (3,203 over). Default initcode has no overage. ForageToken fits at 24,112 runtime bytes, 464 below EIP-170; its 49,125-byte initcode is 27 below EIP-3860. Deploy exited 0 and all 22 first-party contract runtime/initcode pairs fit. ForageGovernor is 24,564 runtime bytes (12 below EIP-170); USDCTreasury is 24,231 runtime bytes (345 below EIP-170). The table lists all 25 compiled contract/library artifacts. GuardianModule links GuardianAuthorityClassifier; the library is 6,658/6,711 bytes in Default and 5,756/5,787 in Deploy.
 
-- Chainlink CCIP: `bccdd15b734ea6c0e6d1b3d36c482e64ced2d441`
-- OpenZeppelin upgradeable contracts:
-  `7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf`
+All 18 ABI files match the mapped source; 17 have compiler source definitions and `FoundationTreasury.json` remains source-less. The source-matched storage-baseline comparison remains red at 16 OK and 7 historical divergences; no baseline changed.
 
-Run `git submodule update --init --recursive` before building or testing the
-smart contracts.
-
-The source repository's vendored dependency trees were not exported. Their Git
-tree hashes did not match the root trees of the existing pinned commits, so the
-public submodule pins were left unchanged.
-
-## Out Of Scope
-
-- Private monorepo modules outside the exported smart-contract tree.
-- Non-public environment files and signing or API credentials.
-- Internal planning material and strategic documentation unrelated to this
-  smart-contract audit campaign.
-- Internal project/spec/tasklist/prompt artifacts.
-- Raw external portal exports containing local reproduction paths or internal
-  provenance discussion.
-- Private-only suppression/waiver refreshes and their generated audit
-  baselines. The pre-existing public suppression/waiver files are retained as
-  historical snapshot data and were not revalidated against the current source.
-- Deployment manifests, keeper configuration, public cloud resource names, and
-  generated broadcast output.
-- Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.
-- Private remediation scratchpads and unrelated historical audit trees.
-- Generated build output, dependency installs, local caches, local state, and
-  machine-specific files.
-- Actual mainnet deployment or transaction broadcast. The included
-  `DeployMainnet` path is a no-broadcast dry-run and source-readiness surface.
+No fresh full `audit-static` pass is established for this public materialization. The public analyzer table contains 47 analyzer identities: 7 Semgrep and 40 Slither; 40 have bounded source-only review and seven remain pending. All independent reviews in the earlier 72-row table remain pending. Retained Slither and Semgrep results are red, suppression reconciliation is in progress, and the scanner-coverage gap remains open. A copied-source control for the Guardian Registry selector set remains incomplete; that gap does not show the current Solidity contains the retired branch. Two Windows CLI rows remain failed. No first-party test, EVM/runtime/gas simulation, RPC, chain, deployment, or Octane action ran. No live-proxy or deployed-state claim is made.

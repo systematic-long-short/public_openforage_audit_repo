@@ -26,13 +26,44 @@
         "name": "tokenSetter_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "beneficiary",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "blocklist",
     "inputs": [],
     "outputs": [
       {
@@ -123,6 +154,32 @@
   },
   {
     "type": "function",
+    "name": "precommitForageToken",
+    "inputs": [
+      {
+        "name": "forageToken_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "precommittedForageToken",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "releasable",
     "inputs": [],
     "outputs": [
@@ -156,6 +213,19 @@
   },
   {
     "type": "function",
+    "name": "replaceBrokenBlocklist",
+    "inputs": [
+      {
+        "name": "blocklist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "rescueToken",
     "inputs": [
       {
@@ -174,10 +244,49 @@
   },
   {
     "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setBlocklist",
+    "inputs": [
+      {
+        "name": "blocklist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setForageToken",
     "inputs": [
       {
         "name": "forageToken_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setInitialDelegatee",
+    "inputs": [
+      {
+        "name": "delegatee_",
         "type": "address",
         "internalType": "address"
       }
@@ -232,6 +341,57 @@
   },
   {
     "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BlocklistSet",
+    "inputs": [
+      {
+        "name": "oldBlocklist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newBlocklist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ForageTokenPrecommitted",
+    "inputs": [
+      {
+        "name": "forageToken",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ForageTokenSet",
     "inputs": [
       {
@@ -239,6 +399,19 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -283,6 +456,43 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BlockedAddress",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BlocklistAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BlocklistNotSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CannotRescueForageToken",
     "inputs": []
   },
@@ -298,12 +508,49 @@
   },
   {
     "type": "error",
+    "name": "ForageTokenAlreadyPrecommitted",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ForageTokenAlreadySet",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "ForageTokenNotPrecommitted",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ForageTokenNotSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidBlocklist",
+    "inputs": [
+      {
+        "name": "blocklist",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidInitialization",
     "inputs": []
   },
   {
@@ -314,6 +561,11 @@
   {
     "type": "error",
     "name": "NoTokenBalance",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInitializing",
     "inputs": []
   },
   {
@@ -360,6 +612,43 @@
     "inputs": [
       {
         "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnexpectedForageToken",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "provided",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "VotingDelegationFailed",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedDelegatee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualDelegatee",
         "type": "address",
         "internalType": "address"
       }

@@ -1,111 +1,33 @@
-# OpenForage Public Smart Contract Audit Snapshot
+# OpenForage public contract review
 
-This public repository is a selective source snapshot for external review of
-the OpenForage smart contracts. It is not the private monorepo and is not a
-deployment repository.
+This repository is a selective source snapshot for independent review. It is not a deployment repository or a copy of the private monorepo.
 
-Agent export rules live in `AGENTS.md`. Refreshes are built on a public pull
-request branch from the allowlist in that file, with scan and review evidence
-attached to the PR before merge.
+## Snapshot scope
 
-## Current Source Snapshot
+The direct map contains 60 files: 34 Solidity source, interface, library, and module files; 18 ABI files; and 8 selected deployment-script and interface files. The map includes `GuardianAuthorityClassifier.sol`. The current private source inventory has no unlisted first-party source, interface, library, module, or ABI path. Both root dependency Gitlinks and all nine recursive pins remain unchanged. Vendor source stays behind those pins. Private audit records, run logs, packet text, deployment state, credentials, and non-allowlisted scripts and tooling are excluded.
 
-The pinned private source revision for this refresh is
-`e5c2c76d55e197044e30392c407b52af598a1681`. All 26 production Solidity files
-under `contracts/src/` and all 18 ABI files under `contracts/abi/` are
-byte-identical to that revision. The refresh adds the investor `Allowlist`, its
-caller-gate mixin, the RISKUSD vault and staking-queue delegate modules, and
-their focused tests and support.
+No first-party contract test path is copied.
 
-This refresh is a source-snapshot preparation, not a new security audit. The
-historical audit packages below do not assess the current source revision.
+## Analyses 9, 10, and 11 status
 
-Validation for this refresh: `forge build --force` succeeded with compiler
-warnings; the bounded Allowlist and caller-gate runs passed 100 tests, including
-64 fuzz runs for the focused fuzz suite. The full suite and high-depth
-fuzz/invariant/formal campaigns were not run.
+See [`Analysis 9 dispositions`](documentation/smart_contract_audits/2026-09-29-analysis-9-dispositions.md) for 21 primary findings and 11 related cases. See [`Analysis 10 dispositions`](documentation/smart_contract_audits/2026-09-30-analysis-10-dispositions.md) for 17 findings and one related case. See [`Analysis 11 dispositions`](documentation/smart_contract_audits/2026-10-01-analysis-11-dispositions.md) for 11 findings and three related cases. These records state the limits of each bounded source review. The 155 Analysis 1–8 identities remain unchanged in [`the historical record`](documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md). Warning 28 retains its dated missing-capture gap. Analysis 9 acknowledgements remain `Other`; no finding is marked resolved by publication or source review.
 
-## Historical Audit Records
+The Analysis 9 source findings remain bounded. The Treasury helper-readiness guard is accepted only as a source correction; A9-02 is not fully closed. A9-03 and its related case remain `ACCEPT_BOUNDED` within the reviewed accounting limits: ordinary redemption leaves active-window public mint use consumed, so shared headroom can remain occupied until reset. This is temporary aggregate-cap contention, not a fairness guarantee. A9-06, A9-09, A9-10, A9-14, A9-19, and A9-20 retain their specific source limits. A9-21 whole-query gas remains unmeasured. The 16 Analysis 10 vulnerabilities have bounded source dispositions and review within their limits. A10-17 remains open; whole-call gas fit is unmeasured. No legacy-proxy, deployment, or current Octane closure is claimed.
 
-The following are records of earlier reviews and remediation. Their results
-apply to the code and scope reviewed at that time, not to source revision
-`e5c2c76d55e197044e30392c407b52af598a1681`.
+The public analyzer table contains 47 analyzer identities: 7 Semgrep and 40 Slither. Each row pins its source lines to candidate-file blobs. The previous PR #9 head and base of this update is `6efd4cd86a9b2fec7f484c0da073f71385900308`. The older head `ef049358efb6496f8304faef11a99c34d2610e62` is historical. Forty rows have bounded source-only review; seven stale or unresolved rows remain pending. The earlier 72-row table remains separate with all reviews pending. No fresh full `audit-static` pass is established; retained Slither and Semgrep results remain red, suppression reconciliation is in progress, and the scanner-coverage gap remains open.
 
-The June 9/10, 2026 mainnet-readiness audit package records:
+## Policy boundaries
 
-- no known open Critical, High, Medium, or Low findings after the R16-M02
-  remediation;
-- passing static, formal, fuzz, audit-foundry, bridge target, treasury target,
-  DeployMainnet target, full Foundry, build, formatting, and Python harness
-  gates;
-- passing final Codex adversarial review and post-M02 security, reuse, and
-  architecture re-reviews;
-- target architecture and target user-journey conformance with no unresolved
-  design divergences.
+Only fresh deployments are supported. New code must refuse pre-fresh state before changing it. No legacy migration engine is supported. In the Blocklist, the legacy importer and interval-translation path are removed; fresh initialization sets the layout version and every state-changing entrypoint checks it before effects. The historical checkpoint lookup uses `wasBlockedAt`; the retained pre-checkpoint mapping is inert and remains only for layout. Completed review 0645 accepts this Blocklist repair as a source-only bounded result; it proves no old-proxy or deployed-state behavior. The first upgrade still uses the authorizer in the implementation already installed. These rules do not prove every deployed proxy or upgrade path.
 
-The remaining limitation is explicit in the audit report: on-chain
-reconciliation proves bridge-held USDC availability, while HyperLiquid
-withdrawal provenance remains an off-chain keeper/trust boundary. This snapshot
-does not perform or authorize a mainnet broadcast.
+Profit belongs to the holders at recognition. Unpaid profit stays a separate claim and is paid only when cash arrives. Withdrawals use cash-backed share value and available cash; they promise no payment date. A reported custodian loss belongs to holders at report time. Transfers and exits that could avoid that loss stay frozen through settlement.
 
-The June 12, 2026 external-audit triage package records Cantina and Octane
-findings review, accepted true-positive overlap, and focused Foundry
-reproductions for the live overlap roots carried in this snapshot.
+The distributor is the trusted payer, not the recipient. Payment grants no system-account status or restricted-call permission.
 
-The June 17, 2026 external-audit closeout package records the follow-up
-Cantina/Octane disposition: all retained valid findings are fixed in current
-source or were already fixed by the current source, and the portal-facing
-acknowledgment worksheets are included. Raw portal exports that contain local
-reproduction paths or internal provenance discussion are intentionally omitted.
+## Build and verification limits
 
-The full Foundry suite and high-depth audit campaigns have not been run against
-this refreshed snapshot. Historical full-suite evidence in the retained audit
-packages is not verification of the current source revision.
+Forge 1.3.5 and Solc 0.8.24 compiled 131 public inputs in each profile with zero compiler errors. Default code generation completed, but the child exited 1 on three EIP-170 runtime-size overages: ForageGovernor 28,646 bytes (4,070 over), StakingQueue 27,382 bytes (2,806 over), and USDCTreasury 27,779 bytes (3,203 over). Default initcode has no overage. ForageToken fits at 24,112 runtime bytes, 464 below EIP-170; its 49,125-byte initcode is 27 below EIP-3860. Deploy exited 0 and all 22 first-party contract runtime/initcode pairs fit. ForageGovernor is 24,564 runtime bytes (12 below EIP-170); USDCTreasury is 24,231 runtime bytes (345 below EIP-170). The table lists all 25 compiled contract/library artifacts. GuardianModule links GuardianAuthorityClassifier; the library is 6,658/6,711 bytes in Default and 5,756/5,787 in Deploy.
 
-## Included
+All 18 ABI files match the mapped source; 17 have compiler source definitions and `FoundationTreasury.json` remains source-less. The source-matched storage-baseline comparison remains red at 16 OK and 7 historical divergences; no baseline changed.
 
-- `openforage_smart_contracts/`: production Solidity sources and ABI files,
-  selected current tests/helpers and generic tooling, build/static-analysis
-  configuration, and pinned Solidity dependencies.
-- `documentation/smart_contract_audits/2026-06-09-audit/`: latest audit report,
-  finding consolidation, conformance, retest, review, and validation evidence.
-- `documentation/smart_contract_audits/2026-06-12-external-audit/`: external
-  audit triage, overlap analysis, and reviewer-facing findings context.
-- `documentation/smart_contract_audits/2026-06-17-external-audit/`: public-safe
-  external-audit assessment, fix attribution, acknowledgment worksheets, and
-  overlap analysis for the latest smart-contract closeout.
-- `documentation/smart_contract/`: target smart-contract architecture and
-  user-journey projections used by the conformance review.
-- `documentation/cantina_v12_remediation.md`: historical remediation summary for
-  the May 30, 2026 Cantina V12 pass, retained as predecessor context.
-
-## Excluded
-
-- Non-smart-contract source trees.
-- Internal project/spec/tasklist/prompt artifacts.
-- Company, strategy, benchmark, memory, and unrelated runbook documents.
-- Private environment files, credentials, signing material, and deployment
-  secrets.
-- Deployment manifests, keeper config, generated broadcast output, and public
-  cloud resource names.
-- Ad-hoc proposal, upgrade, or recovery scripts that embed deployed addresses.
-- Generated build output and local caches such as Foundry `cache/`, `out/`, and
-  `broadcast/`.
-- Vendored copies of third-party Solidity dependencies. They are represented as
-  pinned Git submodules instead.
-
-## Dependency Pins
-
-After cloning, initialize Solidity dependencies with:
-
-```bash
-git submodule update --init --recursive
-```
-
-Pinned submodules:
-
-- `openforage_smart_contracts/lib/chainlink-ccip`
-- `openforage_smart_contracts/lib/openzeppelin-contracts-upgradeable`
-
-See `documentation/audit_scope.md` and `documentation/review_commands.md` for
-scope boundaries and suggested local checks.
+No fresh full Slither, configured Semgrep, or `audit-static` pass is established for this public materialization. The 47-row analyzer table records 7 Semgrep and 40 Slither identities; 40 are bounded source-only dispositions and seven remain pending. The earlier 72-row table remains separate with all independent reviews pending. Retained Slither and Semgrep results remain red; per-ID suppression reconciliation is in progress, the scanner-coverage gap remains open, and `SL-28` still needs a current `RISKUSDVault.sol` source rebind. Two Windows CLI rows remain failed. No first-party contract test, runtime, deployed-state, chain, or Octane result is claimed.

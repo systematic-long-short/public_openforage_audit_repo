@@ -5,6 +5,23 @@
     "stateMutability": "nonpayable"
   },
   {
+    "type": "fallback",
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "ARBITRUM_ONE_CHAIN_ID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "function",
     "name": "FINALIZE_DELAY",
     "inputs": [],
@@ -33,6 +50,32 @@
   {
     "type": "function",
     "name": "PROPOSAL_EXPIRY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "QUEUE_ENTRY_TTL",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SEQUENCER_UPTIME_GRACE_PERIOD",
     "inputs": [],
     "outputs": [
       {
@@ -86,6 +129,45 @@
   },
   {
     "type": "function",
+    "name": "_queueForageLockAction",
+    "inputs": [
+      {
+        "name": "action",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "admissionMode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
@@ -108,6 +190,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -414,6 +509,16 @@
             "name": "priority",
             "type": "bool",
             "internalType": "bool"
+          },
+          {
+            "name": "minimumShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -466,6 +571,34 @@
         "name": "tier",
         "type": "uint8",
         "internalType": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "joinQueueWithBounds",
+    "inputs": [
+      {
+        "name": "riskusdAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "minimumShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -730,23 +863,50 @@
   },
   {
     "type": "function",
-    "name": "reinitialize",
+    "name": "queueEntryProgress",
     "inputs": [
       {
-        "name": "multiplier_",
+        "name": "queueId",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "remainingRiskusd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "remainingMinimumShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sharesMinted",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadlineCeiling",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "reinitializeV3",
+    "name": "queueModule",
     "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -796,12 +956,56 @@
   },
   {
     "type": "function",
+    "name": "sequencerUptimeFeed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setBlocklist",
     "inputs": [
       {
         "name": "blocklist_",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setExpiredLockupProcessor",
+    "inputs": [
+      {
+        "name": "processor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "authorized",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -872,6 +1076,55 @@
         "name": "multiplier_",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setQueueEntryBounds",
+    "inputs": [
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minimumShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setQueueModule",
+    "inputs": [
+      {
+        "name": "module_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setSequencerUptimeFeed",
+    "inputs": [
+      {
+        "name": "feed_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -1150,6 +1403,25 @@
   },
   {
     "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "BlocklistSet",
     "inputs": [
       {
@@ -1188,6 +1460,25 @@
         "type": "bytes",
         "indexed": false,
         "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ExpiredLockupProcessorSet",
+    "inputs": [
+      {
+        "name": "processor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "authorized",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -1534,6 +1825,31 @@
   },
   {
     "type": "event",
+    "name": "PriorityPriceUnavailable",
+    "inputs": [
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "bytes4",
+        "indexed": false,
+        "internalType": "bytes4"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "QueueCancelled",
     "inputs": [
       {
@@ -1584,6 +1900,37 @@
   },
   {
     "type": "event",
+    "name": "QueueEntryBoundsUpdated",
+    "inputs": [
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "minimumShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "QueueEntryCancelled",
     "inputs": [
       {
@@ -1615,6 +1962,37 @@
   },
   {
     "type": "event",
+    "name": "QueueEntryDemoted",
+    "inputs": [
+      {
+        "name": "queueId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "remainingRiskusd",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reason",
+        "type": "bytes4",
+        "indexed": false,
+        "internalType": "bytes4"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "QueueEntrySkippedBlocked",
     "inputs": [
       {
@@ -1622,6 +2000,25 @@
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "QueueEntrySkippedLapsed",
+    "inputs": [
+      {
+        "name": "lane",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
       },
       {
         "name": "depositor",
@@ -1671,6 +2068,25 @@
   },
   {
     "type": "event",
+    "name": "QueueModuleSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "QueueProcessed",
     "inputs": [
       {
@@ -1696,6 +2112,50 @@
         "type": "uint8",
         "indexed": false,
         "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "QueueScanIncomplete",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "priorityLane",
+        "type": "bool",
+        "indexed": true,
+        "internalType": "bool"
+      },
+      {
+        "name": "nextQueueId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SequencerUptimeFeedSet",
+    "inputs": [
+      {
+        "name": "oldFeed",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newFeed",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1870,10 +2330,37 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BlockedAddress",
     "inputs": [
       {
         "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BlocklistUnavailable",
+    "inputs": [
+      {
+        "name": "blocklist",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
         "type": "address",
         "internalType": "address"
       }
@@ -1981,6 +2468,69 @@
   },
   {
     "type": "error",
+    "name": "ForageLockAccountingMismatch",
+    "inputs": [
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "entryWeight",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "obligations",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "liveBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ForageLockBalanceUnavailable",
+    "inputs": [
+      {
+        "name": "forage",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ForageLockRequirementAccountingMismatch",
+    "inputs": [
+      {
+        "name": "depositor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "entryRequirement",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "activeRequirements",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InternalOnly",
     "inputs": []
   },
@@ -2023,6 +2573,32 @@
   {
     "type": "error",
     "name": "InvalidTierUpgrade",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LegacyForageLockAccountingUnsupported",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MinimumSharesUnreachable",
+    "inputs": [
+      {
+        "name": "minimumShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxPreviewShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ModuleUnavailable",
     "inputs": []
   },
   {
@@ -2099,6 +2675,11 @@
   },
   {
     "type": "error",
+    "name": "PriorityLockUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ProposalExpired",
     "inputs": []
   },
@@ -2138,6 +2719,38 @@
     "inputs": [
       {
         "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SequencerDown",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SequencerGracePeriodNotOver",
+    "inputs": [
+      {
+        "name": "startedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "gracePeriod",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SequencerUptimeFeedUnavailable",
+    "inputs": [
+      {
+        "name": "feed",
         "type": "address",
         "internalType": "address"
       }
@@ -2213,6 +2826,43 @@
   },
   {
     "type": "error",
+    "name": "TierVaultProbeFailed",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultUnavailable",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -2224,6 +2874,17 @@
         "name": "slot",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnauthorizedLockupProcessor",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -2241,6 +2902,17 @@
     "type": "error",
     "name": "VaultNotActive",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultRegistryUnavailable",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

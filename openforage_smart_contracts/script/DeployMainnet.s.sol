@@ -14,8 +14,10 @@ interface IOwnable2StepTarget {
 /// @notice No-broadcast Arbitrum One dry-run path with production governance timings.
 contract DeployMainnet is Deploy {
     error WrongMainnetDryRunChain(uint256 chainId);
+    error UnexpectedSequencerUptimeFeed(address expected, address actual);
 
     uint256 public constant MAINNET_CHAIN_ID = 42161;
+    address public constant ARBITRUM_ONE_SEQUENCER_UPTIME_FEED = 0xFdB631F5EE196F0ed6FAa767959853A9F217697D;
     uint256 public constant PRODUCTION_MIN_DELAY = 8 days;
     uint256 public constant PRODUCTION_VOTING_DELAY = 1 days;
     uint256 public constant PRODUCTION_VOTING_PERIOD = 5 days;
@@ -38,6 +40,9 @@ contract DeployMainnet is Deploy {
         address sequencerUptimeFeed
     ) public override {
         _requireMainnetDryRunChain();
+        if (sequencerUptimeFeed != ARBITRUM_ONE_SEQUENCER_UPTIME_FEED) {
+            revert UnexpectedSequencerUptimeFeed(ARBITRUM_ONE_SEQUENCER_UPTIME_FEED, sequencerUptimeFeed);
+        }
         cfgRequireExplicitGuardians = true;
         _requireExplicitGuardianConfig();
         _deployWithConfig(
@@ -79,7 +84,7 @@ contract DeployMainnet is Deploy {
                 keeper: _placeholder(7),
                 custodianExecutor: _placeholder(8),
                 coldAccount: _placeholder(9),
-                sequencerUptimeFeed: _placeholder(10),
+                sequencerUptimeFeed: ARBITRUM_ONE_SEQUENCER_UPTIME_FEED,
                 hyperliquidSourceAccount: bytes32(uint256(uint160(_placeholder(9)))),
                 withdrawalChainSelector: uint64(MAINNET_CHAIN_ID),
                 manifestPath: ""
@@ -132,7 +137,7 @@ contract DeployMainnet is Deploy {
         require(block.timestamp <= expiresAt, "initial custodian config expired");
         initialHyperLiquidConfigProposedAt = proposedAt;
         initialHyperLiquidConfigFinalizedAt = block.timestamp;
-        registry.finalizeCustodianConfig(id);
+        _timelockCall(deployedCustodianRegistry, abi.encodeCall(CustodianRegistry.finalizeCustodianConfig, (id)));
     }
 
     function _afterRiskusdMinterProposed() internal override {
@@ -151,7 +156,6 @@ contract DeployMainnet is Deploy {
 
     function _handoffToProductionGovernance() internal {
         _transferOwnershipThroughTimelock(deployedBlocklist);
-        _transferOwnershipThroughTimelock(deployedCustodianRegistry);
         _transferOwnershipThroughTimelock(deployedFORAGETreasury);
         _transferOwnershipThroughTimelock(deployedForageToken);
         _transferOwnershipThroughTimelock(deployedRiskusd);

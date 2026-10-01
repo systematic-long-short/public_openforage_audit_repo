@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-/// @dev OF-16-006: OZ 5.x ReentrancyGuard uses ERC-7201 namespaced storage — inherently upgrade-safe.
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../IForageGovernorPause.sol";
 import "../VaultRegistry.sol";
-import "../FinalizeDelayProfile.sol";
 import "../AllowlistGatedUpgradeable.sol";
 import "../interfaces/IAllowlist.sol";
 import "../interfaces/IVaultRegistry.sol";
@@ -27,9 +20,8 @@ interface IQueueModuleForagePriceOracle {
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
-interface IQueueModuleAtRiskBackingView {
-    function totalAssets() external view returns (uint256);
-    function totalSupply() external view returns (uint256);
+interface IQueueModuleOwner {
+    function owner() external view returns (address);
 }
 
 /// @title StakingQueueModule -- Delegatecall-only queue core for StakingQueue
@@ -37,15 +29,7 @@ interface IQueueModuleAtRiskBackingView {
 ///      Every function runs only under delegatecall from StakingQueue; a direct call reverts
 ///      DirectCallForbidden(). The module mirrors the queue's linear storage declarations so the
 ///      delegatecall reads and writes the queue's own slots.
-contract StakingQueueModule is
-    Initializable,
-    Ownable2StepUpgradeable,
-    PausableUpgradeable,
-    ReentrancyGuard,
-    UUPSUpgradeable,
-    FinalizeDelayProfile,
-    AllowlistGatedUpgradeable
-{
+contract StakingQueueModule is AllowlistGatedUpgradeable {
     using SafeERC20 for IERC20;
 
     struct QueueEntry {
@@ -58,6 +42,41 @@ contract StakingQueueModule is
         bool priority;
         uint256 minimumShares;
         uint256 deadline;
+    }
+
+    struct QueueEntryProgress {
+        uint256 remainingRiskusd;
+        uint256 remainingMinimumShares;
+        uint256 sharesMinted;
+        uint256 deadlineCeiling;
+        bool initialized;
+    }
+
+    struct QueueLaneResult {
+        uint256 processedCount;
+        uint256 nextHead;
+        uint256 incompleteQueueId;
+    }
+
+    struct QueueLaneConfig {
+        uint8 tier;
+        uint256 budget;
+        uint256 availCapacity;
+        uint256 availTierCapacity;
+        bool isPriorityLane;
+    }
+
+    struct QueueProcessedData {
+        uint256 queueId;
+        address depositor;
+        uint256 riskusdProcessed;
+        uint8 tier;
+    }
+
+    struct SelfReversion {
+        address vaultZero;
+        uint256 riskusdAmount;
+        uint256 combinedAssetsBefore;
     }
 
     struct TierDepositCap {
@@ -104,14 +123,21 @@ contract StakingQueueModule is
     error CombinedBackingPerShareDecreased(uint256 beforeRay, uint256 afterRay);
     error CombinedBackingAssetsDecreased(uint256 beforeAssets, uint256 afterAssets);
     error BlockedAddress(address account);
+    error BlocklistUnavailable(address blocklist);
     error CapacityProbeFailed(address vault);
+    error LegacyForageLockAccountingUnsupported();
     error DepositOutputBelowMinimum(uint256 sharesMinted, uint256 minimumShares);
+    error MinimumSharesUnreachable(uint256 minimumShares, uint256 maxPreviewShares);
+    error PriorityLockUnavailable();
     error InvalidForagePriceScale(uint256 price);
     error UnauthorizedLockupProcessor(address caller);
     error SequencerUptimeFeedUnavailable(address feed);
     error SequencerDown();
     error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
     error DirectCallForbidden();
+    error TierVaultUnavailable(uint8 tier, address vault);
+    error TierVaultProbeFailed(uint8 tier, address vault, bytes4 selector);
+    error VaultRegistryUnavailable(address registry);
 
     // -- Precomputed function selectors --
     bytes4 private constant _SEL_LOCKED_BALANCE = bytes4(keccak256("lockedBalance(address)"));
@@ -127,13 +153,19 @@ contract StakingQueueModule is
     bytes4 private constant _SEL_LOCKUP_SHARES = bytes4(keccak256("lockupShares(address)"));
     bytes4 private constant _SEL_LEGITIMATE_ASSETS = bytes4(keccak256("legitimateAssets()"));
     bytes4 private constant _SEL_TOTAL_SUPPLY = bytes4(keccak256("totalSupply()"));
-    bytes4 private constant _SEL_LOCKER_BALANCE = bytes4(keccak256("lockerBalance(address,address)"));
-    bytes4 private constant _SEL_LOCK = bytes4(keccak256("lock(address,uint256)"));
-    bytes4 private constant _SEL_UNLOCK = bytes4(keccak256("unlock(address,uint256)"));
+    bytes4 private constant _SEL_TOTAL_ASSETS = bytes4(keccak256("totalAssets()"));
+    bytes4 private constant _SEL_QUEUE_FORAGE_LOCK_ACTION =
+        bytes4(keccak256("_queueForageLockAction(uint8,uint256,address,uint256,uint8)"));
 
     enum PriceMode {
         FIXED_PRICE,
         ORACLE
+    }
+
+    enum QueueLaneStep {
+        ADVANCE,
+        TERMINAL,
+        STOP
     }
 
     // -- Events --
@@ -141,6 +173,9 @@ contract StakingQueueModule is
         uint256 indexed queueId, address indexed depositor, uint256 riskusdAmount, uint8 tier, bool priority
     );
     event PriorityPriceUnavailable(uint256 indexed queueId, address indexed depositor, bytes4 reason);
+    event QueueEntryDemoted(
+        uint256 indexed queueId, address indexed depositor, uint256 remainingRiskusd, bytes4 reason
+    );
     event QueueProcessed(uint256 indexed queueId, address indexed depositor, uint256 riskusdProcessed, uint8 tier);
     event QueueCancelled(uint256 indexed queueId, address indexed depositor, uint256 riskusdReturned);
     event TierUpgraded(
@@ -184,6 +219,7 @@ contract StakingQueueModule is
     );
     event QueueEntrySkippedBlocked(uint256 indexed entryId, address indexed depositor);
     event QueueEntrySkippedLapsed(uint8 indexed lane, address indexed depositor);
+    event QueueScanIncomplete(uint8 indexed tier, bool indexed priorityLane, uint256 nextQueueId);
     event QueueEntryBoundsUpdated(
         uint256 indexed queueId, address indexed depositor, uint256 minimumShares, uint256 deadline
     );
@@ -198,6 +234,7 @@ contract StakingQueueModule is
     uint256 public constant MAX_FIXED_FORAGE_PRICE_USD = 1_000_000e6;
     uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
+    uint256 internal constant QUEUE_ENTRY_TTL = 3 days;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
     uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
@@ -249,8 +286,21 @@ contract StakingQueueModule is
     address internal _blocklist;
     mapping(address => bool) private _expiredLockupProcessors;
     address internal _sequencerUptimeFeed;
+    mapping(uint256 => uint8) private _priorityEntryAdmissionMode;
+    mapping(uint256 => QueueEntryProgress) private _queueEntryProgress;
+    mapping(uint8 => uint256[]) private _demotedStandardHeap;
+    mapping(uint256 => uint256) private _demotedStandardHeapIndexPlusOne;
+    mapping(address => uint256) private _forageLockWeightByDepositor;
+    mapping(uint256 => uint256) private _forageLockRequirementPerEntry;
+    bool private _forageLockAccountingInitialized;
+    mapping(address => uint256) private _forageLockActiveRequirementByDepositor;
+    mapping(uint256 => uint256) private _forageUnlockPendingWeightPerEntry;
+    mapping(address => uint256) private _forageLockPendingUnlockWeightByDepositor;
+    bool private _forageLockAggregateAccountingInitialized;
+    mapping(uint8 => uint256) private _tierStandardScanCursor;
+    mapping(uint8 => uint256) private _tierPriorityScanCursor;
 
-    uint256[31] private __gap; // reserved for future upgrades
+    uint256[18] private __gap; // reserved for future upgrades
 
     // -- Delegatecall guard --
     address private immutable _SELF;
@@ -261,6 +311,7 @@ contract StakingQueueModule is
 
     modifier onlyDelegateCall() {
         if (address(this) == _SELF) revert DirectCallForbidden();
+        _requireForageLockAccounting();
         _;
     }
 
@@ -279,6 +330,34 @@ contract StakingQueueModule is
         _joinQueue(riskusdAmount, tier, minimumShares, deadline);
     }
 
+    function setQueueEntryBounds(uint256 queueId, uint256 minimumShares, uint256 deadline) external onlyDelegateCall {
+        if (minimumShares == 0) revert ZeroAmount();
+        if (deadline < block.timestamp) revert InvalidQueueEntry();
+        QueueEntry storage entry = _queueEntries[queueId];
+        if (entry.depositor == address(0)) revert InvalidQueueEntry();
+        if (msg.sender != entry.depositor) revert NotQueueEntryDepositor();
+        if (entry.processed) revert QueueEntryAlreadyProcessed();
+        if (entry.cancelled) revert QueueEntryAlreadyCancelled();
+        if (entry.priority && _hasDepositorBounds(entry)) revert InvalidQueueEntry();
+        if (_isExpired(entry)) revert InvalidQueueEntry();
+        QueueEntryProgress memory progress = _queueEntryProgressFor(queueId, entry);
+        uint256 remainingMinimumShares = _remainingMinimumShares(minimumShares, progress.sharesMinted);
+        uint256 maxPreviewShares = _minimumDepositShares(_tierVaults[entry.tier], progress.remainingRiskusd);
+        if (remainingMinimumShares > maxPreviewShares) {
+            revert MinimumSharesUnreachable(remainingMinimumShares, maxPreviewShares);
+        }
+        uint256 storedDeadline = _deadlineWithinCeiling(deadline, progress.deadlineCeiling);
+        entry.minimumShares = minimumShares;
+        entry.deadline = storedDeadline;
+        QueueEntryProgress storage storedProgress = _queueEntryProgress[queueId];
+        storedProgress.remainingRiskusd = progress.remainingRiskusd;
+        storedProgress.remainingMinimumShares = remainingMinimumShares;
+        storedProgress.sharesMinted = progress.sharesMinted;
+        storedProgress.deadlineCeiling = progress.deadlineCeiling;
+        storedProgress.initialized = true;
+        emit QueueEntryBoundsUpdated(queueId, entry.depositor, minimumShares, storedDeadline);
+    }
+
     function cancelQueue(uint256 queueId) external onlyDelegateCall {
         QueueEntry storage entry = _queueEntries[queueId];
         if (entry.depositor == address(0)) revert InvalidQueueEntry();
@@ -287,24 +366,16 @@ contract StakingQueueModule is
         if (entry.cancelled) revert QueueEntryAlreadyCancelled();
         _requireNotBlocked(msg.sender);
 
+        uint256 amount = _remainingQueueRiskusd(queueId, entry);
+        _removeDemotedStandardEntry(entry.tier, queueId);
         entry.cancelled = true;
-        // OF-21-029: Update state BEFORE external calls (CEI pattern, matches adminCancelQueue)
-        uint256 amount = entry.riskusdAmount;
+        _clearQueueEntryProgress(queueId);
         if (entry.priority) {
             _priorityRiskusdQueued[msg.sender] -= amount;
         }
         _totalQueuedRiskusd -= amount;
 
-        uint256 forageToUnlock = _forageLockedPerEntry[queueId];
-        if (forageToUnlock > 0) {
-            // OF-007 (11th audit): Only zero entry on success to allow retry
-            (bool unlockSuccess,) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK, entry.depositor, forageToUnlock));
-            if (unlockSuccess) {
-                _forageLockedPerEntry[queueId] = 0;
-            } else {
-                emit ForageUnlockFailed(entry.depositor, forageToUnlock);
-            }
-        }
+        _releaseForageLock(queueId, entry.depositor);
 
         _riskusd.safeTransfer(msg.sender, amount);
 
@@ -323,22 +394,131 @@ contract StakingQueueModule is
         uint256 tierAvail = _availableTierDepositCapacityForCap(tier, config.capacityCap);
         if (tierAvail == 0) revert NoCapacityAvailable();
 
-        uint256 processed =
-            _processLane(_tierPriorityQueue[tier], _tierPriorityHead[tier], tier, maxEntries, avail, tierAvail, true);
-        // OF-M04: Cap head advancement to prevent DoS via dead entry accumulation
-        _tierPriorityHead[tier] = _advanceHead(_tierPriorityQueue[tier], _tierPriorityHead[tier], maxEntries);
+        QueueLaneConfig memory priorityConfig = QueueLaneConfig(tier, maxEntries, avail, tierAvail, true);
+        QueueLaneResult memory priorityResult =
+            _processPriorityLane(_tierPriorityQueue[tier], _tierPriorityHead[tier], priorityConfig);
+        uint256 processed = priorityResult.processedCount;
+        _tierPriorityHead[tier] = priorityResult.nextHead;
+        if (priorityResult.incompleteQueueId != 0) {
+            emit QueueScanIncomplete(tier, true, priorityResult.incompleteQueueId);
+        }
 
         avail = _availableCapacityForCap(config.capacityCap);
         tierAvail = _availableTierDepositCapacityForCap(tier, config.capacityCap);
 
-        if (processed < maxEntries && avail > 0 && tierAvail > 0) {
+        if (processed < maxEntries && avail > 0 && tierAvail > 0 && priorityResult.incompleteQueueId == 0) {
             uint256 standardBudget = maxEntries - processed;
+            QueueLaneConfig memory standardConfig = QueueLaneConfig(tier, standardBudget, avail, tierAvail, false);
             _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], standardBudget);
-            _processLane(
-                _tierStandardQueue[tier], _tierStandardHead[tier], tier, standardBudget, avail, tierAvail, false
-            );
+            _processStandardLane(standardConfig);
             _tierStandardHead[tier] = _advanceHead(_tierStandardQueue[tier], _tierStandardHead[tier], maxEntries);
         }
+    }
+
+    function syncTierVaults() external onlyDelegateCall {
+        VaultConfig memory config = _syncTierVaultsFromRegistry();
+        emit TierVaultsSynced(config.tierVaults);
+    }
+
+    function upgradeTier(uint8 fromTier, uint8 toTier, uint256 atriskusdAmount) external onlyDelegateCall {
+        if (atriskusdAmount == 0) revert ZeroAmount();
+        if (fromTier >= 4 || toTier >= 4) revert InvalidTier();
+        if (toTier <= fromTier) revert InvalidTierUpgrade();
+        _requireNotBlocked(msg.sender);
+        uint256 riskusdAmount;
+        uint256 newShares;
+        {
+            VaultConfig memory config = _syncTierVaultsFromRegistry();
+            if (config.status != VaultStatus.Active) revert VaultNotActive();
+            address sourceVault = config.tierVaults[fromTier];
+            address destVault = config.tierVaults[toTier];
+            _requireLiveTierVault(sourceVault, fromTier);
+            _requireLiveTierVault(destVault, toTier);
+            uint256 combinedAssetsBefore = _combinedTotalAssets();
+            (bool successRedeem, bytes memory redeemData) =
+                sourceVault.call(abi.encodeWithSelector(_SEL_REDEEM_UPGRADE, msg.sender, atriskusdAmount));
+            if (!successRedeem) {
+                assembly {
+                    revert(add(redeemData, 32), mload(redeemData))
+                }
+            }
+            if (redeemData.length < 32) revert InvalidQueueEntry();
+            riskusdAmount = abi.decode(redeemData, (uint256));
+            if (riskusdAmount == 0) revert ZeroAmount();
+            uint256 combinedAvailable = _availableCapacityForCap(config.capacityCap);
+            uint256 tierAvailable = _availableTierDepositCapacityForCap(toTier, config.capacityCap);
+            if (riskusdAmount > combinedAvailable) revert NoCapacityAvailable();
+            if (riskusdAmount > tierAvailable) {
+                revert TierDepositCapExceeded(toTier, riskusdAmount, tierAvailable);
+            }
+            _riskusd.forceApprove(destVault, riskusdAmount);
+            (bool successDeposit, bytes memory depositData) =
+                destVault.call(abi.encodeWithSelector(_SEL_DEPOSIT, riskusdAmount, msg.sender));
+            if (!successDeposit) {
+                assembly {
+                    revert(add(depositData, 32), mload(depositData))
+                }
+            }
+            if (depositData.length < 32) revert InvalidQueueEntry();
+            newShares = abi.decode(depositData, (uint256));
+            if (newShares == 0) revert ZeroAmount();
+            _riskusd.forceApprove(destVault, 0);
+            _assertCombinedAssetsNotDecreased(combinedAssetsBefore);
+        }
+        emit TierUpgraded(msg.sender, fromTier, toTier, atriskusdAmount, riskusdAmount, newShares);
+    }
+
+    function selfRevert(uint8 tier) external onlyDelegateCall {
+        if (tier == 0 || tier >= 4) revert InvalidTier();
+        _requireNotBlocked(msg.sender);
+        SelfReversion memory state = _prepareSelfReversion(tier, msg.sender);
+        _depositSelfReversion(msg.sender, state);
+        emit LockupReverted(msg.sender, tier, state.riskusdAmount);
+    }
+
+    function _prepareSelfReversion(uint8 tier, address depositor) private returns (SelfReversion memory state) {
+        VaultConfig memory config = _syncTierVaultsFromRegistry();
+        address tierVault = config.tierVaults[tier];
+        state.vaultZero = config.tierVaults[0];
+        _requireLiveTierVault(state.vaultZero, 0);
+        uint256 shares = _expiredLockupShares(tierVault, tier, depositor);
+        state.combinedAssetsBefore = _combinedTotalAssets();
+        state.riskusdAmount = _redeemForReversion(tierVault, depositor, shares);
+        uint256 tierZeroCapacity = _availableTierDepositCapacityForCap(0, config.capacityCap);
+        if (state.riskusdAmount > tierZeroCapacity) {
+            revert TierDepositCapExceeded(0, state.riskusdAmount, tierZeroCapacity);
+        }
+    }
+
+    function _expiredLockupShares(address tierVault, uint8 tier, address depositor) private view returns (uint256) {
+        (bool hasLockup, bool isExpired, bool autoRenew, bool hasPendingWithdrawal, uint256 shares) =
+            _getLockupInfo(tierVault, tier, depositor);
+        if (!hasLockup || !isExpired || hasPendingWithdrawal || autoRenew) revert InvalidQueueEntry();
+        return shares;
+    }
+
+    function _redeemForReversion(address tierVault, address depositor, uint256 shares)
+        private
+        returns (uint256 riskusdAmount)
+    {
+        (bool success, bytes memory data) =
+            tierVault.call(abi.encodeWithSelector(_SEL_REDEEM_REVERSION, depositor, shares));
+        if (!success) revert RedeemForReversionFailed();
+        if (data.length < 32) revert InvalidQueueEntry();
+        riskusdAmount = abi.decode(data, (uint256));
+        if (riskusdAmount == 0) revert ZeroAmount();
+    }
+
+    function _depositSelfReversion(address depositor, SelfReversion memory state) private {
+        _riskusd.forceApprove(state.vaultZero, state.riskusdAmount);
+        (bool success, bytes memory data) =
+            state.vaultZero.call(abi.encodeWithSelector(_SEL_DEPOSIT, state.riskusdAmount, depositor));
+        _riskusd.forceApprove(state.vaultZero, 0);
+        if (!success) revert Tier0DepositFailed();
+        if (data.length < 32) revert InvalidQueueEntry();
+        uint256 sharesMinted = abi.decode(data, (uint256));
+        if (sharesMinted == 0) revert ZeroAmount();
+        _assertCombinedAssetsNotDecreased(state.combinedAssetsBefore);
     }
 
     /// @notice OF-G03: Batch size is implicitly controlled by the depositors array length.
@@ -348,6 +528,7 @@ contract StakingQueueModule is
         if (depositors.length == 0) revert ZeroAmount();
         if (tier == 0 || tier >= 4) revert InvalidTier();
         _requireAuthorizedExpiredLockupProcessor(msg.sender, depositors);
+        if (_blocklist == address(0)) revert BlocklistUnavailable(_blocklist);
         _syncTierVaultsFromRegistry();
 
         address tierVaultAddr = _tierVaults[tier];
@@ -383,9 +564,9 @@ contract StakingQueueModule is
         _requireNotBlocked(depositor);
 
         (bool hasLockup, bool isExpired, bool autoRenew, bool hasPendingWithdrawal, uint256 shares) =
-            _getLockupInfo(tierVaultAddr, depositor);
+            _getLockupInfo(tierVaultAddr, tier, depositor);
 
-        if (!hasLockup || !isExpired || hasPendingWithdrawal) return;
+        if (!hasLockup || !isExpired || (autoRenew && hasPendingWithdrawal)) return;
 
         if (autoRenew) {
             (bool success, bytes memory data) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_RENEW_LOCKUP, depositor));
@@ -395,6 +576,7 @@ contract StakingQueueModule is
 
             emit LockupRenewed(depositor, tier, newExpiry);
         } else {
+            _requireLiveTierVault(vault0Addr, 0);
             uint256 combinedAssetsBefore = _combinedTotalAssets();
             uint256 riskusdAmount;
             {
@@ -426,35 +608,21 @@ contract StakingQueueModule is
         }
     }
 
-    /// @notice OF-007 (11th audit): Retry a failed FORAGE unlock for a processed/cancelled entry.
-    /// Permissionless — anyone can call since it only benefits the depositor.
+    /// @notice Retry a processed or cancelled entry's failed FORAGE unlock.
+    /// @dev Any Allowlist-eligible caller may retry; the unlock remains credited to the depositor.
     function retryForageUnlock(uint256 queueId) external onlyDelegateCall {
         QueueEntry storage entry = _queueEntries[queueId];
         if (entry.depositor == address(0)) revert InvalidQueueEntry();
-        if (!entry.processed && !entry.cancelled) revert InvalidQueueEntry();
         uint256 forageToUnlock = _forageLockedPerEntry[queueId];
-        if (forageToUnlock != 0 && _priorityRiskusdQueued[entry.depositor] != 0) {
-            revert InvalidQueueEntry();
-        }
-        if (forageToUnlock == 0) {
-            if (_priorityRiskusdQueued[entry.depositor] != 0) revert ZeroAmount();
-            (bool balanceKnown, uint256 actualLockerBalance) = _queueLockerBalance(entry.depositor);
-            if (!balanceKnown || actualLockerBalance == 0) revert ZeroAmount();
-            forageToUnlock = actualLockerBalance;
-        } else {
-            (bool balanceKnown, uint256 actualLockerBalance) = _queueLockerBalance(entry.depositor);
-            if (balanceKnown && actualLockerBalance > 0 && actualLockerBalance < forageToUnlock) {
-                forageToUnlock = actualLockerBalance;
-            }
-        }
+        uint256 pendingWeight = _forageUnlockPendingWeightPerEntry[queueId];
+        uint256 requirement = _forageLockRequirementPerEntry[queueId];
+        bool demoted = !entry.priority && !entry.processed && !entry.cancelled
+            && (forageToUnlock != 0 || pendingWeight != 0 || requirement != 0);
+        if (!entry.processed && !entry.cancelled && !demoted) revert InvalidQueueEntry();
+        if (forageToUnlock == 0 && pendingWeight == 0 && requirement == 0) revert ZeroAmount();
+        if (!demoted && _priorityRiskusdQueued[entry.depositor] != 0) revert InvalidQueueEntry();
         _requireNotBlocked(entry.depositor);
-
-        (bool unlockSuccess,) = _forage.call(abi.encodeWithSelector(_SEL_UNLOCK, entry.depositor, forageToUnlock));
-        if (unlockSuccess) {
-            _forageLockedPerEntry[queueId] = 0;
-        } else {
-            emit ForageUnlockFailed(entry.depositor, forageToUnlock);
-        }
+        _releaseForageLock(queueId, entry.depositor);
     }
 
     // -- Helpers reached by the moved cluster --
@@ -464,22 +632,27 @@ contract StakingQueueModule is
         if (tier >= 4) revert InvalidTier();
         if (_vaultId == 0) revert VaultIdNotSet();
         _requireNotBlocked(msg.sender);
+        uint8 admissionMode = _priceMode;
         {
             VaultConfig memory config = VaultRegistry(_vaultRegistry).getVault(_vaultId);
             if (config.status != VaultStatus.Active) revert VaultNotActive();
         }
+        uint256 maxPreviewShares = _minimumDepositShares(_tierVaults[tier], riskusdAmount);
         if (minimumShares == 0) {
-            minimumShares = _minimumDepositShares(_tierVaults[tier], riskusdAmount);
-            if (minimumShares == 0) minimumShares = 1;
+            if (maxPreviewShares == 0) revert MinimumSharesUnreachable(1, 0);
+            minimumShares = 1;
             deadline = type(uint256).max;
+        } else if (minimumShares > maxPreviewShares) {
+            revert MinimumSharesUnreachable(minimumShares, maxPreviewShares);
         }
 
         _riskusd.safeTransferFrom(msg.sender, address(this), riskusdAmount);
 
         uint256 queueId = _nextQueueId;
-        unchecked {
-            _nextQueueId = queueId + 1;
-        }
+        if (queueId == type(uint256).max) revert InvalidQueueEntry();
+        _nextQueueId = queueId + 1;
+        uint256 deadlineCeiling = block.timestamp + QUEUE_ENTRY_TTL;
+        uint256 storedDeadline = _deadlineWithinCeiling(deadline, deadlineCeiling);
 
         bool isPriority;
         {
@@ -493,10 +666,9 @@ contract StakingQueueModule is
                     // OF-L10-M02: Skip priority if computed lock amount is trivially small (< 0.001 FORAGE)
                     // OF-16-012: Skip if _forage has no code (EOA/self-destructed) — prevents false priority
                     if (forageToLock >= 1e15 && _forage.code.length > 0) {
-                        (bool lockSuccess,) = _forage.call(abi.encodeWithSelector(_SEL_LOCK, msg.sender, forageToLock));
-                        if (lockSuccess) {
-                            isPriority = true;
-                            _forageLockedPerEntry[queueId] = forageToLock;
+                        isPriority = _callForageLockAction(0, queueId, msg.sender, forageToLock, admissionMode + 1);
+                        if (!isPriority) {
+                            emit PriorityPriceUnavailable(queueId, msg.sender, PriorityLockUnavailable.selector);
                         }
                     }
                 }
@@ -512,7 +684,14 @@ contract StakingQueueModule is
             cancelled: false,
             priority: isPriority,
             minimumShares: minimumShares,
-            deadline: deadline
+            deadline: storedDeadline
+        });
+        _queueEntryProgress[queueId] = QueueEntryProgress({
+            remainingRiskusd: riskusdAmount,
+            remainingMinimumShares: minimumShares,
+            sharesMinted: 0,
+            deadlineCeiling: deadlineCeiling,
+            initialized: true
         });
 
         if (isPriority) {
@@ -527,100 +706,235 @@ contract StakingQueueModule is
         emit QueueJoined(queueId, msg.sender, riskusdAmount, tier, isPriority);
     }
 
-    function _processLane(
-        uint256[] storage lane,
-        uint256 head,
+    function _queueEntryProgressFor(uint256 queueId, QueueEntry storage entry)
+        internal
+        view
+        returns (QueueEntryProgress memory progress)
+    {
+        progress = _queueEntryProgress[queueId];
+        if (!progress.initialized && entry.depositor != address(0)) revert LegacyForageLockAccountingUnsupported();
+    }
+
+    function _remainingQueueRiskusd(uint256 queueId, QueueEntry storage entry) internal view returns (uint256) {
+        QueueEntryProgress memory progress = _queueEntryProgressFor(queueId, entry);
+        return progress.remainingRiskusd;
+    }
+
+    function _remainingMinimumShares(uint256 totalMinimumShares, uint256 sharesMinted)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (totalMinimumShares <= sharesMinted) return 0;
+        return totalMinimumShares - sharesMinted;
+    }
+
+    function _deadlineWithinCeiling(uint256 deadline, uint256 deadlineCeiling) internal pure returns (uint256) {
+        if (deadlineCeiling == 0) revert LegacyForageLockAccountingUnsupported();
+        return deadline <= deadlineCeiling ? deadline : deadlineCeiling;
+    }
+
+    function _partialFillMinimumShares(
         uint8 tier,
-        uint256 budget,
-        uint256 availCapacity,
-        uint256 availTierCapacity,
-        bool isPriorityLane
-    ) internal returns (uint256 processedCount) {
-        /// @dev OF-M04: Cap total iterations (dead + live) to prevent DoS via dead entry accumulation.
-        /// Without this, a long dead-entry prefix forces O(deadEntries) gas per processQueue call.
-        uint256 scanLimit = _processScanLimit(budget, isPriorityLane);
+        uint256 remainingRiskusd,
+        uint256 remainingMinimumShares,
+        uint256 fillAmount
+    ) internal view returns (bool reachable, uint256 minimumFillShares) {
+        uint256 remainingAfterFill = remainingRiskusd - fillAmount;
+        uint256 maximumRemainingShares = _minimumDepositShares(_tierVaults[tier], remainingAfterFill);
+        if (remainingMinimumShares > maximumRemainingShares) {
+            minimumFillShares = remainingMinimumShares - maximumRemainingShares;
+        }
+        uint256 maximumFillShares = _minimumDepositShares(_tierVaults[tier], fillAmount);
+        return (minimumFillShares <= maximumFillShares, minimumFillShares);
+    }
+
+    function _recordQueueFill(uint256 queueId, QueueEntry storage entry, uint256 fillAmount, uint256 sharesMinted)
+        internal
+        returns (uint256 remainingAfterFill)
+    {
+        QueueEntryProgress memory progress = _queueEntryProgressFor(queueId, entry);
+        remainingAfterFill = progress.remainingRiskusd - fillAmount;
+        QueueEntryProgress storage storedProgress = _queueEntryProgress[queueId];
+        storedProgress.remainingRiskusd = remainingAfterFill;
+        storedProgress.remainingMinimumShares = _remainingMinimumShares(progress.remainingMinimumShares, sharesMinted);
+        storedProgress.sharesMinted = progress.sharesMinted + sharesMinted;
+        storedProgress.deadlineCeiling = progress.deadlineCeiling;
+        storedProgress.initialized = true;
+        _totalQueuedRiskusd -= fillAmount;
+        if (entry.priority) _priorityRiskusdQueued[entry.depositor] -= fillAmount;
+        if (remainingAfterFill == 0) entry.processed = true;
+    }
+
+    function _clearQueueEntryProgress(uint256 queueId) internal {
+        QueueEntryProgress storage progress = _queueEntryProgress[queueId];
+        progress.remainingRiskusd = 0;
+        progress.remainingMinimumShares = 0;
+        progress.initialized = true;
+    }
+
+    function _reducePriorityLock(
+        uint256 queueId,
+        QueueEntry storage entry,
+        uint256 remainingBeforeFill,
+        uint256 remainingAfterFill
+    ) internal {
+        uint256 recordedLock = _forageLockRequirementPerEntry[queueId];
+        if (recordedLock == 0) return;
+        if (remainingBeforeFill == 0) revert InvalidQueueEntry();
+        uint256 lockToKeep = Math.mulDiv(recordedLock, remainingAfterFill, remainingBeforeFill);
+        if (mulmod(recordedLock, remainingAfterFill, remainingBeforeFill) != 0) ++lockToKeep;
+        _callForageLockAction(2, queueId, entry.depositor, lockToKeep, 0);
+    }
+
+    function _processPriorityLane(uint256[] storage lane, uint256 head, QueueLaneConfig memory config)
+        private
+        returns (QueueLaneResult memory result)
+    {
+        uint256 first = head < lane.length ? head : lane.length;
+        uint256 i = _tierPriorityScanCursor[config.tier];
+        if (i < first || i >= lane.length) i = first;
+        uint256 startCursor = i;
+        result.nextHead = first;
         uint256 scanned;
-        for (uint256 i = head; i < lane.length && processedCount < budget && scanned < scanLimit;) {
-            QueueEntry storage entry = _queueEntries[lane[i]];
-
-            if (entry.processed || entry.cancelled || _isExpired(entry)) {
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
-            }
-
-            if (entry.riskusdAmount > availCapacity || entry.riskusdAmount > availTierCapacity) {
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
-            }
-            if (!isPriorityLane && !_hasDepositorBounds(entry)) {
+        uint256 scanLimit = _processScanLimit(config.budget);
+        while (i < lane.length && scanned < scanLimit && result.processedCount < config.budget) {
+            uint256 queueId = lane[i];
+            QueueLaneStep step = _processLaneEntry(queueId, false, config, result);
+            if (step == QueueLaneStep.STOP) {
+                result.incompleteQueueId = queueId;
+                i = result.nextHead;
                 break;
             }
-            if (_isBlocked(entry.depositor)) {
-                emit QueueEntrySkippedBlocked(lane[i], entry.depositor);
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
-            }
-            if (!IAllowlist(allowlist()).isAllowed(entry.depositor)) {
-                emit QueueEntrySkippedLapsed(isPriorityLane ? 1 : 0, entry.depositor);
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
-            }
-            if (!_depositorMinimumSharesReachable(tier, entry)) {
-                unchecked {
-                    ++i;
-                    ++scanned;
-                }
-                continue;
-            }
-
-            _depositQueuedRiskusd(tier, entry.riskusdAmount, entry.depositor, entry.minimumShares);
-
-            entry.processed = true;
-            if (isPriorityLane) {
-                _priorityRiskusdQueued[entry.depositor] -= entry.riskusdAmount;
-                uint256 qId = lane[i];
-                uint256 forageToUnlock = _forageLockedPerEntry[qId];
-                if (forageToUnlock > 0) {
-                    // OF-007 (11th audit): Only zero entry on success to allow retry
-                    (bool unlockSuccess,) =
-                        _forage.call(abi.encodeWithSelector(_SEL_UNLOCK, entry.depositor, forageToUnlock));
-                    if (unlockSuccess) {
-                        _forageLockedPerEntry[qId] = 0;
-                    } else {
-                        emit ForageUnlockFailed(entry.depositor, forageToUnlock);
-                    }
-                }
-            }
-            _totalQueuedRiskusd -= entry.riskusdAmount;
-            unchecked {
-                availCapacity -= entry.riskusdAmount;
-            }
-            unchecked {
-                availTierCapacity -= entry.riskusdAmount;
-            }
-
-            unchecked {
-                ++processedCount;
-            }
-
-            emit QueueProcessed(lane[i], entry.depositor, entry.riskusdAmount, tier);
+            if (i == result.nextHead && step == QueueLaneStep.TERMINAL) result.nextHead = i + 1;
             unchecked {
                 ++i;
                 ++scanned;
             }
         }
+        if (i < lane.length) {
+            _tierPriorityScanCursor[config.tier] = i;
+            if (result.incompleteQueueId == 0) result.incompleteQueueId = lane[i];
+        } else {
+            _tierPriorityScanCursor[config.tier] = result.nextHead;
+            if (result.nextHead < startCursor && result.incompleteQueueId == 0) {
+                result.incompleteQueueId = lane[result.nextHead];
+                _tierPriorityScanCursor[config.tier] = result.nextHead;
+            }
+        }
+    }
+
+    function _processStandardLane(QueueLaneConfig memory config) private {
+        QueueLaneResult memory result;
+        uint256 nextId = _nextQueueId;
+        uint256 lastId = nextId - 1;
+        uint256 cursor = _tierStandardScanCursor[config.tier];
+        if (cursor == 0 || cursor >= lastId) {
+            uint256 firstId = _firstStandardCandidateId(config.tier);
+            if (firstId == 0) return;
+            cursor = firstId - 1;
+        }
+        uint256 scanned;
+        while (cursor < lastId && scanned < config.budget) {
+            uint256 queueId = cursor + 1;
+            QueueEntry storage entry = _queueEntries[queueId];
+            unchecked {
+                ++scanned;
+            }
+            if (entry.depositor == address(0) || entry.tier != config.tier || entry.priority) {
+                cursor = queueId;
+                continue;
+            }
+            bool demoted = _demotedStandardHeapIndexPlusOne[queueId] != 0;
+            if (_processLaneEntry(queueId, demoted, config, result) == QueueLaneStep.STOP) {
+                result.incompleteQueueId = queueId;
+                cursor = 0;
+                break;
+            }
+            cursor = queueId;
+        }
+        _tierStandardScanCursor[config.tier] = cursor >= lastId ? 0 : cursor;
+    }
+
+    function _firstStandardCandidateId(uint8 tier) private view returns (uint256 firstId) {
+        uint256 head = _tierStandardHead[tier];
+        uint256[] storage standard = _tierStandardQueue[tier];
+        if (head < standard.length) firstId = standard[head];
+        uint256[] storage demoted = _demotedStandardHeap[tier];
+        if (demoted.length != 0 && (firstId == 0 || demoted[0] < firstId)) firstId = demoted[0];
+    }
+
+    function _processLaneEntry(
+        uint256 queueId,
+        bool demoted,
+        QueueLaneConfig memory config,
+        QueueLaneResult memory result
+    ) internal returns (QueueLaneStep) {
+        QueueEntry storage entry = _queueEntries[queueId];
+        if ((config.isPriorityLane && !entry.priority) || entry.processed || entry.cancelled || _isExpired(entry)) {
+            if (demoted) _removeDemotedStandardEntry(config.tier, queueId);
+            return QueueLaneStep.TERMINAL;
+        }
+        if (_isBlocked(entry.depositor)) {
+            emit QueueEntrySkippedBlocked(queueId, entry.depositor);
+            return QueueLaneStep.ADVANCE;
+        }
+        if (!IAllowlist(allowlist()).isAllowed(entry.depositor)) {
+            emit QueueEntrySkippedLapsed(config.isPriorityLane ? 1 : 0, entry.depositor);
+            return QueueLaneStep.ADVANCE;
+        }
+        if (!_hasDepositorBounds(entry)) return QueueLaneStep.STOP;
+        uint256 remainingRiskusd = _remainingQueueRiskusd(queueId, entry);
+        if (remainingRiskusd == 0) revert InvalidQueueEntry();
+        if (
+            !config.isPriorityLane
+                && (remainingRiskusd > config.availCapacity || remainingRiskusd > config.availTierCapacity)
+        ) return QueueLaneStep.STOP;
+        if (!_depositorMinimumSharesReachable(config.tier, queueId, entry)) {
+            _cancelUnprocessableEntry(queueId, entry);
+            return QueueLaneStep.TERMINAL;
+        }
+        if (config.isPriorityLane && !_callForageLockAction(1, queueId, entry.depositor, remainingRiskusd, 0)) {
+            bytes4 reason = PriorityLockUnavailable.selector;
+            emit PriorityPriceUnavailable(queueId, entry.depositor, reason);
+            _demotePriorityEntry(queueId, entry, reason);
+            return QueueLaneStep.TERMINAL;
+        }
+        return _processLaneFill(queueId, demoted, entry, config, result);
+    }
+
+    function _processLaneFill(
+        uint256 queueId,
+        bool demoted,
+        QueueEntry storage entry,
+        QueueLaneConfig memory config,
+        QueueLaneResult memory result
+    ) internal returns (QueueLaneStep) {
+        QueueEntryProgress memory progress = _queueEntryProgressFor(queueId, entry);
+        uint256 fillAmount = progress.remainingRiskusd;
+        if (config.availCapacity < fillAmount) fillAmount = config.availCapacity;
+        if (config.availTierCapacity < fillAmount) fillAmount = config.availTierCapacity;
+        if (fillAmount == 0) return QueueLaneStep.STOP;
+        (bool minimumReachable, uint256 minimumFillShares) = _partialFillMinimumShares(
+            config.tier, progress.remainingRiskusd, progress.remainingMinimumShares, fillAmount
+        );
+        if (!minimumReachable) return QueueLaneStep.STOP;
+        uint256 sharesMinted = _depositQueuedRiskusd(config.tier, fillAmount, entry.depositor, minimumFillShares);
+        uint256 remainingAfterFill = _recordQueueFill(queueId, entry, fillAmount, sharesMinted);
+        if (config.isPriorityLane) _reducePriorityLock(queueId, entry, progress.remainingRiskusd, remainingAfterFill);
+        unchecked {
+            config.availCapacity -= fillAmount;
+            config.availTierCapacity -= fillAmount;
+            ++result.processedCount;
+        }
+        _emitQueueProcessed(QueueProcessedData(queueId, entry.depositor, fillAmount, config.tier));
+        if (fillAmount < progress.remainingRiskusd) return QueueLaneStep.STOP;
+        if (demoted) _removeDemotedStandardEntry(config.tier, queueId);
+        return QueueLaneStep.TERMINAL;
+    }
+
+    function _emitQueueProcessed(QueueProcessedData memory eventData) private {
+        emit QueueProcessed(eventData.queueId, eventData.depositor, eventData.riskusdProcessed, eventData.tier);
     }
 
     /// @dev OF-M04: Iteration cap prevents DoS via dead entry accumulation.
@@ -644,15 +958,40 @@ contract StakingQueueModule is
         }
     }
 
-    function _processScanLimit(uint256 budget, bool isPriorityLane) internal pure returns (uint256) {
-        if (!isPriorityLane) return budget;
+    function _processScanLimit(uint256 budget) internal pure returns (uint256) {
         uint256 lookahead = PRIORITY_LOOKAHEAD_SCAN_LIMIT;
         if (budget > type(uint256).max - lookahead) return type(uint256).max;
         return budget + lookahead;
     }
 
+    function _cancelUnprocessableEntry(uint256 queueId, QueueEntry storage entry) internal {
+        uint256 amount = _remainingQueueRiskusd(queueId, entry);
+        _removeDemotedStandardEntry(entry.tier, queueId);
+        entry.cancelled = true;
+        _clearQueueEntryProgress(queueId);
+        if (entry.priority) _priorityRiskusdQueued[entry.depositor] -= amount;
+        _totalQueuedRiskusd -= amount;
+
+        _releaseForageLock(queueId, entry.depositor);
+
+        _riskusd.safeTransfer(entry.depositor, amount);
+        emit QueueCancelled(queueId, entry.depositor, amount);
+    }
+
+    function _demotePriorityEntry(uint256 queueId, QueueEntry storage entry, bytes4 reason) internal {
+        uint256 remainingRiskusd = _remainingQueueRiskusd(queueId, entry);
+        if (!entry.priority || remainingRiskusd == 0) revert InvalidQueueEntry();
+        entry.priority = false;
+        _priorityRiskusdQueued[entry.depositor] -= remainingRiskusd;
+        _insertDemotedStandardEntry(entry.tier, queueId);
+        _tierStandardScanCursor[entry.tier] = 0;
+        emit QueueEntryDemoted(queueId, entry.depositor, remainingRiskusd, reason);
+        _releaseForageLock(queueId, entry.depositor);
+    }
+
     function _depositQueuedRiskusd(uint8 tier, uint256 riskusdAmount, address depositor, uint256 depositorMinimumShares)
         internal
+        returns (uint256 sharesMinted)
     {
         address tierVaultAddr = _tierVaults[tier];
         uint256 minimumShares = _minimumDepositShares(tierVaultAddr, riskusdAmount);
@@ -671,7 +1010,7 @@ contract StakingQueueModule is
             }
         }
         if (returnData.length < 32) revert InvalidQueueEntry();
-        uint256 sharesMinted = abi.decode(returnData, (uint256));
+        sharesMinted = abi.decode(returnData, (uint256));
         if (sharesMinted == 0) revert ZeroAmount();
         if (sharesMinted < minimumShares) revert DepositOutputBelowMinimum(sharesMinted, minimumShares);
 
@@ -680,24 +1019,24 @@ contract StakingQueueModule is
     }
 
     function _minimumDepositShares(address vaultAddr, uint256 riskusdAmount) internal view returns (uint256) {
+        if (vaultAddr.code.length == 0) revert CapacityProbeFailed(vaultAddr);
         (bool previewOk, bytes memory previewData) =
             vaultAddr.staticcall(abi.encodeWithSelector(_SEL_PREVIEW_DEPOSIT, riskusdAmount));
-        if (previewOk && previewData.length >= 32) return abi.decode(previewData, (uint256));
-
-        uint256 assetsBefore = _readLegitimateAssets(vaultAddr);
-        (bool success, bytes memory data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_TOTAL_SUPPLY));
-        if (!success || data.length < 32) return riskusdAmount;
-        uint256 supplyBefore = abi.decode(data, (uint256));
-        if (assetsBefore == 0 || supplyBefore == 0) return riskusdAmount;
-        return Math.mulDiv(riskusdAmount, supplyBefore, assetsBefore);
+        if (!previewOk || previewData.length != 32) revert CapacityProbeFailed(vaultAddr);
+        return abi.decode(previewData, (uint256));
     }
 
     function _hasDepositorBounds(QueueEntry storage entry) internal view returns (bool) {
         return entry.minimumShares != 0 && entry.deadline != 0;
     }
 
-    function _depositorMinimumSharesReachable(uint8 tier, QueueEntry storage entry) internal view returns (bool) {
-        return _minimumSharesReachable(tier, entry.minimumShares, entry.riskusdAmount);
+    function _depositorMinimumSharesReachable(uint8 tier, uint256 queueId, QueueEntry storage entry)
+        internal
+        view
+        returns (bool)
+    {
+        QueueEntryProgress memory progress = _queueEntryProgressFor(queueId, entry);
+        return _minimumSharesReachable(tier, progress.remainingMinimumShares, progress.remainingRiskusd);
     }
 
     function _minimumSharesReachable(uint8 tier, uint256 minimumShares, uint256 riskusdAmount)
@@ -712,51 +1051,101 @@ contract StakingQueueModule is
         return entry.deadline != 0 && block.timestamp > entry.deadline;
     }
 
-    function _queueLockerBalance(address depositor) internal view returns (bool success, uint256 balance) {
-        (bool ok, bytes memory data) =
-            _forage.staticcall(abi.encodeWithSelector(_SEL_LOCKER_BALANCE, depositor, address(this)));
-        if (!ok || data.length < 32) return (false, 0);
-        return (true, abi.decode(data, (uint256)));
+    function _requireForageLockAccounting() internal view {
+        if (!_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized) {
+            revert LegacyForageLockAccountingUnsupported();
+        }
     }
 
-    function _getLockupInfo(address vaultAddr, address depositor)
+    function _callForageLockAction(
+        uint8 action,
+        uint256 queueId,
+        address depositor,
+        uint256 amount,
+        uint8 admissionMode
+    ) private returns (bool result) {
+        (bool success, bytes memory data) = address(this).call(
+            abi.encodeWithSelector(_SEL_QUEUE_FORAGE_LOCK_ACTION, action, queueId, depositor, amount, admissionMode)
+        );
+        if (!success) {
+            assembly {
+                revert(add(data, 32), mload(data))
+            }
+        }
+        if (data.length != 32) revert InvalidQueueEntry();
+        result = abi.decode(data, (bool));
+    }
+
+    function _releaseForageLock(uint256 queueId, address depositor) private {
+        _callForageLockAction(3, queueId, depositor, 0, 0);
+    }
+
+    function _getLockupInfo(address vaultAddr, uint8 tier, address depositor)
         internal
         view
         returns (bool hasLockup, bool isExpired, bool autoRenew, bool hasPendingWithdrawal, uint256 shares)
     {
+        _requireLiveTierVault(vaultAddr, tier);
         (bool success, bytes memory data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_LOCKUPS, depositor));
-        if (success && data.length >= 160) {
-            (hasLockup, isExpired, autoRenew, hasPendingWithdrawal, shares) =
-                abi.decode(data, (bool, bool, bool, bool, uint256));
+        if (success) {
+            if (data.length != 160) revert TierVaultProbeFailed(tier, vaultAddr, _SEL_LOCKUPS);
+            uint256 rawHasLockup;
+            uint256 rawExpired;
+            uint256 rawAutoRenew;
+            uint256 rawPending;
+            assembly {
+                rawHasLockup := mload(add(data, 32))
+                rawExpired := mload(add(data, 64))
+                rawAutoRenew := mload(add(data, 96))
+                rawPending := mload(add(data, 128))
+                shares := mload(add(data, 160))
+            }
+            if (rawHasLockup > 1 || rawExpired > 1 || rawAutoRenew > 1 || rawPending > 1) {
+                revert TierVaultProbeFailed(tier, vaultAddr, _SEL_LOCKUPS);
+            }
+            hasLockup = rawHasLockup == 1;
+            isExpired = rawExpired == 1;
+            autoRenew = rawAutoRenew == 1;
+            hasPendingWithdrawal = rawPending == 1;
             return (hasLockup, isExpired, autoRenew, hasPendingWithdrawal, shares);
         }
 
-        (success, data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_IS_LOCKUP_EXPIRED, depositor));
-        if (success && data.length >= 32) {
-            isExpired = abi.decode(data, (bool));
-        }
-
-        (success, data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_AUTO_RENEW, depositor));
-        if (success && data.length >= 32) {
-            autoRenew = abi.decode(data, (bool));
-        }
-
-        (success, data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_HAS_PENDING, depositor));
-        if (success && data.length >= 32) {
-            hasPendingWithdrawal = abi.decode(data, (bool));
-        }
-
-        (success, data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_LOCKUP_SHARES, depositor));
-        if (success && data.length >= 32) {
-            shares = abi.decode(data, (uint256));
-        }
+        isExpired = _readTierVaultBool(vaultAddr, tier, depositor, _SEL_IS_LOCKUP_EXPIRED);
+        autoRenew = _readTierVaultBool(vaultAddr, tier, depositor, _SEL_AUTO_RENEW);
+        hasPendingWithdrawal = _readTierVaultBool(vaultAddr, tier, depositor, _SEL_HAS_PENDING);
+        shares = _readTierVaultAccountValue(vaultAddr, tier, depositor, _SEL_LOCKUP_SHARES);
 
         // OF-022: Only consider depositor as having a lockup if they actually hold shares
         hasLockup = (isExpired || hasPendingWithdrawal) && shares > 0;
     }
 
+    function _readTierVaultBool(address vaultAddr, uint8 tier, address account, bytes4 selector)
+        private
+        view
+        returns (bool value)
+    {
+        (bool success, bytes memory data) = vaultAddr.staticcall(abi.encodeWithSelector(selector, account));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, vaultAddr, selector);
+        uint256 raw;
+        assembly {
+            raw := mload(add(data, 32))
+        }
+        if (raw > 1) revert TierVaultProbeFailed(tier, vaultAddr, selector);
+        return raw == 1;
+    }
+
+    function _readTierVaultAccountValue(address vaultAddr, uint8 tier, address account, bytes4 selector)
+        private
+        view
+        returns (uint256 value)
+    {
+        (bool success, bytes memory data) = vaultAddr.staticcall(abi.encodeWithSelector(selector, account));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, vaultAddr, selector);
+        value = abi.decode(data, (uint256));
+    }
+
     function _requireAuthorizedExpiredLockupProcessor(address caller, address[] calldata depositors) internal view {
-        if (caller == owner() || _expiredLockupProcessors[caller]) return;
+        if (caller == IQueueModuleOwner(address(this)).owner() || _expiredLockupProcessors[caller]) return;
         for (uint256 i; i < depositors.length;) {
             if (depositors[i] != caller) revert UnauthorizedLockupProcessor(caller);
             unchecked {
@@ -767,7 +1156,11 @@ contract StakingQueueModule is
 
     function _syncTierVaultsFromRegistry() internal returns (VaultConfig memory config) {
         if (_vaultId == 0) revert VaultIdNotSet();
-        config = VaultRegistry(_vaultRegistry).getVault(_vaultId);
+        address registry = _vaultRegistry;
+        if (registry.code.length == 0) revert VaultRegistryUnavailable(registry);
+        config = VaultRegistry(registry).getVault(_vaultId);
+        if (config.vaultId == 0) revert VaultIdNotSet();
+        _preflightTierVaults(config);
 
         bool needsSync;
         for (uint256 i; i < 4;) {
@@ -790,6 +1183,57 @@ contract StakingQueueModule is
             _tierVaults[i] = tierVaults[i];
             unchecked {
                 ++i;
+            }
+        }
+    }
+
+    function _preflightTierVaults(VaultConfig memory config) internal view {
+        for (uint8 i; i < 4; ++i) {
+            address tierVault = config.tierVaults[i];
+            if (tierVault == address(0)) {
+                if (config.status != VaultStatus.WindingDown) revert TierVaultUnavailable(i, tierVault);
+            } else {
+                _requireLiveTierVault(tierVault, i);
+            }
+        }
+    }
+
+    function _requireLiveTierVault(address tierVault, uint8 tier) internal view {
+        if (tierVault == address(0) || tierVault.code.length == 0) {
+            revert TierVaultUnavailable(tier, tierVault);
+        }
+        _readTierVaultValue(tierVault, tier, _SEL_TOTAL_SUPPLY);
+        _readTierVaultValue(tierVault, tier, _SEL_TOTAL_ASSETS);
+        _readTierVaultValue(tierVault, tier, _SEL_LEGITIMATE_ASSETS);
+    }
+
+    function _readTierVaultValue(address tierVault, uint8 tier, bytes4 selector)
+        internal
+        view
+        returns (uint256 value)
+    {
+        if (tierVault.code.length == 0) revert TierVaultUnavailable(tier, tierVault);
+        (bool success, bytes memory data) = tierVault.staticcall(abi.encodeWithSelector(selector));
+        if (!success || data.length != 32) revert TierVaultProbeFailed(tier, tierVault, selector);
+        value = abi.decode(data, (uint256));
+    }
+
+    function _currentVaultConfig() internal view returns (VaultConfig memory config) {
+        if (_vaultId == 0) revert VaultIdNotSet();
+        address registry = _vaultRegistry;
+        if (registry.code.length == 0) revert VaultRegistryUnavailable(registry);
+        config = VaultRegistry(registry).getVault(_vaultId);
+        if (config.vaultId == 0) revert VaultIdNotSet();
+        _validateQueueTierSlots(config);
+    }
+
+    function _validateQueueTierSlots(VaultConfig memory config) internal view {
+        for (uint8 i; i < 4; ++i) {
+            address tierVault = config.tierVaults[i];
+            if (tierVault == address(0)) {
+                if (config.status != VaultStatus.WindingDown) revert TierVaultUnavailable(i, tierVault);
+            } else if (tierVault.code.length == 0) {
+                revert TierVaultUnavailable(i, tierVault);
             }
         }
     }
@@ -862,15 +1306,16 @@ contract StakingQueueModule is
     function _normalizeOraclePrice(uint256 price, uint8 decimals_) internal pure returns (uint256) {
         if (decimals_ == 6) return price;
         if (decimals_ > 6) return price / (10 ** (decimals_ - 6));
-        return price * (10 ** (6 - decimals_));
+        uint256 scale = 10 ** (6 - decimals_);
+        if (price > MAX_FIXED_FORAGE_PRICE_USD / scale) return 0;
+        return price * scale;
     }
 
     function _combinedTotalAssets() internal view returns (uint256 totalAssets) {
-        for (uint256 i; i < 4;) {
-            totalAssets += IQueueModuleAtRiskBackingView(_tierVaults[i]).totalAssets();
-            unchecked {
-                ++i;
-            }
+        VaultConfig memory config = _currentVaultConfig();
+        for (uint8 i; i < 4; ++i) {
+            address tierVault = config.tierVaults[i];
+            if (tierVault != address(0)) totalAssets += _readTierVaultValue(tierVault, i, _SEL_TOTAL_ASSETS);
         }
     }
 
@@ -880,8 +1325,9 @@ contract StakingQueueModule is
     }
 
     function _readLegitimateAssets(address vaultAddr) internal view returns (uint256) {
+        if (vaultAddr.code.length == 0) revert CapacityProbeFailed(vaultAddr);
         (bool success, bytes memory data) = vaultAddr.staticcall(abi.encodeWithSelector(_SEL_LEGITIMATE_ASSETS));
-        if (!success || data.length < 32) revert CapacityProbeFailed(vaultAddr);
+        if (!success || data.length != 32) revert CapacityProbeFailed(vaultAddr);
         return abi.decode(data, (uint256));
     }
 
@@ -892,17 +1338,18 @@ contract StakingQueueModule is
     }
 
     function combinedStaked() public view returns (uint256) {
+        VaultConfig memory config = _currentVaultConfig();
         uint256 total;
-        for (uint256 i; i < 4;) {
-            total += _readLegitimateAssets(_tierVaults[i]);
-            unchecked {
-                ++i;
-            }
+        for (uint8 i; i < 4; ++i) {
+            address tierVault = config.tierVaults[i];
+            if (tierVault != address(0)) total += _readTierVaultValue(tierVault, i, _SEL_LEGITIMATE_ASSETS);
         }
         return total;
     }
 
     function _availableTierDepositCapacityForCap(uint8 tier, uint256 vaultCap) internal view returns (uint256) {
+        VaultConfig memory config = _currentVaultConfig();
+        if (config.tierVaults[tier] == address(0)) return 0;
         uint256 tierCap = _effectiveTierDepositCapForCap(tier, vaultCap);
         uint256 staked = _tierStaked(tier);
         if (staked >= tierCap) return 0;
@@ -910,7 +1357,10 @@ contract StakingQueueModule is
     }
 
     function _tierStaked(uint8 tier) internal view returns (uint256) {
-        return _readLegitimateAssets(_tierVaults[tier]);
+        VaultConfig memory config = _currentVaultConfig();
+        address tierVault = config.tierVaults[tier];
+        if (tierVault == address(0)) return 0;
+        return _readTierVaultValue(tierVault, tier, _SEL_LEGITIMATE_ASSETS);
     }
 
     function _effectiveTierDepositCapForCap(uint8 tier, uint256 vaultCap) internal view returns (uint256) {
@@ -935,9 +1385,75 @@ contract StakingQueueModule is
 
     function _isBlocked(address account) internal view returns (bool) {
         address blocklist_ = _blocklist;
-        return blocklist_ != address(0) && IBlocklist(blocklist_).isBlocked(account);
+        if (blocklist_ == address(0)) revert BlocklistUnavailable(blocklist_);
+        return IBlocklist(blocklist_).isBlocked(account);
     }
 
-    /// @dev The module is delegatecall-only; its own upgrade entrypoint stays owner-gated for defence in depth.
-    function _authorizeUpgrade(address) internal override {}
+    function _insertDemotedStandardEntry(uint8 tier, uint256 queueId) internal {
+        if (_demotedStandardHeapIndexPlusOne[queueId] != 0) revert InvalidQueueEntry();
+        uint256[] storage heap = _demotedStandardHeap[tier];
+        uint256 index = heap.length;
+        heap.push(queueId);
+        _demotedStandardHeapIndexPlusOne[queueId] = index + 1;
+        _siftUpDemotedStandardHeap(tier, index);
+    }
+
+    function _removeDemotedStandardEntry(uint8 tier, uint256 queueId) internal {
+        uint256 indexPlusOne = _demotedStandardHeapIndexPlusOne[queueId];
+        if (indexPlusOne == 0) return;
+        uint256[] storage heap = _demotedStandardHeap[tier];
+        uint256 index = indexPlusOne - 1;
+        if (index >= heap.length || heap[index] != queueId) revert InvalidQueueEntry();
+        uint256 lastIndex = heap.length - 1;
+        if (index != lastIndex) {
+            uint256 movedQueueId = heap[lastIndex];
+            heap[index] = movedQueueId;
+            _demotedStandardHeapIndexPlusOne[movedQueueId] = index + 1;
+        }
+        heap.pop();
+        delete _demotedStandardHeapIndexPlusOne[queueId];
+        if (index < heap.length) _repairDemotedStandardHeap(tier, index);
+    }
+
+    function _repairDemotedStandardHeap(uint8 tier, uint256 index) internal {
+        uint256[] storage heap = _demotedStandardHeap[tier];
+        if (index > 0 && heap[index] < heap[(index - 1) / 2]) {
+            _siftUpDemotedStandardHeap(tier, index);
+        } else {
+            _siftDownDemotedStandardHeap(tier, index);
+        }
+    }
+
+    function _siftUpDemotedStandardHeap(uint8 tier, uint256 index) internal {
+        uint256[] storage heap = _demotedStandardHeap[tier];
+        uint256 queueId = heap[index];
+        while (index > 0) {
+            uint256 parent = (index - 1) / 2;
+            uint256 parentQueueId = heap[parent];
+            if (parentQueueId <= queueId) break;
+            heap[index] = parentQueueId;
+            _demotedStandardHeapIndexPlusOne[parentQueueId] = index + 1;
+            index = parent;
+        }
+        heap[index] = queueId;
+        _demotedStandardHeapIndexPlusOne[queueId] = index + 1;
+    }
+
+    function _siftDownDemotedStandardHeap(uint8 tier, uint256 index) internal {
+        uint256[] storage heap = _demotedStandardHeap[tier];
+        uint256 queueId = heap[index];
+        uint256 length = heap.length;
+        while (index < length / 2) {
+            uint256 left = index * 2 + 1;
+            uint256 right = left + 1;
+            uint256 child = right < length && heap[right] < heap[left] ? right : left;
+            uint256 childQueueId = heap[child];
+            if (queueId <= childQueueId) break;
+            heap[index] = childQueueId;
+            _demotedStandardHeapIndexPlusOne[childQueueId] = index + 1;
+            index = child;
+        }
+        heap[index] = queueId;
+        _demotedStandardHeapIndexPlusOne[queueId] = index + 1;
+    }
 }
