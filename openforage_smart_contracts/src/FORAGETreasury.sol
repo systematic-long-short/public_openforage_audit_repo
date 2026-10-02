@@ -58,6 +58,7 @@ contract FORAGETreasury is
     error AllowlistNotForageTokenProvider(address candidate, address activeAllowlist, address pendingAllowlist);
     error VestingWalletNotRecorded(address wallet);
     error VestingWalletAllowlistMismatch(address wallet, address expected, address actual);
+    error PartnershipSystemRegistrarNotReady(address allowlist, address treasury);
 
     uint256 public constant AGENT_PROGRAM_CAP = 30_000_000e18;
     uint256 public constant DEPOSITOR_PROGRAM_CAP = 10_000_000e18;
@@ -246,6 +247,7 @@ contract FORAGETreasury is
 
         address distributionAllowlist = allowlist();
         _requireTokenAllowlistProvider(distributionAllowlist, false);
+        _requireSystemRegistrarReady(distributionAllowlist);
         wallet = address(
             new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this), distributionAllowlist)
         );
@@ -456,6 +458,17 @@ contract FORAGETreasury is
         if (candidateAllowlist == activeAllowlist || candidateAllowlist == pendingAllowlist) return;
         if (allowInitialBinding && activeAllowlist == address(0) && pendingAllowlist == address(0)) return;
         revert AllowlistNotForageTokenProvider(candidateAllowlist, activeAllowlist, pendingAllowlist);
+    }
+
+    function _requireSystemRegistrarReady(address allowlist_) private view {
+        if (allowlist_.code.length == 0) revert PartnershipSystemRegistrarNotReady(allowlist_, address(this));
+        bool ready;
+        try IAllowlistSystemRegistrar(allowlist_).isSystemRegistrar(address(this)) returns (bool registered) {
+            ready = registered;
+        } catch {
+            revert PartnershipSystemRegistrarNotReady(allowlist_, address(this));
+        }
+        if (!ready) revert PartnershipSystemRegistrarNotReady(allowlist_, address(this));
     }
 
     function _authorizeUpgrade(address) internal override freshOnly onlyOwner {}

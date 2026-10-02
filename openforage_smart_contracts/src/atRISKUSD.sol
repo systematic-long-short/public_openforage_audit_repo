@@ -15,6 +15,7 @@ import "./interfaces/IBlocklist.sol";
 import "./interfaces/IAllowlist.sol";
 import "./interfaces/IVaultRegistry.sol";
 import "./interfaces/IUSDCTreasuryYieldClaims.sol";
+import "./interfaces/IRISKUSDSettlement.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import {AtRiskUSDStateModule} from "./modules/AtRiskUSDStateModule.sol";
@@ -57,11 +58,13 @@ contract atRISKUSD is
     error NotPendingStakingQueue();
     error LossPending(); // OF-001 (11th audit)
     error CustodianSettlementPending();
+    error CustodianGetterUnavailable(address vault);
     error FinalizeDelayNotElapsed(); // OF-002 (11th audit)
     error ProposalExpired(); // OF-002 (11th audit)
     error NoPendingForageGovernor(); // OF-15-005
     error YieldSourceUnreachable(); // OF-16-019
     error CannotOverrideDuringActiveLoss(); // OF-18-004
+    error MalformedLossPendingReturn(address vault, uint256 value);
     error ExchangeRateDecreased(uint256 beforeAssets, uint256 afterAssets);
     error WeeklyWithdrawalCapExceeded(uint256 requested, uint256 remaining);
     error CapTighteningOnly();
@@ -370,7 +373,7 @@ contract atRISKUSD is
         if (
             paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
                 || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
-                || !_isLossClearForView() || _hasZeroAssetLegacySupply()
+                || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_underlyingTransferAvailableInView(msg.sender)
         ) return 0;
         return super.maxDeposit(receiver);
     }
@@ -380,7 +383,7 @@ contract atRISKUSD is
         if (
             paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
                 || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
-                || !_isLossClearForView() || _hasZeroAssetLegacySupply()
+                || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_underlyingTransferAvailableInView(msg.sender)
         ) return 0;
         return super.maxMint(receiver);
     }
@@ -461,7 +464,7 @@ contract atRISKUSD is
         _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.cancelWithdrawal, ()));
     }
 
-    function recoverPendingWithdrawal() external onlyFreshAllowedCaller nonReentrant {
+    function recoverPendingWithdrawal() external onlyFreshDeployment nonReentrant {
         _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.recoverPendingWithdrawal, ()));
     }
 
@@ -907,24 +910,6 @@ contract atRISKUSD is
         return _legitimateAssets;
     }
 
-    function _unfundedYieldClaim() private view returns (uint256 claim) {
-        address source = _yieldSource;
-        if (source.code.length == 0) revert YieldClaimsUnavailable(source);
-        IUSDCTreasuryYieldClaims claims = IUSDCTreasuryYieldClaims(source);
-        bool ready;
-        try claims.yieldClaimsReady() returns (bool value) {
-            ready = value;
-        } catch {
-            revert YieldClaimsUnavailable(source);
-        }
-        if (!ready) revert YieldClaimsNotReady(source);
-        try claims.unfundedYieldClaim(address(this)) returns (uint256 value) {
-            claim = value;
-        } catch {
-            revert YieldClaimsUnavailable(source);
-        }
-    }
-
     function _sharesWithinAssetCap(uint256 cap, uint256 shareLimit) private view returns (uint256 shares) {
         uint256 assets = totalAssets();
         if (cap >= assets) return shareLimit;
@@ -970,7 +955,7 @@ contract atRISKUSD is
         assembly {
             lossPendingValue := mload(add(data, 32))
         }
-        if (lossPendingValue > 1) return true;
+        if (lossPendingValue > 1) revert MalformedLossPendingReturn(vault, lossPendingValue);
         if (lossPendingValue == 1) revert CannotOverrideDuringActiveLoss();
         if (_custodianSettlementPending(vault)) revert CustodianSettlementPending();
         return false;
@@ -1178,7 +1163,7 @@ contract atRISKUSD is
 
     function _custodianSettlementClearForView(address vault) private view returns (bool) {
         (bool ok, bytes memory data) = vault.staticcall(abi.encodeWithSignature("custodian()"));
-        if (!ok || data.length < 32) return true;
+        if (!ok || data.length < 32) return false;
         uint256 rawCustodian;
         assembly {
             rawCustodian := mload(add(data, 32))
@@ -1195,12 +1180,34 @@ contract atRISKUSD is
         return pausedState == 0;
     }
 
+    function _underlyingBoolInView(bytes memory callData) private view returns (bool readable, bool value) {
+        (bool ok, bytes memory data) = asset().staticcall(callData);
+        if (!ok || data.length < 32) return (false, false);
+        uint256 raw;
+        assembly {
+            raw := mload(add(data, 32))
+        }
+        if (raw > 1) return (false, false);
+        return (true, raw == 1);
+    }
+
+    function _underlyingTransferAvailableInView(address sender) private view returns (bool) {
+        (bool readable, bool underlyingPaused) =
+            _underlyingBoolInView(abi.encodeWithSelector(IRISKUSDSettlement.paused.selector));
+        if (!readable) return false;
+        if (!underlyingPaused) return true;
+        bool transferExempt;
+        (readable, transferExempt) =
+            _underlyingBoolInView(abi.encodeWithSelector(IRISKUSDSettlement.isTransferExempt.selector, sender));
+        return readable && transferExempt;
+    }
+
     function _canWithdrawInView(address owner_) private view returns (bool) {
         bool selfExit = owner_ == msg.sender;
         return owner_ != address(0) && !paused() && _cooldownPeriod == 0 && block.timestamp >= _lockExpiry[owner_]
             && (selfExit || _isAllowedAccount(msg.sender)) && (selfExit || _isAllowedAccount(owner_))
             && !_isBlockedForView(msg.sender) && !_isBlockedForView(owner_) && _isLossClearForView()
-            && !_hasZeroAssetLegacySupply();
+            && !_hasZeroAssetLegacySupply() && _underlyingTransferAvailableInView(address(this));
     }
 
     function _sharesWithdrawableInView(address owner_) private view returns (uint256 shares) {

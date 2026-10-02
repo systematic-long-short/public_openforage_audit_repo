@@ -1122,14 +1122,18 @@ function evaluateAllowancePositiveControl(name, tokenSource, initialState, actio
 
 function runSetupControls() {
   const tokenPath = path.join(SRC_DIR, "ForageToken.sol");
+  const riskusdPath = path.join(SRC_DIR, "RISKUSD.sol");
   const deployPath = DEPLOY_SCRIPT;
   const token = fs.readFileSync(tokenPath, "utf8");
+  const riskusd = fs.readFileSync(riskusdPath, "utf8");
   const deploy = fs.readFileSync(deployPath, "utf8");
   const positiveFailures = [];
   checkForageInitialization(token, tokenPath, positiveFailures);
   checkForageGuard(token, tokenPath, positiveFailures);
   checkForageNormalCalls(token, tokenPath, positiveFailures);
   checkForageSetterGates(token, tokenPath, positiveFailures);
+  checkRiskusdFreshOnly(riskusd, riskusdPath, positiveFailures);
+  checkRiskusdAllowancePolicy(riskusd, riskusdPath, positiveFailures);
   checkDeploySetup(deploy, deployPath, positiveFailures);
   if (positiveFailures.length > 0) throw new Error(`real-source setup positive failed: ${positiveFailures.join("; ")}`);
   const allowancePositiveControls = [
@@ -1140,6 +1144,17 @@ function runSetupControls() {
   ];
   if (allowancePositiveControls.some((control) => !control.predicateReached || !control.accepted)) {
     throw new Error("allowance positive controls did not pass their evaluated source predicates");
+  }
+  const riskusdAllowanceControls = [
+    evaluateRiskusdAllowanceControl("first-approval-from-zero", riskusd,
+      {allowance: 0, marker: false}, [{operation: "approve", value: 60}], true),
+    evaluateRiskusdAllowanceControl("zero-reset-after-live-allowance", riskusd,
+      {allowance: 40, marker: true}, [{operation: "approve", value: 0}, {operation: "approve", value: 60}], true),
+    evaluateRiskusdAllowanceControl("spent-old-allowance-still-requires-zero", riskusd,
+      {allowance: 40, marker: true}, [{operation: "transferFrom", value: 40}, {operation: "approve", value: 60}], false),
+  ];
+  if (riskusdAllowanceControls.some((control) => !control.predicateReached || control.accepted !== control.expectedAccepted)) {
+    throw new Error("RISKUSD allowance controls did not match their evaluated source predicates");
   }
 
   const controls = [];
@@ -1182,8 +1197,8 @@ function runSetupControls() {
   const rotationModulePath = path.join(MODULES_DIR, "ForageTokenStateModule.sol");
   const rotationModule = fs.readFileSync(rotationModulePath, "utf8");
   const schema2Status = replaceSetupText(rotationModule,
-    "state.inventoryVersion == 1 && state.projectionSchemaVersion == 3 && state.epochs.length != 0;",
-    "state.inventoryVersion == 1 && state.projectionSchemaVersion == 2 && state.epochs.length != 0;",
+    "state.inventoryVersion == 1 && state.projectionSchemaVersion == 3\n            && state.vestingMembershipSchemaVersion == 1 && state.epochs.length != 0;",
+    "state.inventoryVersion == 1 && state.projectionSchemaVersion == 2\n            && state.vestingMembershipSchemaVersion == 1 && state.epochs.length != 0;",
     "pre-marker schema 2 status control");
   controls.push(expectSetupRefusal("pre-marker-schema-2-refusal", (failures) =>
     checkForageFreshOnly(token, schema2Status, tokenPath, rotationModulePath, failures),
@@ -1323,10 +1338,76 @@ function runSetupControls() {
     "initializer Blocklist exception");
   controls.push(expectSetupRefusal("forage-blocklist-bootstrap", (failures) => checkForageGuard(missingBootstrap, tokenPath, failures)));
 
+  const riskusdApproveGuard = replaceSetupText(riskusd,
+    "            _requireExplicitAllowanceReset(owner_, spender, value);\n",
+    "",
+    "RISKUSD approval reset guard");
+  controls.push(expectSetupRefusal("riskusd-approve-replacement-guard", (failures) =>
+    checkRiskusdAllowancePolicy(riskusdApproveGuard, riskusdPath, failures)));
+
+  const riskusdMarkerPredicate = replaceSetupText(riskusd,
+    "currentAllowance != 0 || _explicitZeroResetRequired[owner_][spender]",
+    "currentAllowance != 0",
+    "RISKUSD sticky reset marker predicate");
+  controls.push(expectSetupRefusal("riskusd-spent-allowance-sticky-reset", (failures) =>
+    checkRiskusdAllowancePolicy(riskusdMarkerPredicate, riskusdPath, failures)));
+
+  const riskusdMarkerClearedOnSpend = replaceSetupText(riskusd,
+    "        return super.transferFrom(from, to, value);\n",
+    "        bool transferred = super.transferFrom(from, to, value);\n" +
+      "        if (transferred) _explicitZeroResetRequired[from][msg.sender] = false;\n" +
+      "        return transferred;\n",
+    "RISKUSD reset marker cleared on transferFrom");
+  controls.push(expectSetupRefusal("riskusd-marker-not-cleared-on-spend", (failures) =>
+    checkRiskusdAllowancePolicy(riskusdMarkerClearedOnSpend, riskusdPath, failures)));
+
+  const riskusdApproveGuardMissing = replaceSetupText(riskusd,
+    "function approve(address spender, uint256 value) public override freshLayout returns (bool)",
+    "function approve(address spender, uint256 value) public override returns (bool)",
+    "RISKUSD approve fresh-layout guard");
+  controls.push(expectSetupRefusal("riskusd-approve-fresh-layout-guard", (failures) =>
+    checkRiskusdFreshOnly(riskusdApproveGuardMissing, riskusdPath, failures)));
+
+  const riskusdEnumerationGuardMissing = replaceSetupText(riskusd,
+    "function exemptAddresses() external view freshLayout returns (address[] memory)",
+    "function exemptAddresses() external view returns (address[] memory)",
+    "RISKUSD exemption enumeration fresh-layout guard");
+  controls.push(expectSetupRefusal("riskusd-exempt-addresses-fresh-layout-guard", (failures) =>
+    checkRiskusdFreshOnly(riskusdEnumerationGuardMissing, riskusdPath, failures)));
+
+  const riskusdAdminGuardMissing = replaceSetupText(riskusd,
+    "function setBlocklist(address blocklist_) external freshLayout onlyAllowedCaller onlyOwner",
+    "function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner",
+    "RISKUSD administration fresh-layout guard");
+  controls.push(expectSetupRefusal("riskusd-administration-fresh-layout-guard", (failures) =>
+    checkRiskusdFreshOnly(riskusdAdminGuardMissing, riskusdPath, failures)));
+
+  const riskusdUpdateGuardMissing = replaceSetupText(riskusd,
+    "function _update(address from, address to, uint256 value) internal override freshLayout",
+    "function _update(address from, address to, uint256 value) internal override",
+    "RISKUSD token update fresh-layout guard");
+  controls.push(expectSetupRefusal("riskusd-token-update-fresh-layout-guard", (failures) =>
+    checkRiskusdFreshOnly(riskusdUpdateGuardMissing, riskusdPath, failures)));
+
+  const riskusdUpgradeGuardMissing = replaceSetupText(riskusd,
+    "function _authorizeUpgrade(address) internal override freshLayout onlyOwner",
+    "function _authorizeUpgrade(address) internal override onlyOwner",
+    "RISKUSD UUPS authorization fresh-layout guard");
+  controls.push(expectSetupRefusal("riskusd-uups-fresh-layout-guard", (failures) =>
+    checkRiskusdFreshOnly(riskusdUpgradeGuardMissing, riskusdPath, failures)));
+
+  const riskusdMarkerMissing = replaceSetupText(riskusd,
+    "        _freshLayoutVersion = _FRESH_LAYOUT_VERSION;\n",
+    "",
+    "RISKUSD fresh initializer marker");
+  controls.push(expectSetupRefusal("riskusd-fresh-marker-initializer", (failures) =>
+    checkRiskusdFreshOnly(riskusdMarkerMissing, riskusdPath, failures)));
+
   return {
     scope: "copied Solidity source text only; no compilation or contract execution",
     positive: {name: "exact-current-initializer-and-deploy", predicateReached: true, accepted: true},
     allowancePositiveControls,
+    riskusdAllowanceControls,
     negativeCount: controls.length,
     negatives: controls,
   };
@@ -1637,6 +1718,163 @@ function checkForageNormalCalls(source, filePath, failures) {
   if (!updateCode.endsWith(initializationTail)) {
     setupFailure(failures, filePath, "SETUP-FORAGE-BOOTSTRAP", "vote-source synchronization must remain outside Initializable initialization.");
   }
+}
+
+function checkRiskusdFreshOnly(source, filePath, failures) {
+  const freshGuard = setupFunction(source, "_requireFreshLayout", filePath, "fresh-layout guard", failures);
+  const freshModifier = solidityModifierDeclarations(source, "freshLayout");
+  const constructionGuard = solidityModifierDeclarations(source, "onlyDuringConstructionBeforeInitialization");
+  const initialize = setupFunction(source, "initialize", filePath, "fresh initializer", failures);
+  if (!freshGuard || !initialize) return;
+  if (!source.includes("error FreshDeploymentRequired(uint256 version);")) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-ERROR", "the legacy refusal must use FreshDeploymentRequired(uint256).");
+  }
+  if (freshModifier.length !== 1 || compactSolidity(freshModifier[0].body || "") !== "_requireFreshLayout();_;") {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-GUARD", "freshLayout must run the typed guard before the function body.");
+  }
+  if (constructionGuard.length !== 1 || compactSolidity(constructionGuard[0].body || "") !==
+      "if(address(this).code.length!=0||_getInitializedVersion()!=0)revertInvalidInitialization();_;") {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-INITIALIZER", "initialize must be limited to proxy construction before the first initialized version.");
+  }
+  if (compactSolidity(freshGuard.body) !==
+      "uint256version=_freshLayoutVersion;if(version!=_FRESH_LAYOUT_VERSION)revertFreshDeploymentRequired(version);") {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-GUARD", "the marker must fail closed on every version other than the fresh version.");
+  }
+  setupHeader(
+    initialize,
+    "function initialize(address initialOwner_) external onlyDuringConstructionBeforeInitialization initializer",
+    filePath,
+    "SETUP-RISKUSD-FRESH-INITIALIZER",
+    failures,
+  );
+  const initCode = compactSolidity(initialize.body);
+  const markerWrite = "_freshLayoutVersion=_FRESH_LAYOUT_VERSION;";
+  if ((initCode.match(new RegExp(escapeRegex(markerWrite), "g")) || []).length !== 1 ||
+      initCode.indexOf(markerWrite) < initCode.indexOf("__Pausable_init();")) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-INITIALIZER", "fresh initialization must write the marker once after the OpenZeppelin initialization calls.");
+  }
+  const requiredHeaders = [
+    ["setAllowlist", "function setAllowlist(address allowlist_) external freshLayout onlyOwner"],
+    ["mint", "function mint(address to, uint256 amount) external freshLayout onlyAllowedCaller whenNotPaused nonReentrant"],
+    ["burn", "function burn(address from, uint256 amount) external freshLayout onlyAllowedCaller nonReentrant"],
+    ["approve", "function approve(address spender, uint256 value) public override freshLayout returns (bool)"],
+    ["transferFrom", "function transferFrom(address from, address to, uint256 value) public override freshLayout returns (bool)"],
+    ["setMinter", "function setMinter(address minter_) external freshLayout onlyAllowedCaller onlyOwner"],
+    ["proposeMinter", "function proposeMinter(address newMinter_) public freshLayout onlyAllowedCaller onlyOwner"],
+    ["acceptMinter", "function acceptMinter() external freshLayout onlyAllowedCaller"],
+    ["finalizeMinter", "function finalizeMinter() external freshLayout onlyAllowedCaller onlyOwner"],
+    ["clearPendingMinter", "function clearPendingMinter() external freshLayout onlyAllowedCaller onlyOwner"],
+    ["pause", "function pause() external freshLayout onlyAllowedCaller"],
+    ["unpause", "function unpause() external freshLayout onlyAllowedCaller"],
+    ["setForageGovernor", "function setForageGovernor(address forageGovernor_) external freshLayout onlyAllowedCaller onlyOwner"],
+    ["finalizeForageGovernor", "function finalizeForageGovernor() external freshLayout onlyAllowedCaller onlyOwner"],
+    ["clearPendingForageGovernor", "function clearPendingForageGovernor() external freshLayout onlyAllowedCaller onlyOwner"],
+    ["setTransferExempt", "function setTransferExempt(address account, bool exempt) external freshLayout onlyAllowedCaller onlyOwner"],
+    ["setBlocklist", "function setBlocklist(address blocklist_) external freshLayout onlyAllowedCaller onlyOwner"],
+    ["exemptAddresses", "function exemptAddresses() external view freshLayout returns (address[] memory)"],
+    ["_update", "function _update(address from, address to, uint256 value) internal override freshLayout"],
+    ["renounceOwnership", "function renounceOwnership() public view override freshLayout"],
+    ["upgradeToAndCall", "function upgradeToAndCall(address newImplementation, bytes memory data) public payable override freshLayout onlyAllowedCaller"],
+    ["transferOwnership", "function transferOwnership(address newOwner) public override freshLayout onlyAllowedCaller"],
+    ["acceptOwnership", "function acceptOwnership() public override freshLayout onlyAllowedCaller"],
+    ["_authorizeUpgrade", "function _authorizeUpgrade(address) internal override freshLayout onlyOwner"],
+  ];
+  for (const [name, header] of requiredHeaders) {
+    setupHeader(setupFunction(source, name, filePath, `fresh ${name}`, failures), header,
+      filePath, "SETUP-RISKUSD-FRESH-ROUTE", failures);
+  }
+  const functions = solidityFunctionDeclarations(source).filter((record) => record.body !== null);
+  const markerWriters = functions.filter((record) =>
+    functionWritesStateField(record, "_freshLayoutVersion", source, functions)).map((record) => record.name).sort();
+  if (JSON.stringify(markerWriters) !== JSON.stringify(["initialize"])) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-INITIALIZER", `marker writers must be initializer-only: ${markerWriters.join(",")}.`);
+  }
+  const unguarded = functions.filter((record) =>
+    /\b(?:external|public)\b/.test(record.header) && !/\b(?:view|pure)\b/.test(record.header) &&
+    record.name !== "initialize" && !/\bfreshLayout\b/.test(record.header)).map((record) => record.name).sort();
+  if (unguarded.length > 0) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-FRESH-ROUTE", `state-changing public routes lack freshLayout: ${unguarded.join(",")}.`);
+  }
+  if (solidityFunctionDeclarations(source, "permit").length !== 0) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-PERMIT-POLICY", "RISKUSD has no reviewed permit route; do not add one without the same reset predicate.");
+  }
+}
+
+function checkRiskusdAllowancePolicy(source, filePath, failures) {
+  const approve = setupFunction(source, "approve", filePath, "RISKUSD approve", failures);
+  const transferFrom = setupFunction(source, "transferFrom", filePath, "RISKUSD transferFrom", failures);
+  const resetGuard = setupFunction(source, "_requireExplicitAllowanceReset", filePath, "RISKUSD zero-reset guard", failures);
+  if (!approve || !transferFrom || !resetGuard) return;
+  const expectedApprove = compactSolidity(
+    "address owner_ = _msgSender(); _requireNotBlocked(owner_); " +
+    "if (value != 0) { _requireNotBlocked(spender); _requireExplicitAllowanceReset(owner_, spender, value); } " +
+    "bool approved = super.approve(spender, value); " +
+    "if (approved) _explicitZeroResetRequired[owner_][spender] = value != 0; return approved;",
+  );
+  if (compactSolidity(approve.body) !== expectedApprove) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-ALLOWANCE", "approve must preserve Blocklist checks, sticky zero-reset, and post-success marker update.");
+  }
+  const expectedReset = compactSolidity(
+    "uint256 currentAllowance = allowance(owner_, spender); " +
+    "if (currentAllowance != 0 || _explicitZeroResetRequired[owner_][spender]) { " +
+    "revert AllowanceChangeRequiresZero(spender, currentAllowance, value); }",
+  );
+  if (compactSolidity(resetGuard.body) !== expectedReset) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-ALLOWANCE", "nonzero approval must require both a zero allowance and an explicit reset after prior approval.");
+  }
+  if (compactSolidity(transferFrom.body) !== "_requireNotBlocked(msg.sender);returnsuper.transferFrom(from,to,value);") {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-ALLOWANCE", "transferFrom must keep the spender gate and inherited allowance consumption without clearing the reset marker.");
+  }
+  const functions = solidityFunctionDeclarations(source).filter((record) => record.body !== null);
+  const markerWriters = functions.filter((record) =>
+    functionWritesStateField(record, "_explicitZeroResetRequired", source, functions)).map((record) => record.name).sort();
+  if (JSON.stringify(markerWriters) !== JSON.stringify(["approve"])) {
+    setupFailure(failures, filePath, "SETUP-RISKUSD-ALLOWANCE", `zero-reset marker writers must be approve-only: ${markerWriters.join(",")}.`);
+  }
+}
+
+function evaluateRiskusdAllowanceControl(name, source, initialState, actions, expectedAccepted) {
+  const filePath = path.join(SRC_DIR, "RISKUSD.sol");
+  const failures = [];
+  checkRiskusdFreshOnly(source, filePath, failures);
+  checkRiskusdAllowancePolicy(source, filePath, failures);
+  const predicateReached = failures.length === 0;
+  const state = {allowance: initialState.allowance, marker: initialState.marker};
+  const trace = [];
+  if (predicateReached) {
+    for (const action of actions) {
+      let accepted;
+      if (action.operation === "transferFrom") {
+        accepted = action.value <= state.allowance;
+        if (accepted) state.allowance -= action.value;
+      } else {
+        const resetRequired = state.allowance !== 0 || state.marker;
+        accepted = action.value === 0 || !resetRequired;
+        if (accepted) {
+          state.allowance = action.value;
+          state.marker = action.value !== 0;
+        }
+      }
+      trace.push({operation: action.operation, value: action.value, allowance: state.allowance, marker: state.marker, accepted});
+      if (!accepted) break;
+    }
+  }
+  const accepted = predicateReached && trace.length === actions.length && trace.every((step) => step.accepted);
+  if (accepted !== expectedAccepted) {
+    throw new Error(`RISKUSD allowance control ${name} expected accepted=${expectedAccepted}, got ${accepted}`);
+  }
+  return {
+    name,
+    target: {path: "src/RISKUSD.sol", functions: ["approve", "transferFrom", "_requireExplicitAllowanceReset"]},
+    sourceSha256Base64Url: require("node:crypto").createHash("sha256").update(Buffer.from(source)).digest("base64url"),
+    predicateReached,
+    accepted,
+    expectedAccepted,
+    initialState,
+    trace,
+    finalState: state,
+    scope: "bounded source-shape allowance state model; no Solidity execution",
+  };
 }
 
 function checkForageSetterGates(source, filePath, failures) {
@@ -1981,6 +2219,10 @@ function checkDeploySetup(source, filePath, failures) {
     setupFailure(failures, filePath, "SETUP-FRESH-REGISTRY-INITIALIZATION", "fresh Registry initialization must establish its Vault pointer.");
   }
   if (!compactSolidity(riskStackDeployment?.body || "").includes(
+    "deployedRiskusd=_proxy(implRiskusd,abi.encodeCall(RISKUSD.initialize,(cfg.deployer)))")) {
+    setupFailure(failures, filePath, "SETUP-FRESH-RISKUSD-INITIALIZATION", "fresh RISKUSD must initialize in the proxy constructor data.");
+  }
+  if (!compactSolidity(riskStackDeployment?.body || "").includes(
     "RISKUSDVault.initializeTarget,(cfg.usdc,deployedRiskusd,deployedVaultRegistry,cfg.deployer,deployedHLTradingBridge,deployedUSDCTreasury)")) {
     setupFailure(failures, filePath, "SETUP-FRESH-VAULT-INITIALIZATION", "fresh Vault initialization must establish reciprocal Registry wiring.");
   }
@@ -2027,16 +2269,20 @@ function checkSharedAllowlist(source, allowlist, targets, filePath, failures) {
 
 function checkFreshDeploymentSetup(failures) {
   const tokenPath = path.join(SRC_DIR, "ForageToken.sol");
-  if (!fs.existsSync(tokenPath) || !fs.existsSync(DEPLOY_SCRIPT)) {
-    setupFailure(failures, CONTRACTS_ROOT, "SETUP-PARSER-UNSUPPORTED", "source root must contain src/ForageToken.sol and script/Deploy.s.sol.");
+  const riskusdPath = path.join(SRC_DIR, "RISKUSD.sol");
+  if (!fs.existsSync(tokenPath) || !fs.existsSync(riskusdPath) || !fs.existsSync(DEPLOY_SCRIPT)) {
+    setupFailure(failures, CONTRACTS_ROOT, "SETUP-PARSER-UNSUPPORTED", "source root must contain src/ForageToken.sol, src/RISKUSD.sol and script/Deploy.s.sol.");
     return;
   }
   const tokenSource = fs.readFileSync(tokenPath, "utf8");
+  const riskusdSource = fs.readFileSync(riskusdPath, "utf8");
   const deploySource = fs.readFileSync(DEPLOY_SCRIPT, "utf8");
   checkForageInitialization(tokenSource, tokenPath, failures);
   checkForageGuard(tokenSource, tokenPath, failures);
   checkForageNormalCalls(tokenSource, tokenPath, failures);
   checkForageSetterGates(tokenSource, tokenPath, failures);
+  checkRiskusdFreshOnly(riskusdSource, riskusdPath, failures);
+  checkRiskusdAllowancePolicy(riskusdSource, riskusdPath, failures);
   checkDeploySetup(deploySource, DEPLOY_SCRIPT, failures);
 }
 

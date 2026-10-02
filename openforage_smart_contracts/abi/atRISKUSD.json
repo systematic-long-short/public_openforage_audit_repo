@@ -2428,6 +2428,17 @@
   },
   {
     "type": "error",
+    "name": "CustodianGetterUnavailable",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CustodianSettlementHookFailed",
     "inputs": [
       {
@@ -2780,6 +2791,22 @@
     "type": "error",
     "name": "LossPending",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MalformedLossPendingReturn",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

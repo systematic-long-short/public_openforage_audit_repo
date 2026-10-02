@@ -1240,6 +1240,22 @@
   },
   {
     "type": "error",
+    "name": "PartnershipSystemRegistrarNotReady",
+    "inputs": [
+      {
+        "name": "allowlist",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "treasury",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ProgramCapExceeded",
     "inputs": []
   },

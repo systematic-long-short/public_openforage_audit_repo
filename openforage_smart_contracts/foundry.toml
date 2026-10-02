@@ -6,6 +6,10 @@ script = "script"
 solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
+libraries = [
+    "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard:0x1f2A21CFF1dD5B8f0223463378544B7fD9664A26",
+    "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier:0x6e2e04c79cd4c4ac65973a1dfff378a289aaa488",
+]
 fs_permissions = [
     { access = "read", path = "./src" },
     { access = "read", path = "./script" },
@@ -23,6 +27,10 @@ optimizer_runs = 0
 via_ir = true
 revert_strings = "strip"
 bytecode_hash = "none"
+libraries = [
+    "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard:0x1f2A21CFF1dD5B8f0223463378544B7fD9664A26",
+    "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier:0x6e2e04c79cd4c4ac65973a1dfff378a289aaa488",
+]
 
 [profile.default.fmt]
 line_length = 120

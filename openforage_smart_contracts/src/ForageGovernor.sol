@@ -9,6 +9,7 @@ import "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorTimelo
 import "@openzeppelin/contracts-upgradeable/governance/TimelockControllerUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/governance/IGovernor.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./GuardianModule.sol";
@@ -49,6 +50,7 @@ contract ForageGovernor is
     error TimelockDelayBelowMinimum(uint256 requested, uint256 minimum); // OF-13-001 (13th audit)
     error NotAContract(); // OF-18-006
     error IncompatibleGuardianModule(); // OF-18-006
+    error GuardianModuleRegistryMismatch(address module, address expectedRegistry, address actualRegistry);
     error VotingPeriodBelowMinimum(uint256 requested, uint256 minimum);
     error BlockedAddress(address account);
     error TooManyProposalActions(uint256 count, uint256 maximum);
@@ -57,6 +59,9 @@ contract ForageGovernor is
     error TimelockExternalProposerGrant(address account);
     error SignatureVotingDisabled();
     error TimelockRoleMissing(bytes32 role, address account);
+    error GuardianTimelockMigrationNotPrepared(address requestedTimelock, address pendingTimelock);
+    error GuardianTimelockStateUnavailable(address guardianModule);
+    error QueuedProposalBlocksTimelockUpdate(uint256 queuedCount, uint256 proposalId);
     error GovernorFreshLayoutRequired(uint256 version);
 
     // ── Custom events ────────────────────────────────────────────────────
@@ -106,6 +111,10 @@ contract ForageGovernor is
     uint256 private constant MAX_ACTIVE_ORDINARY_PROPOSALS_PER_PROPOSER = 3;
     uint256 private constant MAX_TIMELOCK_NESTING = GovernancePayloadBudget.MAX_TIMELOCK_DEPTH;
     uint256 private constant GUARDIAN_PROPOSAL_FLAG = 1 << 255;
+    bytes32 private constant _EXECUTING_PROPOSAL_ID_SLOT =
+        keccak256("openforage.forager.governor.executing-proposal-id");
+    bytes32 private constant _EXECUTING_PROPOSAL_ACTIVE_SLOT =
+        keccak256("openforage.forager.governor.executing-proposal-active");
 
     // ── Public getters ───────────────────────────────────────────────
     function maxActiveProposals() external view returns (uint256) {
@@ -164,13 +173,18 @@ contract ForageGovernor is
     // ── Constructor ──────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address canonicalCustodianRegistry) {
         _disableInitializers();
-        _timelockGuard = new ForageGovernorTimelockGuard();
+        _timelockGuard = new ForageGovernorTimelockGuard(canonicalCustodianRegistry);
     }
 
     modifier onlyDuringConstructionBeforeInitialization() {
         if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    modifier validateGuardianModuleBeforeInitialization(address module, address expectedTimelock) {
+        if (module != address(0)) _validateGuardianModule(module, expectedTimelock);
         _;
     }
 
@@ -194,7 +208,12 @@ contract ForageGovernor is
         uint256 proposalThresholdBps_,
         uint256 quorumBps_,
         address guardianModule_
-    ) external onlyDuringConstructionBeforeInitialization initializer {
+    )
+        external
+        onlyDuringConstructionBeforeInitialization
+        validateGuardianModuleBeforeInitialization(guardianModule_, timelockController_)
+        initializer
+    {
         if (forageToken_ == address(0)) revert ZeroAddress();
         if (timelockController_ == address(0)) revert ZeroAddress();
         // OF-001: votingPeriod has a one-hour floor (MIN_VOTING_PERIOD); votingDelay may be zero.
@@ -221,7 +240,6 @@ contract ForageGovernor is
         _maxActiveProposals = 10;
 
         if (guardianModule_ != address(0)) {
-            _validateGuardianModule(guardianModule_);
             guardianModule = GuardianModule(guardianModule_);
         }
         _freshLayoutVersion = 1;
@@ -473,7 +491,7 @@ contract ForageGovernor is
 
     function setGuardianModule(address guardianModule_) external freshLayout onlyAllowedCaller {
         if (msg.sender != _executor()) revert Unauthorized();
-        _validateGuardianModule(guardianModule_);
+        _validateGuardianModule(guardianModule_, _executor());
 
         address oldModule = address(guardianModule);
         guardianModule = GuardianModule(guardianModule_);
@@ -483,9 +501,27 @@ contract ForageGovernor is
 
     /// @dev OF-18-006/CHAIN-W05/CHAIN-W18: Validate that a guardian module address is a contract,
     /// exposes the expected interface, and is initialized for this governor and current timelock.
-    function _validateGuardianModule(address module) internal view {
+    function _validateGuardianModule(address module, address expectedTimelock) internal view {
         if (module == address(0)) revert ZeroAddress();
         if (module.code.length == 0) revert NotAContract();
+        bytes4 registrySelector = GuardianModule.canonicalCustodianRegistry.selector;
+        bool registryOk;
+        uint256 registrySize;
+        uint256 registryWord;
+        assembly ("memory-safe") {
+            mstore(0, registrySelector)
+            registryOk := staticcall(30000, module, 0, 4, 0, 32)
+            registrySize := returndatasize()
+            registryWord := mload(0)
+        }
+        if (!registryOk || registrySize != 32 || registryWord > type(uint160).max) {
+            revert IncompatibleGuardianModule();
+        }
+        address actualRegistry = address(uint160(registryWord));
+        address expectedRegistry = _timelockGuard.canonicalRegistryAddress();
+        if (actualRegistry != expectedRegistry) {
+            revert GuardianModuleRegistryMismatch(module, expectedRegistry, actualRegistry);
+        }
         // Smoke-test: verify the contract responds to hasPermission and PERMISSION_CAN_PROPOSE
         (bool ok,) =
             module.staticcall(abi.encodeWithSignature("hasPermission(address,uint256)", address(0), uint256(0)));
@@ -497,12 +533,21 @@ contract ForageGovernor is
             revert IncompatibleGuardianModule();
         }
         (bool ok4, bytes memory timelockData) = module.staticcall(abi.encodeWithSignature("timelock()"));
-        if (!ok4 || timelockData.length < 32 || abi.decode(timelockData, (address)) != _executor()) {
+        if (!ok4 || timelockData.length < 32 || abi.decode(timelockData, (address)) != expectedTimelock) {
             revert IncompatibleGuardianModule();
         }
     }
 
     // ── Required overrides (OZ Governor diamond) ─────────────────────────
+
+    function COUNTING_MODE()
+        public
+        pure
+        override(GovernorCountingSimpleUpgradeable, IGovernor)
+        returns (string memory)
+    {
+        return "support=bravo&quorum=for";
+    }
 
     /// @dev OF-13-016: quorum() uses current _quorumBps as fallback for external queries.
     /// For proposal-specific quorum (used in voting), see _quorumReached which uses
@@ -606,23 +651,10 @@ contract ForageGovernor is
         if (newDelay < MIN_TIMELOCK_DELAY) {
             revert TimelockDelayBelowMinimum(newDelay, MIN_TIMELOCK_DELAY);
         }
-        _validateTimelockRoles(newTimelock);
+        ForageGovernorTimelockMigrationGuard.validate(
+            _activeProposalIds, address(guardianModule), address(newTimelock), address(this), address(_timelockGuard)
+        );
         super.updateTimelock(newTimelock);
-    }
-
-    function _validateTimelockRoles(TimelockControllerUpgradeable newTimelock) private view {
-        bytes32 proposerRole = newTimelock.PROPOSER_ROLE();
-        if (!newTimelock.hasRole(proposerRole, address(this))) revert TimelockRoleMissing(proposerRole, address(this));
-
-        bytes32 cancellerRole = newTimelock.CANCELLER_ROLE();
-        if (!newTimelock.hasRole(cancellerRole, address(this))) {
-            revert TimelockRoleMissing(cancellerRole, address(this));
-        }
-
-        bytes32 executorRole = newTimelock.EXECUTOR_ROLE();
-        if (!newTimelock.hasRole(executorRole, address(0)) && !newTimelock.hasRole(executorRole, address(this))) {
-            revert TimelockRoleMissing(executorRole, address(this));
-        }
     }
 
     function relay(address target, uint256 value, bytes calldata data)
@@ -658,7 +690,21 @@ contract ForageGovernor is
     ) internal override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) {
         address executor = _executor();
         _enforceTimelockOperations(executor, address(this), targets, values, calldatas);
+        uint256 previousExecutingProposalId;
+        uint256 previousExecutionActive;
+        bytes32 executionSlot = _EXECUTING_PROPOSAL_ID_SLOT;
+        bytes32 executionActiveSlot = _EXECUTING_PROPOSAL_ACTIVE_SLOT;
+        assembly ("memory-safe") {
+            previousExecutingProposalId := tload(executionSlot)
+            previousExecutionActive := tload(executionActiveSlot)
+            tstore(executionSlot, proposalId)
+            tstore(executionActiveSlot, 1)
+        }
         GovernorTimelockControlUpgradeable._executeOperations(proposalId, targets, values, calldatas, descriptionHash);
+        assembly ("memory-safe") {
+            tstore(executionSlot, previousExecutingProposalId)
+            tstore(executionActiveSlot, previousExecutionActive)
+        }
         _removeActiveProposal(proposalId);
         delete _proposalParams[proposalId];
     }
@@ -949,7 +995,11 @@ contract ForageGovernor is
         uint256 i;
         while (i < _activeProposalIds.length) {
             uint256 proposalId = _activeProposalIds[i];
-            if (_isBelowThresholdOrdinaryProposal(proposalId, state(proposalId))) {
+            ProposalState proposalState = state(proposalId);
+            if (
+                _isBelowThresholdOrdinaryProposal(proposalId, proposalState)
+                    || (proposalState == ProposalState.Queued && !_usesActiveProposalSlot(proposalId, proposalState))
+            ) {
                 _cancelStoredProposal(proposalId);
             } else {
                 unchecked {

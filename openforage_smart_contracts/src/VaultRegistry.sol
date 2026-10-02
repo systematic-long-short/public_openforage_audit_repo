@@ -8,6 +8,7 @@ import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IAllowlist.sol";
 import "./interfaces/IVaultRegistry.sol";
+import "./interfaces/IUSDCTreasuryYieldClaims.sol";
 
 /// @dev OF-14-001: Minimal interface for RISKUSDVault lossPending query in startWindDown.
 interface IRISKUSDVaultLossQuery {
@@ -75,6 +76,9 @@ contract VaultRegistry is
     error InvalidRISKUSDVaultInterface(address target);
     error ResidualTierVaultAssets(address tierVault, uint256 assets);
     error TierVaultProbeFailed(uint8 tier, address tierVault, bytes4 selector);
+    error TierVaultYieldClaimProbeFailed(uint8 tier, address tierVault, address yieldSource, bytes4 selector);
+    error TierVaultYieldClaimsNotReady(uint8 tier, address tierVault, address yieldSource);
+    error UnfundedTierVaultClaim(uint8 tier, address tierVault, address yieldSource, uint256 claim);
     error TierVaultRegistryRouteMismatch(address tierVault, address yieldSource, address registry);
     error TierVaultSystemCallerRequired(address tierVault, address allowlist);
     error TierVaultRegistrationInvariant(address tierVault, uint256 expectedVaultId, uint256 actualVaultId);
@@ -747,6 +751,60 @@ contract VaultRegistry is
             supplies[i] = _readTierVaultValue(tierVault, i, ITierVaultAccountingQuery.totalSupply.selector);
             assets[i] = _readTierVaultValue(tierVault, i, ITierVaultAccountingQuery.totalAssets.selector);
         }
+        _preflightTierVaultClaims(tierVaults, supplies, assets);
+    }
+
+    function _preflightTierVaultClaims(
+        address[4] storage tierVaults,
+        uint256[4] memory supplies,
+        uint256[4] memory assets
+    ) private view {
+        bool higherTierBlocked;
+        for (uint8 tier = 1; tier < 4; ++tier) {
+            address tierVault = tierVaults[tier];
+            if (tierVault == address(0)) continue;
+            if (supplies[tier] == 0 && assets[tier] == 0) {
+                _requireNoUnfundedTierClaim(tier, tierVault);
+            } else {
+                higherTierBlocked = true;
+            }
+        }
+        address tierZero = tierVaults[0];
+        if (tierZero != address(0) && supplies[0] == 0 && assets[0] == 0 && !higherTierBlocked) {
+            _requireNoUnfundedTierClaim(0, tierZero);
+        }
+    }
+
+    function _requireNoUnfundedTierClaim(uint8 tier, address tierVault) private view {
+        bytes4 sourceSelector = ITierVaultAccountingQuery.yieldSource.selector;
+        address yieldSource =
+            _readRouteAddress(tierVault, tier, tierVault, sourceSelector, abi.encodeWithSelector(sourceSelector));
+        bytes4 readySelector = IUSDCTreasuryYieldClaims.yieldClaimsReady.selector;
+        if (yieldSource.code.length == 0) {
+            revert TierVaultYieldClaimProbeFailed(tier, tierVault, yieldSource, readySelector);
+        }
+        (bool readyRead, bytes memory readyData) = yieldSource.staticcall(abi.encodeWithSelector(readySelector));
+        if (!readyRead || readyData.length != 32) {
+            revert TierVaultYieldClaimProbeFailed(tier, tierVault, yieldSource, readySelector);
+        }
+        uint256 ready;
+        assembly ("memory-safe") {
+            ready := mload(add(readyData, 32))
+        }
+        if (ready > 1) revert TierVaultYieldClaimProbeFailed(tier, tierVault, yieldSource, readySelector);
+        if (ready == 0) revert TierVaultYieldClaimsNotReady(tier, tierVault, yieldSource);
+
+        bytes4 claimSelector = IUSDCTreasuryYieldClaims.unfundedYieldClaim.selector;
+        (bool claimRead, bytes memory claimData) =
+            yieldSource.staticcall(abi.encodeWithSelector(claimSelector, tierVault));
+        if (!claimRead || claimData.length != 32) {
+            revert TierVaultYieldClaimProbeFailed(tier, tierVault, yieldSource, claimSelector);
+        }
+        uint256 claim;
+        assembly ("memory-safe") {
+            claim := mload(add(claimData, 32))
+        }
+        if (claim != 0) revert UnfundedTierVaultClaim(tier, tierVault, yieldSource, claim);
     }
 
     function _readTierVaultValue(address tierVault, uint8 tier, bytes4 selector) private view returns (uint256 value) {

@@ -295,8 +295,9 @@ contract StakingQueue is
     bool private _forageLockAggregateAccountingInitialized;
     mapping(uint8 => uint256) private _tierStandardScanCursor;
     mapping(uint8 => uint256) private _tierPriorityScanCursor;
+    mapping(uint8 => uint256) private _tierStandardScanSnapshotEnd;
 
-    uint256[18] private __gap; // reserved for future upgrades
+    uint256[17] private __gap; // reserved for future upgrades
 
     // -- Module delegation (ERC-7201 namespaced storage) --
     /// @custom:storage-location erc7201:openforage.storage.QueueModule
@@ -921,14 +922,26 @@ contract StakingQueue is
 
         if (length == 0) revert EmptyQueue();
 
+        uint256 nextPriorityQueueId;
+        if (priority) {
+            uint256 scanCursor = _tierPriorityScanCursor[tier];
+            if (scanCursor < length) nextPriorityQueueId = lane[scanCursor];
+        }
+        uint256 translatedPriorityCursor;
         uint256 writeIdx;
         for (uint256 i; i < length;) {
-            QueueEntry storage entry = _queueEntries[lane[i]];
+            uint256 queueId = lane[i];
+            QueueEntry storage entry = _queueEntries[queueId];
             if (
                 (priority ? entry.priority : !entry.priority) && !entry.processed && !entry.cancelled
                     && !_isExpired(entry)
             ) {
-                lane[writeIdx] = lane[i];
+                if (queueId < nextPriorityQueueId) {
+                    unchecked {
+                        ++translatedPriorityCursor;
+                    }
+                }
+                lane[writeIdx] = queueId;
                 unchecked {
                     ++writeIdx;
                 }
@@ -949,11 +962,10 @@ contract StakingQueue is
 
         if (priority) {
             _tierPriorityHead[tier] = 0;
+            _tierPriorityScanCursor[tier] = translatedPriorityCursor;
         } else {
             _tierStandardHead[tier] = 0;
         }
-        _tierStandardScanCursor[tier] = 0;
-        _tierPriorityScanCursor[tier] = 0;
 
         emit QueueCompacted(tier, priority, removedCount);
     }
@@ -1103,6 +1115,7 @@ contract StakingQueue is
     }
 
     function tierVault(uint8 tier) external view returns (address) {
+        _validateTier(tier);
         return _tierVaults[tier];
     }
 

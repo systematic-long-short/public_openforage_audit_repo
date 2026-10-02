@@ -2124,6 +2124,11 @@
   },
   {
     "type": "error",
+    "name": "LossPending",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "LossSettlementInProgress",
     "inputs": []
   },

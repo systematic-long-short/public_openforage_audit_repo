@@ -14,6 +14,7 @@ import "../AllowlistGatedUpgradeable.sol";
 import "../FinalizeDelayProfile.sol";
 import "../interfaces/IAllowlist.sol";
 import "../interfaces/IBlocklist.sol";
+import "../interfaces/IRISKUSDSettlement.sol";
 import "../interfaces/IVaultRegistry.sol";
 import {AtRiskUSDProfitModule} from "./AtRiskUSDProfitModule.sol";
 import {
@@ -50,6 +51,7 @@ contract AtRiskUSDStateModule is
     error AutoRenewEnabled();
     error BlockedAddress(address account);
     error CustodianSettlementHookFailed(address custodian);
+    error CustodianGetterUnavailable(address vault);
     error CustodianSettlementPending();
     error DirectCallForbidden();
     error ProfitModuleUnavailable(address module);
@@ -57,6 +59,7 @@ contract AtRiskUSDStateModule is
     error ExchangeRateDecreased(uint256 beforeAssets, uint256 afterAssets);
     error LockupNotExpired(uint256 lockExpiry);
     error LossPending();
+    error MalformedLossPendingReturn(address vault, uint256 value);
     error NoPendingWithdrawal();
     error FreshDeploymentRequired(uint64 observedVersion);
     error WeeklyWithdrawalCapExceeded(uint256 requested, uint256 remaining);
@@ -89,6 +92,7 @@ contract AtRiskUSDStateModule is
     error PendingWithdrawalExists();
     error UnauthorizedStakingQueue();
     error UnauthorizedYieldSource();
+    error SafeERC20FailedOperation(address token);
     error UnfundedZeroSupplyClaim(uint256 claim);
     error ZeroAmount();
     error ZeroAssetLegacySupply();
@@ -623,7 +627,7 @@ contract AtRiskUSDStateModule is
         uint256 cap = totalAssets();
         if (_legitimateAssets < cap) cap = _legitimateAssets;
         if (riskusdAmount > cap) riskusdAmount = cap;
-        IERC20(asset()).safeTransfer(msg.sender, riskusdAmount);
+        _transferLossAssets(msg.sender, riskusdAmount);
 
         _decreaseLegitimateAssets(riskusdAmount);
         if (
@@ -637,6 +641,23 @@ contract AtRiskUSDStateModule is
         _totalLossAbsorbed += riskusdAmount;
 
         emit LossAbsorbed(riskusdAmount);
+    }
+
+    function _transferLossAssets(address recipient, uint256 amount) private {
+        address riskusd = asset();
+        bool tokenPaused;
+        try IRISKUSDSettlement(riskusd).paused() returns (bool value) {
+            tokenPaused = value;
+        } catch {
+            revert SafeERC20FailedOperation(riskusd);
+        }
+        if (!tokenPaused) {
+            IERC20(riskusd).safeTransfer(recipient, amount);
+            return;
+        }
+        if (!IRISKUSDSettlement(riskusd).transferLossSettlement(recipient, amount)) {
+            revert SafeERC20FailedOperation(riskusd);
+        }
     }
 
     function requestWithdrawal(uint256 atriskusdAmount) external onlyDelegateCall {
@@ -663,6 +684,7 @@ contract AtRiskUSDStateModule is
             weeklyCapWindowStart: 0,
             weeklyCapReservedAssets: 0
         });
+        _syncAutoRenewDisabledTracking(msg.sender);
 
         emit WithdrawalRequested(msg.sender, atriskusdAmount, riskusdAmount, block.timestamp + _cooldownPeriod);
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
@@ -696,7 +718,7 @@ contract AtRiskUSDStateModule is
         _requireNotBlocked(msg.sender);
         WithdrawalCancellation memory cancellation =
             WithdrawalCancellation({beneficiary: msg.sender, shares: pending.atriskusdAmount});
-        _finishPendingWithdrawalCancellation(cancellation);
+        _finishPendingWithdrawalCancellation(cancellation, true);
     }
 
     function recoverPendingWithdrawal() external onlyDelegateCall returns (uint256 shares) {
@@ -707,16 +729,18 @@ contract AtRiskUSDStateModule is
         _requireNotBlocked(msg.sender);
         shares = pending.atriskusdAmount;
         WithdrawalCancellation memory cancellation = WithdrawalCancellation({beneficiary: msg.sender, shares: shares});
-        _finishPendingWithdrawalCancellation(cancellation);
+        _finishPendingWithdrawalCancellation(cancellation, false);
         emit UnreachableWithdrawalRecovered(msg.sender, shares);
     }
 
-    function _finishPendingWithdrawalCancellation(WithdrawalCancellation memory cancellation) private {
+    function _finishPendingWithdrawalCancellation(WithdrawalCancellation memory cancellation, bool checkLossPending)
+        private
+    {
         _checkpointProfitAccount(cancellation.beneficiary);
         PendingWithdrawal storage pending = _pendingWithdrawals[cancellation.beneficiary];
         _refundWeeklyWithdrawalCap(pending.weeklyCapWindowStart, pending.weeklyCapReservedAssets);
         delete _pendingWithdrawals[cancellation.beneficiary];
-        _transfer(address(this), cancellation.beneficiary, cancellation.shares);
+        _updateWithLossCheck(address(this), cancellation.beneficiary, cancellation.shares, checkLossPending);
         emit WithdrawalCancelled(cancellation.beneficiary, cancellation.shares);
     }
 
@@ -818,17 +842,6 @@ contract AtRiskUSDStateModule is
     function _requireFundedPayout(uint256 requested) private view {
         uint256 available = _legitimateAssets;
         if (requested > available) revert InsufficientFundedAssets(requested, available);
-    }
-
-    function _unfundedYieldClaim() private view returns (uint256 claim) {
-        address source = _yieldSource;
-        if (source.code.length == 0) revert YieldClaimsUnavailable(source);
-        IUSDCTreasuryYieldClaims claims = _readyYieldClaims(source);
-        try claims.unfundedYieldClaim(address(this)) returns (uint256 value) {
-            claim = value;
-        } catch {
-            revert YieldClaimsUnavailable(source);
-        }
     }
 
     function totalAssets() public view override returns (uint256) {
@@ -1092,7 +1105,8 @@ contract AtRiskUSDStateModule is
         assembly {
             lossPendingValue := mload(add(data, 32))
         }
-        return lossPendingValue > 1;
+        if (lossPendingValue > 1) revert MalformedLossPendingReturn(vault, lossPendingValue);
+        return false;
     }
 
     function _requireNoLossPending() private view {
@@ -1107,8 +1121,13 @@ contract AtRiskUSDStateModule is
 
     function _custodianSettlementPending(address vault) private view returns (bool) {
         (bool ok, bytes memory data) = vault.staticcall(abi.encodeWithSignature("custodian()"));
-        if (!ok || data.length < 32) return false;
-        address custodian = abi.decode(data, (address));
+        if (!ok || data.length < 32) revert CustodianGetterUnavailable(vault);
+        uint256 rawCustodian;
+        assembly {
+            rawCustodian := mload(add(data, 32))
+        }
+        if (rawCustodian > type(uint160).max) revert CustodianGetterUnavailable(vault);
+        address custodian = address(uint160(rawCustodian));
         if (custodian == address(0) || custodian.code.length == 0) return false;
         (ok, data) = custodian.staticcall(abi.encodeWithSignature("tierShareActionsPaused()"));
         if (!ok || data.length < 32) revert CustodianSettlementHookFailed(custodian);
@@ -1128,8 +1147,12 @@ contract AtRiskUSDStateModule is
     }
 
     function _update(address from, address to, uint256 value) internal override {
+        _updateWithLossCheck(from, to, value, true);
+    }
+
+    function _updateWithLossCheck(address from, address to, uint256 value, bool checkLossPending) private {
         if (from != address(0) && to != address(0) && value > 0) {
-            _requireNoLossPending();
+            if (checkLossPending) _requireNoLossPending();
             if (from != _stakingQueue && from != address(this)) {
                 if (block.timestamp < _lockExpiry[from]) revert LockupNotExpired(_lockExpiry[from]);
                 if (to != address(this) && _hasExpiredAutoRenewDisabledAccount(from)) {

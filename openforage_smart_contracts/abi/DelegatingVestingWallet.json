@@ -503,6 +503,17 @@
   },
   {
     "type": "error",
+    "name": "CurrentBlocklistUnavailable",
+    "inputs": [
+      {
+        "name": "dependency",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "DelegateCallFailed",
     "inputs": []
   },

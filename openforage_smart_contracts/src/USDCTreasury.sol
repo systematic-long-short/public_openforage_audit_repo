@@ -208,6 +208,8 @@ contract USDCTreasury is
     event PnLAttestorSet(address indexed attestor);
     event HLTradingBridgeSet(address indexed bridge);
     event BlocklistSet(address indexed blocklist);
+    event DistributorProposed(address indexed currentDistributor, address indexed pendingDistributor);
+    event DistributorAccepted(address indexed oldDistributor, address indexed newDistributor);
     event FoundationPrimaryProposed(address indexed wallet, uint256 proposedAt);
     event FoundationPrimaryFinalized(address indexed wallet);
     event FoundationPrimaryCancelled(address indexed wallet);
@@ -316,12 +318,15 @@ contract USDCTreasury is
     function setDistributor(address distributor_) external onlyAllowedCaller onlyOwner {
         if (distributor_ == address(0)) revert ZeroAddress();
         _pendingDistributor = distributor_;
+        emit DistributorProposed(_distributor, distributor_);
     }
 
     function acceptDistributor() external freshOnly onlyAllowedCaller {
         if (msg.sender != _pendingDistributor) revert UnauthorizedDistributor();
+        address oldDistributor = _distributor;
         _distributor = msg.sender;
         _pendingDistributor = address(0);
+        emit DistributorAccepted(oldDistributor, msg.sender);
     }
 
     function distributor() external view returns (address) {
@@ -474,7 +479,13 @@ contract USDCTreasury is
         emit PnLReturned(vaultId, amount);
     }
 
-    function deliverVaultTopUp(uint256 vaultId, uint256 amount) external onlyAllowedCaller onlyOwner nonReentrant {
+    function deliverVaultTopUp(uint256 vaultId, uint256 amount)
+        external
+        freshOnly
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
         if (_hasOpenAttestedLoss()) revert AttestedLossPending();
         VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
         uint256[4] memory allocations = _prepareVaultTopUp(vaultId, amount, config);
@@ -864,12 +875,16 @@ contract USDCTreasury is
     {
         if (requestedLoss == 0) return 0;
         LossRateWindow storage window = _lossRateWindows[vaultId];
+        if (window.start == 0 || block.timestamp >= window.start + LOSS_RATE_WINDOW) {
+            window.tierAssets = tierAssets;
+        }
         uint256 nextWindowStart;
         uint256 nextWindowUsed;
         (chargedLoss, nextWindowStart, nextWindowUsed) = USDCTreasuryAccountingModule(_accountingModule.module)
-            .consumeLossRateBudget(requestedLoss, tierAssets, lossRateCapBps, window.start, window.used, block.timestamp);
+            .consumeLossRateBudget(
+            requestedLoss, window.tierAssets, lossRateCapBps, window.start, window.used, block.timestamp
+        );
         window.start = nextWindowStart;
-        window.tierAssets = tierAssets;
         window.used = nextWindowUsed;
     }
 
@@ -1081,7 +1096,7 @@ contract USDCTreasury is
     }
 
     function _checkOwner() internal view override {
-        if (!_yieldClaimsReady) revert LegacyTreasuryStateUnsupported();
+        _requireAccountingModuleReady();
         super._checkOwner();
     }
 }

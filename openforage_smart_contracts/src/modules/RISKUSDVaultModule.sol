@@ -807,6 +807,7 @@ contract RISKUSDVaultModule is
     // --- Copied Helpers (shared with the vault or moved with the callers) ---
 
     function _recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt) internal {
+        if (_hasOpenAttestedLossNonce() && nav >= _totalDeployed) revert LossPending();
         if (lossNonce != 0 && lossNonce <= _settledLossNonce) revert StaleLossNonce();
         if (lossNonce != 0 && lossNonce <= _latestLossNonce) revert StaleLossNonce();
         if (lossNonce != 0 && vaultId == 0) revert InvalidVaultId();

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
+
 library GovernancePayloadBudget {
     uint256 internal constant MAX_TOP_LEVEL_ACTIONS = 100;
     uint256 internal constant MAX_NESTED_ACTION_VISITS = 100;
@@ -16,6 +18,18 @@ library GovernancePayloadBudget {
         address target;
         bytes data;
     }
+
+    struct GuardianSeatSetupCandidate {
+        address current;
+        address successor;
+        bool routine;
+        bool found;
+    }
+
+    bytes4 private constant _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR =
+        bytes4(keccak256("setPreCommittedSuccessor(bytes32,address,address)"));
+    bytes4 private constant _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR =
+        bytes4(keccak256("proposeRoutineRotation(bytes32,address,address)"));
 
     struct ScheduleBatchHeader {
         uint256 targetsOffset;
@@ -40,6 +54,32 @@ library GovernancePayloadBudget {
     function isValidAddressAndBytes(bytes memory data) internal pure returns (bool) {
         (bool valid,) = _tryDecodeOperation(data, 64, false, 36);
         return valid;
+    }
+
+    function guardianSeatSetupCandidate(
+        bytes memory data,
+        address target,
+        address guardianModule,
+        bytes32 guardianSeatSlot
+    ) internal pure returns (GuardianSeatSetupCandidate memory candidate) {
+        if (target != guardianModule || data.length < 100) return candidate;
+        bytes4 selector;
+        assembly ("memory-safe") {
+            selector := mload(add(data, 0x20))
+        }
+        bool routine = selector == _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR;
+        if (!routine && selector != _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR) return candidate;
+        (bool slotOk, uint256 slot) = _tryReadWord(data, 4);
+        (bool currentOk, uint256 current) = _tryReadWord(data, 36);
+        (bool successorOk, uint256 successor) = _tryReadWord(data, 68);
+        if (
+            !slotOk || !currentOk || !successorOk || slot != uint256(guardianSeatSlot) || current == 0
+                || current > type(uint160).max || successor == 0 || successor > type(uint160).max || current == successor
+        ) return candidate;
+        candidate.current = address(uint160(current));
+        candidate.successor = address(uint160(successor));
+        candidate.routine = routine;
+        candidate.found = true;
     }
 
     function _tryDecodeOperation(bytes memory data, uint256 headLength, bool readValue, uint256 offsetPosition)
@@ -294,14 +334,256 @@ library GovernancePayloadBudget {
     }
 }
 
+interface IForageGovernorMigrationTimelock {
+    function PROPOSER_ROLE() external view returns (bytes32);
+
+    function CANCELLER_ROLE() external view returns (bytes32);
+
+    function EXECUTOR_ROLE() external view returns (bytes32);
+
+    function hasRole(bytes32 role, address account) external view returns (bool);
+}
+
+interface IForageGovernorMigrationProposals {
+    function state(uint256 proposalId) external view returns (IGovernor.ProposalState);
+
+    function getProposalParams(uint256 proposalId)
+        external
+        view
+        returns (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, bytes32 descriptionHash);
+}
+
+interface IForageGovernorMigrationGuard {
+    function canonicalRegistryAddress() external view returns (address);
+
+    function hasMixedGuardianSelfAuthorityForMigration(
+        address executor,
+        address governor,
+        address guardianModule,
+        address registryOwner,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas
+    ) external view returns (bool);
+}
+
+library ForageGovernorTimelockMigrationGuard {
+    error TimelockRoleMissing(bytes32 role, address account);
+    error GuardianTimelockMigrationNotPrepared(address requestedTimelock, address pendingTimelock);
+    error GuardianTimelockStateUnavailable(address guardianModule);
+    error QueuedProposalBlocksTimelockUpdate(uint256 queuedCount, uint256 proposalId);
+    error ActiveProposalListExceedsCap(uint256 observed, uint256 maximum);
+    error CanonicalRegistryOwnerUnavailable(address registry);
+    error StoredProposalWouldBecomeGuardianProtectedWhileMixed(uint256 proposalId);
+
+    bytes4 private constant _PENDING_TIMELOCK_SELECTOR = bytes4(keccak256("pendingTimelock()"));
+    bytes4 private constant _OWNER_SELECTOR = bytes4(keccak256("owner()"));
+    uint256 private constant _AUTHORITY_VIEW_GAS = 30_000;
+    uint256 private constant _MAX_ACTIVE_PROPOSAL_IDS = 101;
+    bytes32 private constant _EXECUTING_PROPOSAL_ID_SLOT =
+        keccak256("openforage.forager.governor.executing-proposal-id");
+    bytes32 private constant _EXECUTING_PROPOSAL_ACTIVE_SLOT =
+        keccak256("openforage.forager.governor.executing-proposal-active");
+
+    function validate(
+        uint256[] storage proposalIds,
+        address guardianModule,
+        address newTimelock,
+        address governor,
+        address timelockGuard
+    ) public view {
+        _validateTimelockRoles(newTimelock, governor);
+        _validateGuardianTimelock(guardianModule, newTimelock);
+        _requireNoOtherQueuedProposal(proposalIds, guardianModule, newTimelock, governor, timelockGuard);
+    }
+
+    function _validateTimelockRoles(address newTimelock, address governor) private view {
+        IForageGovernorMigrationTimelock timelockController = IForageGovernorMigrationTimelock(newTimelock);
+        bytes32 proposerRole = timelockController.PROPOSER_ROLE();
+        if (!timelockController.hasRole(proposerRole, governor)) revert TimelockRoleMissing(proposerRole, governor);
+        bytes32 cancellerRole = timelockController.CANCELLER_ROLE();
+        if (!timelockController.hasRole(cancellerRole, governor)) revert TimelockRoleMissing(cancellerRole, governor);
+        bytes32 executorRole = timelockController.EXECUTOR_ROLE();
+        if (
+            !timelockController.hasRole(executorRole, address(0)) && !timelockController.hasRole(executorRole, governor)
+        ) {
+            revert TimelockRoleMissing(executorRole, governor);
+        }
+    }
+
+    function _validateGuardianTimelock(address guardianModule, address newTimelock) private view {
+        if (guardianModule == address(0)) return;
+        address pendingTimelock = _readPendingTimelock(guardianModule);
+        if (pendingTimelock != newTimelock) {
+            revert GuardianTimelockMigrationNotPrepared(newTimelock, pendingTimelock);
+        }
+    }
+
+    function _readPendingTimelock(address guardianModule) private view returns (address pendingTimelock) {
+        bytes memory request = abi.encodeWithSelector(_PENDING_TIMELOCK_SELECTOR);
+        bool ok;
+        uint256 pendingWord;
+        assembly ("memory-safe") {
+            ok := staticcall(_AUTHORITY_VIEW_GAS, guardianModule, add(request, 0x20), mload(request), 0, 0x20)
+            let returnSize := returndatasize()
+            if and(ok, eq(returnSize, 0x20)) { pendingWord := mload(0) }
+            if iszero(and(ok, eq(returnSize, 0x20))) { ok := 0 }
+        }
+        if (!ok || pendingWord > type(uint160).max) revert GuardianTimelockStateUnavailable(guardianModule);
+        pendingTimelock = address(uint160(pendingWord));
+    }
+
+    function _requireNoOtherQueuedProposal(
+        uint256[] storage proposalIds,
+        address guardianModule,
+        address newTimelock,
+        address governor,
+        address timelockGuard
+    ) private view {
+        _reclassifyActiveProposalTrees(proposalIds, guardianModule, newTimelock, governor, timelockGuard);
+        uint256 executingProposalId;
+        uint256 executionActive;
+        bytes32 executionSlot = _EXECUTING_PROPOSAL_ID_SLOT;
+        bytes32 executionActiveSlot = _EXECUTING_PROPOSAL_ACTIVE_SLOT;
+        assembly ("memory-safe") {
+            executingProposalId := tload(executionSlot)
+            executionActive := tload(executionActiveSlot)
+        }
+        uint256 queuedCount;
+        uint256 firstQueuedProposalId;
+        uint256 len = proposalIds.length;
+        for (uint256 i; i < len;) {
+            uint256 proposalId = proposalIds[i];
+            if (
+                (executionActive == 0 || proposalId != executingProposalId)
+                    && IGovernor(address(this)).state(proposalId) == IGovernor.ProposalState.Queued
+            ) {
+                if (queuedCount == 0) firstQueuedProposalId = proposalId;
+                ++queuedCount;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        if (queuedCount != 0) revert QueuedProposalBlocksTimelockUpdate(queuedCount, firstQueuedProposalId);
+    }
+
+    function _reclassifyActiveProposalTrees(
+        uint256[] storage proposalIds,
+        address guardianModule,
+        address newTimelock,
+        address governor,
+        address timelockGuard
+    ) private view {
+        uint256 len = proposalIds.length;
+        if (len > _MAX_ACTIVE_PROPOSAL_IDS) revert ActiveProposalListExceedsCap(len, _MAX_ACTIVE_PROPOSAL_IDS);
+        address registry = IForageGovernorMigrationGuard(timelockGuard).canonicalRegistryAddress();
+        address registryOwner = _readCanonicalRegistryOwner(registry);
+        IForageGovernorMigrationProposals proposals = IForageGovernorMigrationProposals(governor);
+        IForageGovernorMigrationGuard guard = IForageGovernorMigrationGuard(timelockGuard);
+        for (uint256 i; i < len;) {
+            uint256 proposalId = proposalIds[i];
+            if (_isNonterminalProposal(proposals.state(proposalId))) {
+                _reclassifyProposal(proposalId, proposals, guard, guardianModule, newTimelock, governor, registryOwner);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _isNonterminalProposal(IGovernor.ProposalState proposalState) private pure returns (bool) {
+        return proposalState == IGovernor.ProposalState.Pending || proposalState == IGovernor.ProposalState.Active
+            || proposalState == IGovernor.ProposalState.Succeeded || proposalState == IGovernor.ProposalState.Queued;
+    }
+
+    function _reclassifyProposal(
+        uint256 proposalId,
+        IForageGovernorMigrationProposals proposals,
+        IForageGovernorMigrationGuard guard,
+        address guardianModule,
+        address newTimelock,
+        address governor,
+        address registryOwner
+    ) private view {
+        (address[] memory targets, uint256[] memory values, bytes[] memory calldatas,) =
+            proposals.getProposalParams(proposalId);
+        bool mixed = guard.hasMixedGuardianSelfAuthorityForMigration(
+            newTimelock, governor, guardianModule, registryOwner, targets, values, calldatas
+        );
+        if (mixed) revert StoredProposalWouldBecomeGuardianProtectedWhileMixed(proposalId);
+    }
+
+    function _readCanonicalRegistryOwner(address registry) private view returns (address owner) {
+        bytes memory request = abi.encodeWithSelector(_OWNER_SELECTOR);
+        bool ok;
+        uint256 ownerWord;
+        assembly ("memory-safe") {
+            ok := staticcall(_AUTHORITY_VIEW_GAS, registry, add(request, 0x20), mload(request), 0, 0x20)
+            let returnSize := returndatasize()
+            if and(ok, eq(returnSize, 0x20)) { ownerWord := mload(0) }
+            if iszero(and(ok, eq(returnSize, 0x20))) { ok := 0 }
+        }
+        if (registry == address(0) || !ok || ownerWord == 0 || ownerWord > type(uint160).max) {
+            revert CanonicalRegistryOwnerUnavailable(registry);
+        }
+        owner = address(uint160(ownerWord));
+    }
+}
+
 contract ForageGovernorTimelockGuard {
     error MalformedTimelockCalldata();
     error TimelockDelayBelowMinimum(uint256 requested, uint256 minimum);
     error TimelockSelfProposerGrant();
     error TimelockExternalProposerGrant(address account);
+    error CanonicalCustodianRegistryUnavailable(address registry);
+    error ProtectedCallAuthorityUnavailable(address target);
+    error ProtectedCallCallerMismatch(address target, address caller, address requiredCaller);
+    error CanonicalTimelockUpgradeUnsupported(address target);
+    error GuardianSeatSetupBundledWithUnrelatedAction(address current, address successor);
+    error GuardianSelfAuthorityBundledWithUnrelatedAction(address target, bytes4 selector);
 
     bytes4 private constant _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR = bytes4(keccak256("proposeTimelock(address)"));
     bytes4 private constant _GUARDIAN_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
+    bytes4 private constant _TIMELOCK_REVOKE_ROLE_SELECTOR = bytes4(keccak256("revokeRole(bytes32,address)"));
+    bytes4 private constant _TIMELOCK_RENOUNCE_ROLE_SELECTOR = bytes4(keccak256("renounceRole(bytes32,address)"));
+    bytes4 private constant _OWNER_SELECTOR = bytes4(keccak256("owner()"));
+    bytes4 private constant _PENDING_TIMELOCK_SELECTOR = bytes4(keccak256("pendingTimelock()"));
+    bytes4 private constant _GET_ROLE_ADMIN_SELECTOR = bytes4(keccak256("getRoleAdmin(bytes32)"));
+    bytes4 private constant _HAS_ROLE_SELECTOR = bytes4(keccak256("hasRole(bytes32,address)"));
+    uint256 private constant _AUTHORITY_VIEW_GAS = 30_000;
+    bytes32 private constant _GUARDIAN_SEAT_SLOT = keccak256("GUARDIAN_SEAT");
+    bytes32 private constant _DEFAULT_ADMIN_ROLE = bytes32(0);
+    bytes32 private constant _CANCELLER_ROLE = keccak256("CANCELLER_ROLE");
+    bytes32 private constant _PROPOSER_ROLE = keccak256("PROPOSER_ROLE");
+    bytes32 private constant _EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
+    address private immutable _canonicalCustodianRegistry;
+
+    bytes4 private constant _REGISTRY_PROPOSE_FORAGE_GOVERNOR_SELECTOR =
+        bytes4(keccak256("proposeForageGovernor(address)"));
+    bytes4 private constant _REGISTRY_FINALIZE_FORAGE_GOVERNOR_SELECTOR = bytes4(keccak256("finalizeForageGovernor()"));
+    bytes4 private constant _REGISTRY_SET_ALLOWLIST_SELECTOR = bytes4(keccak256("setAllowlist(address)"));
+    bytes4 private constant _GOVERNOR_SET_GUARDIAN_MODULE_SELECTOR = bytes4(keccak256("setGuardianModule(address)"));
+    bytes4 private constant _GOVERNOR_UPDATE_TIMELOCK_SELECTOR = bytes4(keccak256("updateTimelock(address)"));
+    bytes4 private constant _GOVERNOR_SET_ALLOWLIST_SELECTOR = bytes4(keccak256("setAllowlist(address)"));
+    bytes4 private constant _GUARDIAN_SET_GUARDIAN_PERMISSIONS_SELECTOR =
+        bytes4(keccak256("setGuardianPermissions(address,uint256)"));
+    bytes4 private constant _GUARDIAN_REMOVE_GUARDIAN_SELECTOR = bytes4(keccak256("removeGuardian(address)"));
+    bytes4 private constant _GUARDIAN_UPDATE_GOVERNOR_SELECTOR = bytes4(keccak256("updateGovernor(address)"));
+    bytes4 private constant _GUARDIAN_SET_ALLOWLIST_SELECTOR = bytes4(keccak256("setAllowlist(address)"));
+    bytes4 private constant _GUARDIAN_SET_PAUSABLE_TARGET_SELECTOR =
+        bytes4(keccak256("setPausableTarget(address,bool)"));
+    bytes4 private constant _GUARDIAN_EXECUTE_ACCELERATED_ROTATION_SELECTOR =
+        bytes4(keccak256("executeAcceleratedRotation(bytes32)"));
+    bytes4 private constant _GUARDIAN_PROPOSE_ACCELERATED_ROTATION_SELECTOR =
+        bytes4(keccak256("proposeAcceleratedRotation(bytes32,address,address)"));
+    bytes4 private constant _GUARDIAN_FINALIZE_ROUTINE_ROTATION_SELECTOR =
+        bytes4(keccak256("finalizeRoutineRotation(bytes32)"));
+    bytes4 private constant _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR =
+        bytes4(keccak256("setPreCommittedSuccessor(bytes32,address,address)"));
+    bytes4 private constant _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR =
+        bytes4(keccak256("proposeRoutineRotation(bytes32,address,address)"));
+    bytes4 private constant _GUARDIAN_ACCEPT_TIMELOCK_SELECTOR = bytes4(keccak256("acceptTimelock()"));
 
     struct FutureTimelockCall {
         address executor;
@@ -315,14 +597,37 @@ contract ForageGovernorTimelockGuard {
         uint256[] count;
     }
 
+    struct GuardianSeatSetupState {
+        address current;
+        address successor;
+        address protectedTarget;
+        bytes4 protectedSelector;
+        bool found;
+        bool hasProtectedAction;
+        bool unrelatedAction;
+        bool precommitSeen;
+        bool routineProposalSeen;
+    }
+
+    struct GuardianSeatSetupTracker {
+        GuardianSeatSetupState[] states;
+    }
+
     struct TimelockGuardContext {
         address executor;
+        address canonicalTimelock;
         address allowedProposer;
         address guardianModule;
+        address canonicalRegistry;
+        address custodianRegistryOwner;
+        address effectiveCaller;
         uint256 delayFloor;
         uint256 nestingBound;
         uint256 depth;
         FutureTimelockQueue futureTimelockCalls;
+        GuardianSeatSetupTracker guardianSeatSetupTracker;
+        bool trackGuardianSeatSetup;
+        bool guardianClassificationOnly;
     }
 
     enum PolicyKind {
@@ -342,6 +647,17 @@ contract ForageGovernorTimelockGuard {
         uint256 length;
     }
 
+    constructor(address canonicalCustodianRegistry) {
+        if (canonicalCustodianRegistry == address(0)) {
+            revert CanonicalCustodianRegistryUnavailable(canonicalCustodianRegistry);
+        }
+        _canonicalCustodianRegistry = canonicalCustodianRegistry;
+    }
+
+    function canonicalRegistryAddress() external view returns (address) {
+        return _canonicalCustodianRegistry;
+    }
+
     function enforceOperations(
         address executor,
         address allowedProposer,
@@ -351,19 +667,70 @@ contract ForageGovernorTimelockGuard {
         address[] memory targets,
         uint256[] memory values,
         bytes[] memory calldatas
-    ) external pure {
+    ) external view {
         GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
         _validateProposalBounds(targets, values, calldatas, budget);
+        address custodianRegistryOwner = _readAuthorityAddress(_canonicalCustodianRegistry, _OWNER_SELECTOR);
         FutureTimelockQueue memory futureTimelockCalls = _newFutureTimelockQueue(targets.length);
+        GuardianSeatSetupTracker memory setupTracker = _newGuardianSeatSetupTracker();
         TimelockPolicyCollection memory policies = _newPolicyCollection(targets.length);
         TimelockGuardContext memory context = TimelockGuardContext(
-            executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0, futureTimelockCalls
+            executor,
+            executor,
+            allowedProposer,
+            guardianModule,
+            _canonicalCustodianRegistry,
+            custodianRegistryOwner,
+            executor,
+            delayFloor,
+            nestingBound,
+            0,
+            futureTimelockCalls,
+            setupTracker,
+            true,
+            false
         );
         for (uint256 i; i < targets.length; ++i) {
             _collectTimelockPolicies(context, targets[i], calldatas[i], budget, policies);
         }
         _enforceTimelockPolicies(policies, executor, allowedProposer, delayFloor);
         _enforceFutureTimelockExecutors(context, budget, targets, calldatas);
+        _revertIfBundledGuardianSeatSetup(setupTracker);
+    }
+
+    function hasMixedGuardianSelfAuthorityForMigration(
+        address executor,
+        address governor,
+        address guardianModule,
+        address registryOwner,
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas
+    ) external view returns (bool) {
+        GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
+        _validateProposalBounds(targets, values, calldatas, budget);
+        TimelockGuardContext memory context = TimelockGuardContext(
+            executor,
+            executor,
+            governor,
+            guardianModule,
+            _canonicalCustodianRegistry,
+            registryOwner,
+            executor,
+            0,
+            GovernancePayloadBudget.MAX_TIMELOCK_DEPTH,
+            0,
+            _newFutureTimelockQueue(targets.length),
+            _newGuardianSeatSetupTracker(),
+            true,
+            true
+        );
+        TimelockPolicyCollection memory policies = _newPolicyCollection(targets.length);
+        for (uint256 i; i < targets.length; ++i) {
+            _collectTimelockPolicies(context, targets[i], calldatas[i], budget, policies);
+        }
+        _enforceFutureTimelockExecutors(context, budget, targets, calldatas);
+        return _hasBundledGuardianSelfAuthority(context.guardianSeatSetupTracker);
     }
 
     function _enforceFutureTimelockExecutors(
@@ -371,10 +738,11 @@ contract ForageGovernorTimelockGuard {
         GovernancePayloadBudget.Budget memory budget,
         address[] memory targets,
         bytes[] memory calldatas
-    ) private pure {
+    ) private view {
         for (uint256 i; i < targets.length; ++i) {
             if (
                 targets[i] != context.executor && targets[i] != context.allowedProposer
+                    && targets[i] != context.guardianModule && targets[i] != context.canonicalRegistry
                     && _isTimelockScheduleCall(calldatas[i])
             ) {
                 _enqueueFutureTimelockCall(context.futureTimelockCalls, targets[i], targets[i], calldatas[i], 0);
@@ -384,22 +752,35 @@ contract ForageGovernorTimelockGuard {
             FutureTimelockCall memory candidate = context.futureTimelockCalls.calls[i];
             TimelockGuardContext memory candidateContext = TimelockGuardContext(
                 candidate.executor,
+                context.canonicalTimelock,
                 context.allowedProposer,
                 context.guardianModule,
+                context.canonicalRegistry,
+                context.custodianRegistryOwner,
+                context.effectiveCaller,
                 context.delayFloor,
                 context.nestingBound,
                 candidate.depth,
-                context.futureTimelockCalls
+                context.futureTimelockCalls,
+                context.guardianSeatSetupTracker,
+                true,
+                context.guardianClassificationOnly
             );
             TimelockPolicyCollection memory policies = _newPolicyCollection(1);
             _collectTimelockPolicies(candidateContext, candidate.target, candidate.data, budget, policies);
-            _enforceTimelockPolicies(policies, candidate.executor, context.allowedProposer, context.delayFloor);
+            if (!context.guardianClassificationOnly) {
+                _enforceTimelockPolicies(policies, candidate.executor, context.allowedProposer, context.delayFloor);
+            }
         }
     }
 
     function _newFutureTimelockQueue(uint256 rootActions) private pure returns (FutureTimelockQueue memory queue) {
         queue.calls = new FutureTimelockCall[](rootActions + GovernancePayloadBudget.MAX_NESTED_ACTION_VISITS);
         queue.count = new uint256[](1);
+    }
+
+    function _newGuardianSeatSetupTracker() private pure returns (GuardianSeatSetupTracker memory tracker) {
+        tracker.states = new GuardianSeatSetupState[](1);
     }
 
     function _enqueueFutureTimelockCall(
@@ -421,6 +802,182 @@ contract ForageGovernorTimelockGuard {
         return selector == _timelockScheduleSelector() || selector == _timelockScheduleBatchSelector();
     }
 
+    function _recordGuardianSeatSetupAction(
+        TimelockGuardContext memory context,
+        address target,
+        bytes memory data,
+        bytes4 selector
+    ) private pure {
+        if (!context.trackGuardianSeatSetup) return;
+        if (context.custodianRegistryOwner != context.canonicalTimelock && target == context.custodianRegistryOwner) {
+            _recordGuardianSelfAuthorityCandidate(context.guardianSeatSetupTracker, target, selector);
+            return;
+        }
+        if (_isGuardianSeatSetupWrapper(context, target, selector)) return;
+        if (!_isGuardianSelfAuthorityCandidate(context, target, data, selector)) {
+            _markGuardianSeatActionUnrelated(context);
+            return;
+        }
+        _recordGuardianSelfAuthorityCandidate(context.guardianSeatSetupTracker, target, selector);
+        GovernancePayloadBudget.GuardianSeatSetupCandidate memory candidate = GovernancePayloadBudget
+            .guardianSeatSetupCandidate(data, target, context.guardianModule, _GUARDIAN_SEAT_SLOT);
+        if (!candidate.found) return;
+        _recordGuardianSeatSetupCandidate(
+            context.guardianSeatSetupTracker, candidate.current, candidate.successor, candidate.routine
+        );
+    }
+
+    function _isGuardianSelfAuthorityCandidate(
+        TimelockGuardContext memory context,
+        address target,
+        bytes memory data,
+        bytes4 selector
+    ) private pure returns (bool) {
+        if (target == context.allowedProposer) return _isGovernorProtectedSelector(selector);
+        if (target == context.executor) return _isTimelockSelfAuthorityCandidate(context, data, selector);
+        if (target == context.guardianModule && target != address(0)) {
+            return _isGuardianModuleSelfAuthorityCandidate(context, data, selector);
+        }
+        if (target == context.canonicalRegistry && target != address(0)) return _isRegistryMutation(selector);
+        return false;
+    }
+
+    function _isTimelockSelfAuthorityCandidate(TimelockGuardContext memory context, bytes memory data, bytes4 selector)
+        private
+        pure
+        returns (bool)
+    {
+        if (selector == _updateDelaySelector() || selector == _GUARDIAN_UPGRADE_SELECTOR) return true;
+        if (
+            selector != _timelockGrantRoleSelector() && selector != _TIMELOCK_REVOKE_ROLE_SELECTOR
+                && selector != _TIMELOCK_RENOUNCE_ROLE_SELECTOR
+        ) return false;
+        if (data.length < 68) return false;
+        bytes32 role = bytes32(_readWord(data, 4));
+        if (!_isProtectedTimelockRole(role)) return false;
+        return selector != _TIMELOCK_RENOUNCE_ROLE_SELECTOR
+            || address(uint160(_readWord(data, 36))) == context.effectiveCaller;
+    }
+
+    function _isGuardianModuleSelfAuthorityCandidate(
+        TimelockGuardContext memory context,
+        bytes memory data,
+        bytes4 selector
+    ) private pure returns (bool) {
+        if (
+            _isGuardianModuleAddressMutation(selector) || selector == _GUARDIAN_ACCEPT_TIMELOCK_SELECTOR
+                || selector == _GUARDIAN_EXECUTE_ACCELERATED_ROTATION_SELECTOR
+                || selector == _GUARDIAN_FINALIZE_ROUTINE_ROTATION_SELECTOR
+        ) return true;
+        if (
+            selector == _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR
+                || selector == _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR
+        ) {
+            GovernancePayloadBudget.GuardianSeatSetupCandidate memory candidate = GovernancePayloadBudget
+                .guardianSeatSetupCandidate(data, context.guardianModule, context.guardianModule, _GUARDIAN_SEAT_SLOT);
+            if (candidate.found) return true;
+            return selector == _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR
+                && _isGuardianRotationProposalCandidate(data, selector);
+        }
+        return selector == _GUARDIAN_PROPOSE_ACCELERATED_ROTATION_SELECTOR
+            && _isGuardianRotationProposalCandidate(data, selector);
+    }
+
+    function _isGuardianRotationProposalCandidate(bytes memory data, bytes4 selector) private pure returns (bool) {
+        if (data.length < 100) return false;
+        uint256 slot = _readWord(data, 4);
+        address current = _readAddress(data, 36);
+        address successor = _readAddress(data, 68);
+        if (slot == 0 || current == address(0) || successor == address(0)) return false;
+        if (selector == _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR) {
+            return slot == uint256(_GUARDIAN_SEAT_SLOT) && current != successor;
+        }
+        return selector == _GUARDIAN_PROPOSE_ACCELERATED_ROTATION_SELECTOR;
+    }
+
+    function _recordGuardianSelfAuthorityCandidate(
+        GuardianSeatSetupTracker memory tracker,
+        address target,
+        bytes4 selector
+    ) private pure {
+        GuardianSeatSetupState[] memory states = tracker.states;
+        if (!states[0].hasProtectedAction) {
+            states[0].protectedTarget = target;
+            states[0].protectedSelector = selector;
+            states[0].hasProtectedAction = true;
+        }
+    }
+
+    function _isGuardianSeatSetupWrapper(TimelockGuardContext memory context, address target, bytes4 selector)
+        private
+        pure
+        returns (bool)
+    {
+        bool schedule = selector == _timelockScheduleSelector() || selector == _timelockScheduleBatchSelector();
+        bool currentExecutor = target == context.executor;
+        return target == context.allowedProposer && selector == _governorRelaySelector()
+            || schedule && (currentExecutor || _isFutureTimelockExecutor(context, target));
+    }
+
+    function _isFutureTimelockExecutor(TimelockGuardContext memory context, address target)
+        private
+        pure
+        returns (bool)
+    {
+        return target != address(0) && target != context.executor && target != context.allowedProposer
+            && target != context.guardianModule && target != context.canonicalRegistry;
+    }
+
+    function _recordGuardianSeatSetupCandidate(
+        GuardianSeatSetupTracker memory tracker,
+        address current,
+        address successor,
+        bool routine
+    ) private pure {
+        GuardianSeatSetupState[] memory states = tracker.states;
+        if (!states[0].found) {
+            states[0].found = true;
+            states[0].current = current;
+            states[0].successor = successor;
+        } else if (states[0].current != current || states[0].successor != successor) {
+            states[0].unrelatedAction = true;
+            return;
+        }
+        if (routine) {
+            if (states[0].routineProposalSeen) {
+                states[0].unrelatedAction = true;
+                return;
+            }
+            states[0].routineProposalSeen = true;
+        } else {
+            if (states[0].precommitSeen) {
+                states[0].unrelatedAction = true;
+                return;
+            }
+            states[0].precommitSeen = true;
+        }
+    }
+
+    function _markGuardianSeatActionUnrelated(TimelockGuardContext memory context) private pure {
+        if (!context.trackGuardianSeatSetup) return;
+        GuardianSeatSetupState[] memory states = context.guardianSeatSetupTracker.states;
+        states[0].unrelatedAction = true;
+    }
+
+    function _revertIfBundledGuardianSeatSetup(GuardianSeatSetupTracker memory tracker) private pure {
+        if (!_hasBundledGuardianSelfAuthority(tracker)) return;
+        GuardianSeatSetupState memory state = tracker.states[0];
+        if (state.found) {
+            revert GuardianSeatSetupBundledWithUnrelatedAction(state.current, state.successor);
+        }
+        revert GuardianSelfAuthorityBundledWithUnrelatedAction(state.protectedTarget, state.protectedSelector);
+    }
+
+    function _hasBundledGuardianSelfAuthority(GuardianSeatSetupTracker memory tracker) private pure returns (bool) {
+        GuardianSeatSetupState memory state = tracker.states[0];
+        return state.hasProtectedAction && state.unrelatedAction;
+    }
+
     function _nextTimelockDepth(TimelockGuardContext memory context) private pure returns (uint256) {
         if (context.depth >= context.nestingBound) revert MalformedTimelockCalldata();
         return context.depth + 1;
@@ -434,7 +991,7 @@ contract ForageGovernorTimelockGuard {
     ) private pure {
         if (
             target == context.executor || target == context.allowedProposer || target == context.guardianModule
-                || !_isTimelockScheduleCall(data)
+                || target == context.canonicalRegistry || !_isTimelockScheduleCall(data)
         ) return;
         if (data.length >= parentLength) revert MalformedTimelockCalldata();
         _enqueueFutureTimelockCall(context.futureTimelockCalls, target, target, data, _nextTimelockDepth(context));
@@ -456,12 +1013,25 @@ contract ForageGovernorTimelockGuard {
         uint256 nestingBound,
         address target,
         bytes memory data
-    ) external pure {
+    ) external view {
         GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
         _addActionBytes(budget, data.length);
         FutureTimelockQueue memory futureTimelockCalls = _newFutureTimelockQueue(1);
         TimelockGuardContext memory context = TimelockGuardContext(
-            executor, allowedProposer, guardianModule, delayFloor, nestingBound, 0, futureTimelockCalls
+            executor,
+            executor,
+            allowedProposer,
+            guardianModule,
+            _canonicalCustodianRegistry,
+            address(0),
+            allowedProposer,
+            delayFloor,
+            nestingBound,
+            0,
+            futureTimelockCalls,
+            GuardianSeatSetupTracker(new GuardianSeatSetupState[](0)),
+            false,
+            false
         );
         TimelockPolicyCollection memory policies = _newPolicyCollection(1);
         _collectTimelockPolicies(context, target, data, budget, policies);
@@ -505,35 +1075,51 @@ contract ForageGovernorTimelockGuard {
         bytes memory data,
         GovernancePayloadBudget.Budget memory budget,
         TimelockPolicyCollection memory policies
-    ) private pure {
-        if (data.length < 4) return;
+    ) private view {
+        if (data.length < 4) {
+            _recordGuardianSeatSetupAction(context, target, data, bytes4(0));
+            return;
+        }
         bytes4 selector = _operationSelector(data);
-        _revertIfMalformedGuardianMutation(context.guardianModule, target, data, selector);
+        if (!context.guardianClassificationOnly) {
+            _revertIfMalformedGuardianMutation(context, target, data, selector);
+            _revertIfUnauthorizedProtectedCall(context, target, data, selector);
+        }
+        _recordGuardianSeatSetupAction(context, target, data, selector);
         if (target == context.allowedProposer && selector == _governorRelaySelector()) {
             _consumeNestedVisits(budget, 1);
             (bool valid, GovernancePayloadBudget.OperationPayload memory relayed) =
                 GovernancePayloadBudget.tryDecodeRelay(data);
             if (!valid) revert MalformedTimelockCalldata();
             if (relayed.data.length >= data.length) revert MalformedTimelockCalldata();
-            if (relayed.target == context.guardianModule && relayed.target != address(0)) {
-                _collectTimelockPolicies(context, relayed.target, relayed.data, budget, policies);
-            } else if (relayed.target == context.executor || relayed.target == context.allowedProposer) {
+            TimelockGuardContext memory relayContext = _contextWithEffectiveCaller(context, context.allowedProposer);
+            if (relayed.target == context.executor || relayed.target == context.allowedProposer) {
                 _collectTimelockPolicies(
-                    _nestedTimelockContext(context), relayed.target, relayed.data, budget, policies
+                    _nestedTimelockContext(relayContext, relayContext.effectiveCaller),
+                    relayed.target,
+                    relayed.data,
+                    budget,
+                    policies
                 );
+            } else if (relayed.target == context.guardianModule && relayed.target != address(0)) {
+                _collectTimelockPolicies(relayContext, relayed.target, relayed.data, budget, policies);
+            } else if (relayed.target == context.canonicalRegistry && relayed.target != address(0)) {
+                _collectTimelockPolicies(relayContext, relayed.target, relayed.data, budget, policies);
             } else {
-                _queueRelayedTimelock(context, relayed.target, relayed.data);
+                _queueRelayedTimelock(relayContext, relayed.target, relayed.data);
             }
             return;
         }
         if (target != context.executor) return;
         if (selector == _updateDelaySelector()) {
-            _appendDelay(policies, _readWord(_operationPayload(data), 0));
+            if (!context.guardianClassificationOnly) _appendDelay(policies, _readWord(_operationPayload(data), 0));
             return;
         }
         if (selector == _timelockGrantRoleSelector()) {
-            bytes memory payload = _operationPayload(data);
-            _appendGrant(policies, bytes32(_readWord(payload, 0)), _readAddress(payload, 32));
+            if (!context.guardianClassificationOnly) {
+                bytes memory payload = _operationPayload(data);
+                _appendGrant(policies, bytes32(_readWord(payload, 0)), _readAddress(payload, 32));
+            }
             return;
         }
         if (selector == _timelockScheduleSelector()) {
@@ -542,14 +1128,21 @@ contract ForageGovernorTimelockGuard {
                 GovernancePayloadBudget.tryDecodeSchedule(data);
             if (!valid) revert MalformedTimelockCalldata();
             if (scheduled.data.length >= data.length) revert MalformedTimelockCalldata();
-            if (scheduled.target == context.guardianModule && scheduled.target != address(0)) {
-                _collectTimelockPolicies(context, scheduled.target, scheduled.data, budget, policies);
-            } else if (scheduled.target == context.executor || scheduled.target == context.allowedProposer) {
+            TimelockGuardContext memory scheduleContext = _contextWithEffectiveCaller(context, context.executor);
+            if (scheduled.target == context.executor || scheduled.target == context.allowedProposer) {
                 _collectTimelockPolicies(
-                    _nestedTimelockContext(context), scheduled.target, scheduled.data, budget, policies
+                    _nestedTimelockContext(scheduleContext, context.executor),
+                    scheduled.target,
+                    scheduled.data,
+                    budget,
+                    policies
                 );
+            } else if (scheduled.target == context.guardianModule && scheduled.target != address(0)) {
+                _collectTimelockPolicies(scheduleContext, scheduled.target, scheduled.data, budget, policies);
+            } else if (scheduled.target == context.canonicalRegistry && scheduled.target != address(0)) {
+                _collectTimelockPolicies(scheduleContext, scheduled.target, scheduled.data, budget, policies);
             } else {
-                _queueNestedTimelockSchedule(context, scheduled.target, scheduled.data, data.length);
+                _queueNestedTimelockSchedule(scheduleContext, scheduled.target, scheduled.data, data.length);
             }
             return;
         }
@@ -559,15 +1152,278 @@ contract ForageGovernorTimelockGuard {
     }
 
     function _revertIfMalformedGuardianMutation(
-        address guardianModule,
+        TimelockGuardContext memory context,
         address target,
         bytes memory data,
         bytes4 selector
     ) private pure {
-        if (guardianModule == address(0) || target != guardianModule) return;
-        if (selector == _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR) {
-            if (data.length < 36 || _readAddress(data, 4) == address(0)) revert MalformedTimelockCalldata();
-        } else if (selector == _GUARDIAN_UPGRADE_SELECTOR && !GovernancePayloadBudget.isValidAddressAndBytes(data)) {
+        if (target == context.allowedProposer) {
+            _revertIfMalformedGovernorMutation(data, selector);
+            return;
+        }
+        if (target == context.executor) {
+            _revertIfMalformedTimelockMutation(data, selector);
+            return;
+        }
+        if (context.guardianModule != address(0) && target == context.guardianModule) {
+            _revertIfMalformedGuardianModuleMutation(data, selector);
+            return;
+        }
+        if (context.canonicalRegistry != address(0) && target == context.canonicalRegistry) {
+            _revertIfMalformedRegistryMutation(data, selector);
+        }
+    }
+
+    function _revertIfUnauthorizedProtectedCall(
+        TimelockGuardContext memory context,
+        address target,
+        bytes memory data,
+        bytes4 selector
+    ) private view {
+        if (target == context.canonicalTimelock && selector == _GUARDIAN_UPGRADE_SELECTOR) {
+            revert CanonicalTimelockUpgradeUnsupported(target);
+        }
+        if (target == context.allowedProposer) {
+            _revertIfUnauthorizedGovernorCall(context, target, selector);
+            return;
+        }
+        if (target == context.executor) {
+            _revertIfUnauthorizedTimelockCall(context, target, data, selector);
+            return;
+        }
+        if (context.guardianModule != address(0) && target == context.guardianModule) {
+            _revertIfUnauthorizedGuardianModuleCall(context, target, selector);
+            return;
+        }
+        if (context.canonicalRegistry != address(0) && target == context.canonicalRegistry) {
+            _revertIfUnauthorizedRegistryCall(context, target, selector);
+        }
+    }
+
+    function _revertIfUnauthorizedGovernorCall(TimelockGuardContext memory context, address target, bytes4 selector)
+        private
+        view
+    {
+        if (!_isGovernorProtectedSelector(selector) && selector != _governorRelaySelector()) return;
+        _requireCallerMatch(target, context.effectiveCaller, context.executor);
+    }
+
+    function _isGovernorProtectedSelector(bytes4 selector) private pure returns (bool) {
+        return _isGovernorAddressMutation(selector) || selector == _GUARDIAN_UPGRADE_SELECTOR;
+    }
+
+    function _revertIfUnauthorizedTimelockCall(
+        TimelockGuardContext memory context,
+        address target,
+        bytes memory data,
+        bytes4 selector
+    ) private view {
+        if (selector == _updateDelaySelector() || selector == _GUARDIAN_UPGRADE_SELECTOR) {
+            _requireCallerMatch(target, context.effectiveCaller, target);
+            return;
+        }
+        if (selector == _TIMELOCK_RENOUNCE_ROLE_SELECTOR) {
+            bytes32 role = bytes32(_readWord(data, 4));
+            if (_isProtectedTimelockRole(role)) {
+                _requireCallerMatch(target, context.effectiveCaller, _readTimelockRoleAccount(data));
+            }
+            return;
+        }
+        if (selector == _timelockGrantRoleSelector() || selector == _TIMELOCK_REVOKE_ROLE_SELECTOR) {
+            _revertIfCallerLacksTimelockAdmin(target, context.effectiveCaller, bytes32(_readWord(data, 4)));
+        }
+    }
+
+    function _isProtectedTimelockRole(bytes32 role) private pure returns (bool) {
+        return
+            role == _CANCELLER_ROLE || role == _DEFAULT_ADMIN_ROLE || role == _PROPOSER_ROLE || role == _EXECUTOR_ROLE;
+    }
+
+    function _revertIfCallerLacksTimelockAdmin(address target, address caller, bytes32 role) private view {
+        if (!_isProtectedTimelockRole(role)) return;
+        bytes32 adminRole = bytes32(_readAuthorityWord(target, abi.encodeWithSelector(_GET_ROLE_ADMIN_SELECTOR, role)));
+        bytes memory request = abi.encodeWithSelector(_HAS_ROLE_SELECTOR, adminRole, caller);
+        uint256 answer = _readAuthorityWord(target, request);
+        if (answer > 1) revert ProtectedCallAuthorityUnavailable(target);
+        if (answer == 0) revert ProtectedCallCallerMismatch(target, caller, target);
+    }
+
+    function _revertIfUnauthorizedGuardianModuleCall(
+        TimelockGuardContext memory context,
+        address target,
+        bytes4 selector
+    ) private view {
+        if (selector == _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR) {
+            _requireCallerMatch(target, context.effectiveCaller, context.allowedProposer);
+            return;
+        }
+        if (selector == _GUARDIAN_ACCEPT_TIMELOCK_SELECTOR) {
+            address pendingTimelock = _readPendingTimelock(target);
+            _requireCallerMatch(target, context.effectiveCaller, pendingTimelock);
+            return;
+        }
+        if (_isGuardianModuleTimelockMutation(selector)) _requireGuardianTimelockCaller(context, target);
+    }
+
+    function _requireGuardianTimelockCaller(TimelockGuardContext memory context, address target) private pure {
+        _requireCallerMatch(target, context.effectiveCaller, context.executor);
+    }
+
+    function _revertIfUnauthorizedRegistryCall(TimelockGuardContext memory context, address target, bytes4 selector)
+        private
+        view
+    {
+        if (!_isRegistryMutation(selector)) return;
+        if (target.code.length == 0) revert CanonicalCustodianRegistryUnavailable(target);
+        address registryOwner = _readAuthorityAddress(target, _OWNER_SELECTOR);
+        _requireCallerMatch(target, context.effectiveCaller, registryOwner);
+    }
+
+    function _isRegistryMutation(bytes4 selector) private pure returns (bool) {
+        return selector == _REGISTRY_PROPOSE_FORAGE_GOVERNOR_SELECTOR
+            || selector == _REGISTRY_FINALIZE_FORAGE_GOVERNOR_SELECTOR || selector == _REGISTRY_SET_ALLOWLIST_SELECTOR
+            || selector == _GUARDIAN_UPGRADE_SELECTOR;
+    }
+
+    function _requireCallerMatch(address target, address caller, address requiredCaller) private pure {
+        if (caller != requiredCaller) revert ProtectedCallCallerMismatch(target, caller, requiredCaller);
+    }
+
+    function _readAuthorityAddress(address target, bytes4 selector) private view returns (address account) {
+        uint256 word = _readAuthorityWord(target, abi.encodeWithSelector(selector));
+        if (word == 0 || word > type(uint160).max) revert ProtectedCallAuthorityUnavailable(target);
+        account = address(uint160(word));
+    }
+
+    function _readPendingTimelock(address target) private view returns (address account) {
+        uint256 word = _readAuthorityWord(target, abi.encodeWithSelector(_PENDING_TIMELOCK_SELECTOR));
+        if (word > type(uint160).max) revert ProtectedCallAuthorityUnavailable(target);
+        account = address(uint160(word));
+    }
+
+    function _readAuthorityWord(address target, bytes memory request) private view returns (uint256 value) {
+        bool ok;
+        uint256 result;
+        assembly ("memory-safe") {
+            ok := staticcall(_AUTHORITY_VIEW_GAS, target, add(request, 0x20), mload(request), 0, 0x20)
+            let returnSize := returndatasize()
+            if and(ok, eq(returnSize, 0x20)) { result := mload(0) }
+            if iszero(and(ok, eq(returnSize, 0x20))) { ok := 0 }
+        }
+        if (!ok) revert ProtectedCallAuthorityUnavailable(target);
+        value = result;
+    }
+
+    function _revertIfMalformedTimelockMutation(bytes memory data, bytes4 selector) private pure {
+        if (selector == _GUARDIAN_UPGRADE_SELECTOR) {
+            _revertIfMalformedUpgrade(data);
+            return;
+        }
+        if (selector == _updateDelaySelector()) {
+            _readWord(data, 4);
+            return;
+        }
+        if (selector == _timelockGrantRoleSelector()) {
+            _readTimelockRoleAccount(data);
+            return;
+        }
+        if (selector == _TIMELOCK_REVOKE_ROLE_SELECTOR) {
+            _readTimelockRoleAccount(data);
+            return;
+        }
+        if (selector == _TIMELOCK_RENOUNCE_ROLE_SELECTOR) _readTimelockRoleAccount(data);
+    }
+
+    function _revertIfMalformedRegistryMutation(bytes memory data, bytes4 selector) private pure {
+        if (selector == _REGISTRY_PROPOSE_FORAGE_GOVERNOR_SELECTOR || selector == _REGISTRY_SET_ALLOWLIST_SELECTOR) {
+            _revertIfZeroAddressArgument(data);
+            return;
+        }
+        if (selector == _REGISTRY_FINALIZE_FORAGE_GOVERNOR_SELECTOR) {
+            if (data.length < 4) revert MalformedTimelockCalldata();
+            return;
+        }
+        if (selector == _GUARDIAN_UPGRADE_SELECTOR) _revertIfMalformedUpgrade(data);
+    }
+
+    function _readTimelockRoleAccount(bytes memory data) private pure returns (address account) {
+        _readWord(data, 4);
+        account = _readAddress(data, 36);
+    }
+
+    function _revertIfMalformedGovernorMutation(bytes memory data, bytes4 selector) private pure {
+        if (_isGovernorAddressMutation(selector)) {
+            _revertIfZeroAddressArgument(data);
+        } else if (selector == _GUARDIAN_UPGRADE_SELECTOR) {
+            _revertIfMalformedUpgrade(data);
+        }
+    }
+
+    function _isGovernorAddressMutation(bytes4 selector) private pure returns (bool) {
+        return selector == _GOVERNOR_SET_GUARDIAN_MODULE_SELECTOR || selector == _GOVERNOR_UPDATE_TIMELOCK_SELECTOR
+            || selector == _GOVERNOR_SET_ALLOWLIST_SELECTOR;
+    }
+
+    function _revertIfMalformedGuardianModuleMutation(bytes memory data, bytes4 selector) private pure {
+        if (
+            selector == _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR
+                || selector == _GUARDIAN_PROPOSE_ROUTINE_ROTATION_SELECTOR
+        ) {
+            _revertIfMalformedGuardianSeatSetup(data, selector);
+            return;
+        }
+        if (selector == _GUARDIAN_ACCEPT_TIMELOCK_SELECTOR) return;
+        if (_isGuardianModuleAddressMutation(selector)) _revertIfZeroAddressArgument(data);
+        _revertIfMalformedGuardianModuleArguments(data, selector);
+    }
+
+    function _isGuardianModuleAddressMutation(bytes4 selector) private pure returns (bool) {
+        return selector == _GUARDIAN_SET_GUARDIAN_PERMISSIONS_SELECTOR || selector == _GUARDIAN_REMOVE_GUARDIAN_SELECTOR
+            || selector == _GUARDIAN_UPDATE_GOVERNOR_SELECTOR || selector == _GUARDIAN_SET_ALLOWLIST_SELECTOR
+            || selector == _GUARDIAN_SET_PAUSABLE_TARGET_SELECTOR || selector == _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR
+            || selector == _GUARDIAN_UPGRADE_SELECTOR;
+    }
+
+    function _isGuardianModuleTimelockMutation(bytes4 selector) private pure returns (bool) {
+        return _isGuardianModuleAddressMutation(selector) || selector == _GUARDIAN_FINALIZE_ROUTINE_ROTATION_SELECTOR
+            || selector == _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR;
+    }
+
+    function _revertIfMalformedGuardianSeatSetup(bytes memory data, bytes4 selector) private pure {
+        if (data.length < 100) revert MalformedTimelockCalldata();
+        uint256 slot = _readWord(data, 4);
+        address current = _readAddress(data, 36);
+        address successor = _readAddress(data, 68);
+        if (successor == address(0)) revert MalformedTimelockCalldata();
+        if (selector == _GUARDIAN_SET_PRECOMMITTED_SUCCESSOR_SELECTOR && (slot == 0 || current == address(0))) {
+            revert MalformedTimelockCalldata();
+        }
+    }
+
+    function _revertIfMalformedGuardianModuleArguments(bytes memory data, bytes4 selector) private pure {
+        if (selector == _GUARDIAN_SET_GUARDIAN_PERMISSIONS_SELECTOR) {
+            _revertIfInvalidGuardianPermissions(_readWord(data, 36));
+        } else if (selector == _GUARDIAN_SET_PAUSABLE_TARGET_SELECTOR) {
+            if (_readWord(data, 36) > 1) revert MalformedTimelockCalldata();
+        } else if (selector == _GUARDIAN_EXECUTE_ACCELERATED_ROTATION_SELECTOR) {
+            _readWord(data, 4);
+        } else if (selector == _GUARDIAN_FINALIZE_ROUTINE_ROTATION_SELECTOR) {
+            _readWord(data, 4);
+        } else if (selector == _GUARDIAN_UPGRADE_SELECTOR) {
+            _revertIfMalformedUpgrade(data);
+        }
+    }
+
+    function _revertIfInvalidGuardianPermissions(uint256 permissions) private pure {
+        if (permissions > 15 || (permissions & 3) == 3) revert MalformedTimelockCalldata();
+    }
+
+    function _revertIfZeroAddressArgument(bytes memory data) private pure {
+        if (_readAddress(data, 4) == address(0)) revert MalformedTimelockCalldata();
+    }
+
+    function _revertIfMalformedUpgrade(bytes memory data) private pure {
+        if (!GovernancePayloadBudget.isValidAddressAndBytes(data) || _readAddress(data, 4) == address(0)) {
             revert MalformedTimelockCalldata();
         }
     }
@@ -577,7 +1433,7 @@ contract ForageGovernorTimelockGuard {
         bytes memory data,
         GovernancePayloadBudget.Budget memory budget,
         TimelockPolicyCollection memory policies
-    ) private pure {
+    ) private view {
         (bool headerOk, GovernancePayloadBudget.ScheduleBatchHeader memory header) =
             GovernancePayloadBudget.tryReadScheduleBatchHeader(data);
         if (!headerOk) revert MalformedTimelockCalldata();
@@ -608,19 +1464,26 @@ contract ForageGovernorTimelockGuard {
         GovernancePayloadBudget.ScheduleBatchPayload memory batch,
         GovernancePayloadBudget.Budget memory budget,
         TimelockPolicyCollection memory policies
-    ) private pure {
+    ) private view {
+        TimelockGuardContext memory scheduleContext = _contextWithEffectiveCaller(context, context.executor);
         for (uint256 i; i < batch.targets.length; ++i) {
             address scheduledTarget = batch.targets[i];
             if (scheduledTarget == context.executor || scheduledTarget == context.allowedProposer) {
                 bytes memory scheduledData = batch.calldatas[i];
                 if (scheduledData.length >= data.length) revert MalformedTimelockCalldata();
                 _collectTimelockPolicies(
-                    _nestedTimelockContext(context), scheduledTarget, scheduledData, budget, policies
+                    _nestedTimelockContext(scheduleContext, context.executor),
+                    scheduledTarget,
+                    scheduledData,
+                    budget,
+                    policies
                 );
             } else if (scheduledTarget == context.guardianModule && scheduledTarget != address(0)) {
-                _collectTimelockPolicies(context, scheduledTarget, batch.calldatas[i], budget, policies);
+                _collectTimelockPolicies(scheduleContext, scheduledTarget, batch.calldatas[i], budget, policies);
+            } else if (scheduledTarget == context.canonicalRegistry && scheduledTarget != address(0)) {
+                _collectTimelockPolicies(scheduleContext, scheduledTarget, batch.calldatas[i], budget, policies);
             } else {
-                _queueNestedTimelockSchedule(context, scheduledTarget, batch.calldatas[i], data.length);
+                _queueNestedTimelockSchedule(scheduleContext, scheduledTarget, batch.calldatas[i], data.length);
             }
         }
     }
@@ -666,21 +1529,24 @@ contract ForageGovernorTimelockGuard {
         }
     }
 
-    function _nestedTimelockContext(TimelockGuardContext memory context)
+    function _contextWithEffectiveCaller(TimelockGuardContext memory context, address effectiveCaller)
+        private
+        pure
+        returns (TimelockGuardContext memory nested)
+    {
+        nested = context;
+        nested.effectiveCaller = effectiveCaller;
+    }
+
+    function _nestedTimelockContext(TimelockGuardContext memory context, address effectiveCaller)
         private
         pure
         returns (TimelockGuardContext memory nested)
     {
         if (context.depth >= context.nestingBound) revert MalformedTimelockCalldata();
-        nested = TimelockGuardContext(
-            context.executor,
-            context.allowedProposer,
-            context.guardianModule,
-            context.delayFloor,
-            context.nestingBound,
-            context.depth + 1,
-            context.futureTimelockCalls
-        );
+        nested = context;
+        nested.effectiveCaller = effectiveCaller;
+        nested.depth = context.depth + 1;
     }
 
     function _readAddress(bytes memory data, uint256 offset) private pure returns (address account) {

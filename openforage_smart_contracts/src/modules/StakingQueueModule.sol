@@ -299,8 +299,9 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
     bool private _forageLockAggregateAccountingInitialized;
     mapping(uint8 => uint256) private _tierStandardScanCursor;
     mapping(uint8 => uint256) private _tierPriorityScanCursor;
+    mapping(uint8 => uint256) private _tierStandardScanSnapshotEnd;
 
-    uint256[18] private __gap; // reserved for future upgrades
+    uint256[17] private __gap; // reserved for future upgrades
 
     // -- Delegatecall guard --
     address private immutable _SELF;
@@ -826,16 +827,17 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
 
     function _processStandardLane(QueueLaneConfig memory config) private {
         QueueLaneResult memory result;
-        uint256 nextId = _nextQueueId;
-        uint256 lastId = nextId - 1;
         uint256 cursor = _tierStandardScanCursor[config.tier];
-        if (cursor == 0 || cursor >= lastId) {
+        uint256 snapshotEnd = _tierStandardScanSnapshotEnd[config.tier];
+        if (cursor == 0 || cursor >= snapshotEnd) {
             uint256 firstId = _firstStandardCandidateId(config.tier);
             if (firstId == 0) return;
+            snapshotEnd = _nextQueueId - 1;
+            _tierStandardScanSnapshotEnd[config.tier] = snapshotEnd;
             cursor = firstId - 1;
         }
         uint256 scanned;
-        while (cursor < lastId && scanned < config.budget) {
+        while (cursor < snapshotEnd && scanned < config.budget) {
             uint256 queueId = cursor + 1;
             QueueEntry storage entry = _queueEntries[queueId];
             unchecked {
@@ -853,7 +855,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
             }
             cursor = queueId;
         }
-        _tierStandardScanCursor[config.tier] = cursor >= lastId ? 0 : cursor;
+        _tierStandardScanCursor[config.tier] = cursor >= snapshotEnd ? 0 : cursor;
     }
 
     function _firstStandardCandidateId(uint8 tier) private view returns (uint256 firstId) {
@@ -877,10 +879,18 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         }
         if (_isBlocked(entry.depositor)) {
             emit QueueEntrySkippedBlocked(queueId, entry.depositor);
+            if (config.isPriorityLane) {
+                _demotePriorityEntry(queueId, entry, BlockedAddress.selector);
+                return QueueLaneStep.TERMINAL;
+            }
             return QueueLaneStep.ADVANCE;
         }
         if (!IAllowlist(allowlist()).isAllowed(entry.depositor)) {
             emit QueueEntrySkippedLapsed(config.isPriorityLane ? 1 : 0, entry.depositor);
+            if (config.isPriorityLane) {
+                _demotePriorityEntry(queueId, entry, IAllowlist.CallerNotAllowed.selector);
+                return QueueLaneStep.TERMINAL;
+            }
             return QueueLaneStep.ADVANCE;
         }
         if (!_hasDepositorBounds(entry)) return QueueLaneStep.STOP;

@@ -11,6 +11,7 @@ import "../src/CustodianRegistry.sol";
 import "../src/DelegatingVestingWallet.sol";
 import "../src/FORAGETreasury.sol";
 import "../src/ForageGovernor.sol";
+import "../src/ForageGovernorTimelockGuard.sol";
 import "../src/ForageToken.sol";
 import "../src/GuardianModule.sol";
 import "../src/RISKUSD.sol";
@@ -61,6 +62,17 @@ contract Deploy is Script {
     error ReservedProposalGuardianNotConfigured(address guardian);
     error InternalGuardianNotAllowed(address guardian);
     error GovernanceProposerIsGuardian(address proposer);
+    error CanonicalGuardRegistryMismatch(address guardRegistry, address predictedRegistry, address deployedRegistry);
+    error LinkedLibraryInitCodeMismatch(address libraryAddress, bytes32 expectedHash, bytes32 actualHash);
+    error LinkedLibraryAddressMismatch(address expectedAddress, address actualAddress);
+    error LinkedLibraryDeploymentFailed(address factory, address libraryAddress);
+    error LinkedLibraryCodeMismatch(
+        address libraryAddress,
+        uint256 expectedCodeLength,
+        uint256 actualCodeLength,
+        bytes32 expectedCodeHash,
+        bytes32 actualCodeHash
+    );
 
     uint256 public constant LOCAL_CHAIN_ID = 31337;
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
@@ -73,6 +85,33 @@ contract Deploy is Script {
     uint256 public constant PROPOSAL_THRESHOLD_BPS = 100;
     uint256 public constant QUORUM_BPS = 400;
     uint256 public constant CAPACITY_CAP = 10_000_000e6;
+    address private constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+    bytes32 private constant MIGRATION_GUARD_SALT =
+        keccak256("openforage:octane-remediation:ForageGovernorTimelockMigrationGuard:v1");
+    address private constant MIGRATION_GUARD_ADDRESS = 0x1f2A21CFF1dD5B8f0223463378544B7fD9664A26;
+    bytes32 private constant MIGRATION_GUARD_INIT_CODE_HASH = bytes32(
+        (uint256(0xceb46166e6795b62) << 192) | (uint256(0x6778bf0bb8f2a838) << 128)
+            | (uint256(0x778fa4f686b4862d) << 64) | uint256(0xd80d05bc8b5bdc8c)
+    );
+    uint256 private constant MIGRATION_GUARD_RUNTIME_LENGTH = 3_337;
+    bytes32 private constant MIGRATION_GUARD_RUNTIME_HASH = bytes32(
+        (uint256(0x6d2dc41cd36cff0a) << 192) | (uint256(0xe6a7907617782f75) << 128)
+            | (uint256(0xe3c483c3c3209695) << 64) | uint256(0x5bc351535e425634)
+    );
+    bytes32 private constant AUTHORITY_CLASSIFIER_SALT =
+        keccak256("openforage:octane-remediation:GuardianAuthorityClassifier:v1");
+    address private constant AUTHORITY_CLASSIFIER_ADDRESS = 0x6E2E04c79cd4c4ac65973a1DfFf378A289AaA488;
+    bytes32 private constant AUTHORITY_CLASSIFIER_INIT_CODE_HASH = bytes32(
+        (uint256(0x7813139820a54e76) << 192) | (uint256(0xa545d8e12fdd3c9c) << 128)
+            | (uint256(0xd14658dfdf12872c) << 64) | uint256(0xbbf0029312c302a1)
+    );
+    uint256 private constant AUTHORITY_CLASSIFIER_RUNTIME_LENGTH = 7_735;
+    bytes32 private constant AUTHORITY_CLASSIFIER_RUNTIME_HASH = bytes32(
+        (uint256(0xc242a3665cede531) << 192) | (uint256(0x99576d7088cc82b5) << 128)
+            | (uint256(0xf836203939fe32e1) << 64) | uint256(0x79df8fbe70015cde)
+    );
+    uint256 private constant CUSTODIAN_REGISTRY_NONCE_OFFSET = 9;
+    uint256 private constant FORAGE_GOVERNOR_GUARD_NONCE = 1;
 
     uint256 public constant GUARDIAN_PERMISSION_PAUSE = 1 << 0;
     bytes32 public constant PROPOSER_ROLE = keccak256("PROPOSER_ROLE");
@@ -177,6 +216,15 @@ contract Deploy is Script {
         address riskusdVault;
         address[4] atRiskTiers;
         address stakingQueue;
+    }
+
+    struct LinkedLibraryConfig {
+        string artifact;
+        bytes32 salt;
+        address expectedAddress;
+        bytes32 initCodeHash;
+        uint256 runtimeLength;
+        bytes32 runtimeHash;
     }
 
     function run() public virtual {
@@ -370,8 +418,9 @@ contract Deploy is Script {
     function _deployWithConfig(DeployConfig memory cfg, address createSender) internal {
         _reservedProposalGuardian = _configuredProposalGuardian(_guardianAddresses(cfg.deployer));
         _recordConfig(cfg);
+        _deployLinkedLibraries();
         _deployTimelock(cfg.deployer);
-        _deployImplementations();
+        _deployImplementations(createSender);
         _deployAllowlist(cfg);
         PredictedAddresses memory predicted = _predictAddresses(createSender);
         _deployTokenAndTreasuries(cfg, predicted);
@@ -438,6 +487,57 @@ contract Deploy is Script {
         return MIN_DELAY;
     }
 
+    function _deployLinkedLibraries() private {
+        _deployLinkedLibrary(
+            LinkedLibraryConfig({
+                artifact: "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard",
+                salt: MIGRATION_GUARD_SALT,
+                expectedAddress: MIGRATION_GUARD_ADDRESS,
+                initCodeHash: MIGRATION_GUARD_INIT_CODE_HASH,
+                runtimeLength: MIGRATION_GUARD_RUNTIME_LENGTH,
+                runtimeHash: MIGRATION_GUARD_RUNTIME_HASH
+            })
+        );
+        _deployLinkedLibrary(
+            LinkedLibraryConfig({
+                artifact: "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier",
+                salt: AUTHORITY_CLASSIFIER_SALT,
+                expectedAddress: AUTHORITY_CLASSIFIER_ADDRESS,
+                initCodeHash: AUTHORITY_CLASSIFIER_INIT_CODE_HASH,
+                runtimeLength: AUTHORITY_CLASSIFIER_RUNTIME_LENGTH,
+                runtimeHash: AUTHORITY_CLASSIFIER_RUNTIME_HASH
+            })
+        );
+    }
+
+    function _deployLinkedLibrary(LinkedLibraryConfig memory config) private {
+        bytes memory initCode = vm.getCode(config.artifact);
+        bytes32 initCodeHash = keccak256(initCode);
+        if (initCodeHash != config.initCodeHash) {
+            revert LinkedLibraryInitCodeMismatch(config.expectedAddress, config.initCodeHash, initCodeHash);
+        }
+        address libraryAddress = _computeCreate2Address(config.salt, initCodeHash);
+        if (libraryAddress != config.expectedAddress) {
+            revert LinkedLibraryAddressMismatch(config.expectedAddress, libraryAddress);
+        }
+        if (libraryAddress.code.length == 0) {
+            (bool deployed,) = CREATE2_DEPLOYER.call(abi.encodePacked(config.salt, initCode));
+            if (!deployed) revert LinkedLibraryDeploymentFailed(CREATE2_DEPLOYER, libraryAddress);
+        }
+        uint256 actualLength = libraryAddress.code.length;
+        bytes32 actualHash = libraryAddress.codehash;
+        if (actualLength != config.runtimeLength || actualHash != config.runtimeHash) {
+            revert LinkedLibraryCodeMismatch(
+                libraryAddress, config.runtimeLength, actualLength, config.runtimeHash, actualHash
+            );
+        }
+    }
+
+    function _computeCreate2Address(bytes32 salt, bytes32 initCodeHash) private pure returns (address) {
+        return
+            address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, initCodeHash)))));
+    }
+
     function _deployTimelock(address deployer) internal {
         address[] memory proposers = new address[](1);
         proposers[0] = deployer;
@@ -446,7 +546,7 @@ contract Deploy is Script {
         deployedTimelock = address(new TimelockController(_minDelay(), proposers, executors, deployer));
     }
 
-    function _deployImplementations() internal {
+    function _deployImplementations(address createSender) internal {
         implAllowlist = address(new Allowlist());
         implBlocklist = address(new Blocklist());
         implCustodianRegistry = address(new CustodianRegistry());
@@ -463,8 +563,24 @@ contract Deploy is Script {
         implStakingQueueModule = address(new StakingQueueModule());
         implUSDCTreasuryAccountingModule = address(new USDCTreasuryAccountingModule());
         implUSDCTreasury = address(new USDCTreasury());
-        implForageGovernor = address(new ForageGovernor());
+        implForageGovernor = address(new ForageGovernor(_predictedCustodianRegistry(createSender)));
         implHLTradingBridge = address(new HLTradingBridge());
+    }
+
+    function _predictedCustodianRegistry(address createSender) private view returns (address) {
+        uint256 registryNonce = vm.getNonce(createSender) + CUSTODIAN_REGISTRY_NONCE_OFFSET;
+        return vm.computeCreateAddress(createSender, registryNonce);
+    }
+
+    function _requireCanonicalGuardRegistry(address predictedRegistry, address deployedRegistry) private view {
+        address guardAddress = vm.computeCreateAddress(implForageGovernor, FORAGE_GOVERNOR_GUARD_NONCE);
+        if (guardAddress.code.length == 0) {
+            revert CanonicalGuardRegistryMismatch(address(0), predictedRegistry, deployedRegistry);
+        }
+        address guardRegistry = ForageGovernorTimelockGuard(guardAddress).canonicalRegistryAddress();
+        if (guardRegistry != predictedRegistry || guardRegistry != deployedRegistry) {
+            revert CanonicalGuardRegistryMismatch(guardRegistry, predictedRegistry, deployedRegistry);
+        }
     }
 
     function _predictAddresses(address createSender) internal view returns (PredictedAddresses memory predicted) {
@@ -581,6 +697,7 @@ contract Deploy is Script {
             )
         );
         _requirePredicted(deployedCustodianRegistry, predicted.custodianRegistry);
+        _requireCanonicalGuardRegistry(predicted.custodianRegistry, deployedCustodianRegistry);
     }
 
     function _deployRiskStack(DeployConfig memory cfg, PredictedAddresses memory predicted) internal {
@@ -698,6 +815,7 @@ contract Deploy is Script {
         }
         if (rotation.rotationActive) forageToken.activateBlocklistRotation();
 
+        DelegatingVestingWallet(deployedVestingWallet).setBlocklist(deployedBlocklist);
         DelegatingVestingWallet(deployedVestingWallet).setInitialDelegatee(cfg.launchVotingDelegate);
         DelegatingVestingWallet(deployedVestingWallet).precommitForageToken(deployedForageToken);
         DelegatingVestingWallet(deployedVestingWallet).setForageToken(deployedForageToken);
@@ -746,8 +864,6 @@ contract Deploy is Script {
         _wireAtRisk(deployedAtRiskTier1);
         _wireAtRisk(deployedAtRiskTier2);
         _wireAtRisk(deployedAtRiskTier3);
-
-        DelegatingVestingWallet(deployedVestingWallet).setBlocklist(deployedBlocklist);
 
         _assertSharedBlocklistMandate();
         _assertModuleWiring();
@@ -800,6 +916,7 @@ contract Deploy is Script {
         registry.setSystemAccount(cfg.deployer, true);
 
         registry.proposeRegistrar(cfg.keeper);
+        registry.proposeSystemRegistrar(deployedFORAGETreasury, true);
 
         for (uint256 i; i < targets.length;) {
             if (targets[i] == deployedCustodianRegistry) {

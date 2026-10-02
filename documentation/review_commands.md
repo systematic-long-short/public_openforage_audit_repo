@@ -1,6 +1,6 @@
 # Review commands and build results
 
-These commands compile production sources and deployment scripts. They do not run tests or deployment scripts. The current source dispositions are in [`Analysis 9`](smart_contract_audits/2026-09-29-analysis-9-dispositions.md), [`Analysis 10`](smart_contract_audits/2026-09-30-analysis-10-dispositions.md), and [`Analysis 11`](smart_contract_audits/2026-10-01-analysis-11-dispositions.md).
+These commands compile production sources and deployment scripts. They do not run tests or deployment scripts. The current source dispositions are in [`Analysis 9`](smart_contract_audits/2026-09-29-analysis-9-dispositions.md), [`Analysis 10`](smart_contract_audits/2026-09-30-analysis-10-dispositions.md), and [`Analysis 11`](smart_contract_audits/2026-10-01-analysis-11-dispositions.md); the whole-source review and its declared limits are in the [`pre-scan review`](smart_contract_audits/2026-10-02-pre-scan-review.md).
 
 ## Pinned profiles
 
@@ -12,50 +12,51 @@ FOUNDRY_PROFILE=default forge build --root openforage_smart_contracts --sizes --
 FOUNDRY_PROFILE=deploy forge build --root openforage_smart_contracts --sizes --build-info --skip 'test/**' --offline
 ```
 
-Forge 1.3.5 and Solc 0.8.24 compiled 131 public inputs in each profile with zero compiler errors. Default code generation completed, but the child exited 1 on three EIP-170 runtime-size overages: ForageGovernor 28,646 bytes (4,070 over), StakingQueue 27,382 bytes (2,806 over), and USDCTreasury 27,779 bytes (3,203 over). Default initcode has no overage. ForageToken fits at 24,112 runtime bytes, 464 below EIP-170; its 49,125-byte initcode is 27 below EIP-3860. Deploy exited 0 and all 22 first-party contract runtime/initcode pairs fit. ForageGovernor is 24,564 runtime bytes (12 below EIP-170); USDCTreasury is 24,231 runtime bytes (345 below EIP-170). The table lists all 25 compiled contract/library artifacts. GuardianModule links GuardianAuthorityClassifier; the library is 6,658/6,711 bytes in Default and 5,756/5,787 in Deploy.
+Forge 1.3.5 and Solc 0.8.24 compiled 132 public inputs in each profile with zero compiler errors. Default code generation completed; its size child exited 1 with EIP-170 runtime overages: ForageGovernor 28,436 bytes (3,860 over); StakingQueue 27,439 bytes (2,863 over); USDCTreasury 27,905 bytes (3,329 over); EIP-3860 initcode overages: none. Deploy exited 0 and all 22 first-party contract runtime/initcode pairs fit. The table lists all 26 compiled contract/library artifacts. GuardianModule links GuardianAuthorityClassifier; ForageGovernorTimelockGuard links ForageGovernorTimelockMigrationGuard. GuardianAuthorityClassifier is 8,994/9,047 bytes in Default and 7,735/7,768 in Deploy; ForageGovernorTimelockMigrationGuard is 3,976/4,029 bytes in Default and 3,337/3,368 in Deploy.
 
 | Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
 | Allowlist | 13,833 / 14,089 (+10,743 / +35,063) | 12,214 / 12,424 (+12,362 / +36,728) |
 | AtRiskUSDProfitModule | 7,710 / 8,031 (+16,866 / +41,121) | 7,033 / 7,348 (+17,543 / +41,804) |
-| AtRiskUSDStateModule | 23,989 / 24,601 (+587 / +24,551) | 20,132 / 20,667 (+4,444 / +28,485) |
-| Blocklist | 9,249 / 9,499 (+15,327 / +39,653) | 7,784 / 7,993 (+16,792 / +41,159) |
+| AtRiskUSDStateModule | 24,471 / 25,083 (+105 / +24,069) | 20,907 / 21,442 (+3,669 / +27,710) |
+| Blocklist | 9,335 / 9,585 (+15,241 / +39,567) | 7,807 / 8,016 (+16,769 / +41,136) |
 | CustodianRegistry | 24,374 / 24,630 (+202 / +24,522) | 20,266 / 20,480 (+4,310 / +28,672) |
-| DelegatingVestingWallet | 6,865 / 9,037 (+17,711 / +40,115) | 5,914 / 7,401 (+18,662 / +41,751) |
-| FORAGETreasury | 23,802 / 24,094 (+774 / +25,058) | 20,479 / 20,725 (+4,097 / +28,427) |
-| ForageGovernor | 28,646 / 38,793 (-4,070 / +10,359) | 24,564 / 33,507 (+12 / +15,645) |
-| ForageGovernorTimelockGuard | 9,779 / 9,808 (+14,797 / +39,344) | 8,613 / 8,640 (+15,963 / +40,512) |
-| ForageToken | 24,112 / 49,125 (+464 / +27) | 23,455 / 45,828 (+1,121 / +3,324) |
-| ForageTokenStateModule | 24,454 / 24,667 (+122 / +24,485) | 21,848 / 22,056 (+2,728 / +27,096) |
+| DelegatingVestingWallet | 7,333 / 9,505 (+17,243 / +39,647) | 6,246 / 7,733 (+18,330 / +41,419) |
+| FORAGETreasury | 24,542 / 24,834 (+34 / +24,318) | 21,624 / 21,874 (+2,952 / +27,278) |
+| ForageGovernor | 28,436 / 46,948 (-3,860 / +2,204) | 24,499 / 41,441 (+77 / +7,711) |
+| ForageGovernorTimelockGuard | 17,838 / 18,060 (+6,738 / +31,092) | 16,367 / 16,557 (+8,209 / +32,595) |
+| ForageGovernorTimelockMigrationGuard | 3,976 / 4,029 (+20,600 / +45,123) | 3,337 / 3,368 (+21,239 / +45,784) |
+| ForageToken | 24,112 / 49,129 (+464 / +23) | 23,455 / 45,684 (+1,121 / +3,468) |
+| ForageTokenStateModule | 24,458 / 24,671 (+118 / +24,481) | 21,704 / 21,912 (+2,872 / +27,240) |
 | GovernancePayloadBudget | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| GuardianAuthorityClassifier | 6,658 / 6,711 (+17,918 / +42,441) | 5,756 / 5,787 (+18,820 / +43,365) |
-| GuardianModule | 23,073 / 23,329 (+1,503 / +25,823) | 17,972 / 18,186 (+6,604 / +30,966) |
-| HLTradingBridge | 24,372 / 24,664 (+204 / +24,488) | 22,238 / 22,488 (+2,338 / +26,664) |
-| RISKUSD | 10,989 / 11,281 (+13,587 / +37,871) | 9,166 / 9,411 (+15,410 / +39,741) |
+| GuardianAuthorityClassifier | 8,994 / 9,047 (+15,582 / +40,105) | 7,735 / 7,768 (+16,841 / +41,384) |
+| GuardianModule | 24,487 / 24,743 (+89 / +24,409) | 19,674 / 19,888 (+4,902 / +29,264) |
+| HLTradingBridge | 24,529 / 24,821 (+47 / +24,331) | 22,577 / 22,827 (+1,999 / +26,325) |
+| RISKUSD | 12,324 / 12,616 (+12,252 / +36,536) | 10,418 / 10,663 (+14,158 / +38,489) |
 | RISKUSDVault | 21,977 / 22,269 (+2,599 / +26,883) | 18,582 / 18,832 (+5,994 / +30,320) |
-| RISKUSDVaultModule | 24,079 / 24,544 (+497 / +24,608) | 19,766 / 20,219 (+4,810 / +28,933) |
+| RISKUSDVaultModule | 24,131 / 24,596 (+445 / +24,556) | 19,858 / 20,311 (+4,718 / +28,841) |
 | RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| StakingQueue | 27,382 / 27,674 (-2,806 / +21,478) | 23,203 / 23,453 (+1,373 / +25,699) |
-| StakingQueueModule | 24,451 / 24,573 (+125 / +24,579) | 22,853 / 22,971 (+1,723 / +26,181) |
-| USDCTreasury | 27,779 / 28,071 (-3,203 / +21,081) | 24,231 / 24,481 (+345 / +24,671) |
+| StakingQueue | 27,439 / 27,731 (-2,863 / +21,421) | 23,275 / 23,525 (+1,301 / +25,627) |
+| StakingQueueModule | 24,536 / 24,658 (+40 / +24,494) | 23,262 / 23,380 (+1,314 / +25,772) |
+| USDCTreasury | 27,905 / 28,197 (-3,329 / +20,955) | 24,365 / 24,615 (+211 / +24,537) |
 | USDCTreasuryAccountingModule | 4,044 / 4,073 (+20,532 / +45,079) | 3,059 / 3,086 (+21,517 / +46,066) |
-| VaultRegistry | 20,054 / 20,310 (+4,522 / +28,842) | 17,367 / 17,581 (+7,209 / +31,571) |
-| atRISKUSD | 23,059 / 48,241 (+1,517 / +911) | 19,297 / 40,443 (+5,279 / +8,709) |
+| VaultRegistry | 21,051 / 21,307 (+3,525 / +27,845) | 18,681 / 18,895 (+5,895 / +30,257) |
+| atRISKUSD | 23,471 / 49,135 (+1,105 / +17) | 19,584 / 41,505 (+4,992 / +7,647) |
 
 
 ## ABI and storage review
 
-The direct map contains 60 files: 34 sources/interfaces/libraries/modules, 18 ABI files, and 8 selected scripts/interfaces. The exact private inventory has no first-party source/interface/library/module/ABI path outside the map. All 60 mapped files match the exact private source. Seventeen ABI files have compiler source definitions; `FoundationTreasury.json` remains the source-less orphan.
+The direct map contains 61 files: 35 sources/interfaces/libraries/modules, 18 ABI files, and 8 selected scripts/interfaces. The exact private inventory has no first-party source/interface/library/module/ABI path outside the map. All 61 mapped files match the exact private source. Seventeen ABI files have compiler source definitions; `FoundationTreasury.json` remains the source-less orphan.
 
 ```bash
 forge inspect --root openforage_smart_contracts Allowlist abi --json
 forge inspect --root openforage_smart_contracts Allowlist storageLayout --build-info --json
 ```
 
-Repeat ABI inspection for each source-backed artifact. The source-matched storage-baseline comparison remains red at 16 OK rows and 7 historical divergences; no baseline changed. This is not a fresh public-tree storage check, and no layout comparison proves an old proxy's storage or migration safety.
+Repeat ABI inspection for each source-backed artifact. The latest recorded source-matched storage comparison is red at 17 OK rows and 7 historical divergences; no baseline changed, and this update did not run a fresh public-tree storage check. No layout comparison proves an old proxy's storage or migration safety.
 
 ## Static review and test boundary
 
-The earlier public table retains 72 source-triage rows (28 Queue, 17 Semgrep, 27 Slither); all 72 independent-review statuses remain pending. The separate analyzer table contains 47 analyzer identities: 7 Semgrep and 40 Slither. Each row pins its source lines to a candidate-file blob. The previous PR #9 head and base of this update is `6efd4cd86a9b2fec7f484c0da073f71385900308`; `ef049358efb6496f8304faef11a99c34d2610e62` and older commits are historical. Forty rows have bounded source-only review and seven stale or unresolved rows remain pending. `SL-28` still needs a current-source rebind. No fresh full `audit-static` pass is established; retained Slither and Semgrep results remain red, suppression reconciliation is in progress, and the scanner-coverage gap remains open.
+The earlier public table retains 72 source-triage rows (28 Queue, 17 Semgrep, 27 Slither); all 72 independent-review statuses remain pending. The separate analyzer table contains 47 analyzer identities: 7 Semgrep and 40 Slither. Each row pins its source lines to a candidate-file blob. The previous PR #9 head and base of this update is `01f4abe7768f03d2a21e6ab0a0221795d315d79b`; `6efd4cd86a9b2fec7f484c0da073f71385900308`, `ef049358efb6496f8304faef11a99c34d2610e62`, and older commits are historical. Forty rows have bounded source-only review and seven stale or unresolved rows remain pending. `SL-28` still needs a current-source rebind. No fresh full `audit-static` pass is established; retained Slither and Semgrep results remain red, suppression reconciliation is in progress, and the scanner-coverage gap remains open.
 
 No fresh full Slither, configured Semgrep, or `audit-static` pass is established for this public materialization. The retained Slither and Semgrep results remain red; per-ID Slither suppression reconciliation is in progress, and the scanner-coverage gap remains open. The two Windows CLI rows remain failed; no Visual Studio license or toolchain was installed, purchased, or accepted. No first-party contract test, fuzz/formal campaign, Forge test, Anvil, runtime, gas, RPC, chain, deployment, or Octane command was run. A9-21 whole-query gas, old-proxy state, and deployed behavior remain unproved.

@@ -29,6 +29,7 @@ interface IRISKUSDVaultCustodyPort {
 interface IRISKUSDVaultNAVPort {
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external;
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt) external;
+    function attestationIntervalSeconds() external view returns (uint256);
     function latestLossNonce() external view returns (uint256);
     function settledLossNonce() external view returns (uint256);
     function lossPendingVaultId() external view returns (uint256);
@@ -103,6 +104,7 @@ contract HLTradingBridge is
     error NoPendingLoss();
     error LossSettlementIncomplete(uint256 lossNonce);
     error LossSettlementInProgress();
+    error LossPending();
     error PrincipalReturnBlockedByUnresolvedLoss(uint256 lossNonce, uint256 vaultId);
     error ReconciledBalanceExceedsBalance(uint256 balance, uint256 reconciled);
     error InsufficientUnreconciledLiquidity(uint256 requested, uint256 available);
@@ -128,7 +130,7 @@ contract HLTradingBridge is
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
     uint16 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant DEFAULT_WITHDRAWAL_INTENT_TIMEOUT_SECONDS = 7 days;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 1;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 2;
 
     address public usdc;
     address public riskusdVault;
@@ -196,7 +198,10 @@ contract HLTradingBridge is
     uint256 internal _principalBookKnownSince;
     bool private _lossSettlementInProgress;
     uint64 private _freshDeploymentVersion;
-    uint256[45] private __gap;
+    uint256 internal _navIntervalStartAt;
+    uint256 internal _navIntervalStartNAV;
+    uint256 internal _positiveNAVDeltaUsed;
+    uint256[42] private __gap;
 
     event DeployedToHyperLiquid(uint256 usdcE6, uint256 deployedPrincipal);
     event NAVPosted(uint256 indexed vaultId, uint256 bookValue, uint256 rawNav, uint256 appliedNav, uint256 observedAt);
@@ -278,7 +283,7 @@ contract HLTradingBridge is
         _returnUsedDayStart = block.timestamp;
         _withdrawalIntentUsedDayStart = block.timestamp;
         _freshDeploymentVersion = FRESH_DEPLOYMENT_VERSION;
-        _updatePrincipalBookAnchor(_deployedPrincipal);
+        _updatePrincipalBookAnchor();
         emit SequencerUptimeFeedSet(address(0), route.sequencerUptimeFeed);
     }
 
@@ -305,7 +310,7 @@ contract HLTradingBridge is
 
         _deployedPrincipal += usdcE6;
         _pendingDeployPrincipal += usdcE6;
-        _updatePrincipalBookAnchor(_deployedPrincipal);
+        _updatePrincipalBookAnchor();
 
         emit DeployedToHyperLiquid(usdcE6, _deployedPrincipal);
     }
@@ -320,24 +325,29 @@ contract HLTradingBridge is
         _requireKeeper();
         _requireNotBlocked(msg.sender);
         _requireNoLossSettlementInProgress();
-        if (_principalBookKnownSince == 0) _seedPrincipalBookAnchor(bookValue, observedAt);
+        uint256 principalBookKnownSince = _principalBookKnownSince;
+        if (observedAt < _lastNAVObservedAt) revert StaleNAV();
+        if (principalBookKnownSince == 0) revert PrincipalBookAnchorUnavailable();
+        if (observedAt <= principalBookKnownSince || bookValue != _deployedPrincipal) {
+            revert StaleNAV();
+        }
 
         uint256 applied = _normalizeCustodianNAV(bookValue, rawNav, observedAt, _appliedNAV, true);
-        uint256 vaultNav = _normalizeAppliedNAVToCurrentBook(bookValue, applied);
+        uint256 vaultNav = applied;
         // Risk-reducing (loss-recording) posts are allowed through sequencer down/grace/unavailable
         // windows: recording a true loss only ever tightens consumer gates. Neutral and up posts
         // remain fully gated, failing closed while the feed cannot vouch for liveness.
         if (vaultNav >= _deployedPrincipal) {
+            _requireNoUnresolvedLossNonce(true);
             _requireSequencerUp();
         }
 
+        _recordNAVIntervalBudget(applied, observedAt);
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
         _lastNAVObservedAt = observedAt;
         _appliedNAV = applied;
-        if (_pendingDeployPrincipal != 0 && vaultNav >= _deployedPrincipal) {
-            _pendingDeployPrincipal = 0;
-        }
+        _clearPendingDeployPrincipalIfCovered(vaultNav, _deployedPrincipal);
         uint256 lossNonce = 0;
         if (vaultNav < _deployedPrincipal) {
             lossNonce = IRISKUSDVaultNAVPort(riskusdVault).latestLossNonce() + 1;
@@ -345,6 +355,12 @@ contract HLTradingBridge is
         IRISKUSDVaultNAVPort(riskusdVault).recordCustodianNAV(vaultId, vaultNav, lossNonce, observedAt);
 
         emit NAVPosted(vaultId, bookValue, rawNav, applied, observedAt);
+    }
+
+    function _clearPendingDeployPrincipalIfCovered(uint256 acceptedNav, uint256 bridgePrincipal) private {
+        if (_pendingDeployPrincipal != 0 && acceptedNav >= bridgePrincipal) {
+            _pendingDeployPrincipal = 0;
+        }
     }
 
     function returnPrincipalUSDC(uint256 amount) external freshDeploymentOnly onlyAllowedCaller nonReentrant {
@@ -384,7 +400,7 @@ contract HLTradingBridge is
 
     function _returnPrincipalUSDCWithoutCaps(uint256 amount, bool navAlreadyReduced) internal {
         if (amount == 0) revert ZeroAmount();
-        _requireNoUnresolvedLossNonce();
+        _requireNoUnresolvedLossNonce(false);
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(riskusdVault);
@@ -394,7 +410,7 @@ contract HLTradingBridge is
         } else {
             _deployedPrincipal -= amount;
         }
-        if (_deployedPrincipal != principalBefore) _updatePrincipalBookAnchor(_deployedPrincipal);
+        if (_deployedPrincipal != principalBefore) _updatePrincipalBookAnchor();
         if (amount >= _pendingDeployPrincipal) {
             _pendingDeployPrincipal = 0;
         } else {
@@ -411,14 +427,22 @@ contract HLTradingBridge is
         emit PrincipalReturned(amount, _deployedPrincipal);
     }
 
-    function _requireNoUnresolvedLossNonce() private view {
+    function _requireNoUnresolvedLossNonce(bool coveringNAV) private view {
         IRISKUSDVaultNAVPort centralVault = IRISKUSDVaultNAVPort(riskusdVault);
         uint256 lossNonce = centralVault.latestLossNonce();
         uint256 settledNonce = centralVault.settledLossNonce();
         uint256 vaultId = centralVault.lossPendingVaultId();
         if (lossNonce != 0 && lossNonce > settledNonce && vaultId != 0) {
+            if (coveringNAV) revert LossPending();
             revert PrincipalReturnBlockedByUnresolvedLoss(lossNonce, vaultId);
         }
+    }
+
+    function _requireNewerNAVObservation(uint256 observedAt) private view {
+        if (
+            observedAt <= _lastNAVObservedAt
+                || observedAt <= IRISKUSDVaultManualNAVState(riskusdVault).lastAttestationTimestamp()
+        ) revert InvalidManualNAVObservation(observedAt, block.timestamp);
     }
 
     function recordLossWriteDown(uint256 amount)
@@ -435,7 +459,7 @@ contract HLTradingBridge is
         uint256 rebasedAppliedNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, _appliedNAV);
 
         _deployedPrincipal = principal - amount;
-        _updatePrincipalBookAnchor(_deployedPrincipal);
+        _updatePrincipalBookAnchor();
 
         ICustodianRegistryAccountingPort registry = ICustodianRegistryAccountingPort(custodianRegistry);
         uint256 recordedAmount = registry.recordLoss(registry.HYPERLIQUID_CUSTODIAN_ID(), amount);
@@ -972,10 +996,12 @@ contract HLTradingBridge is
         uint256 bridgePrincipal = _deployedPrincipal;
         if (vaultPrincipal != bridgePrincipal) revert VaultPrincipalMismatch(vaultPrincipal, bridgePrincipal);
 
+        _recordNAVIntervalBudget(acceptedNav, observedAt);
         _lastNAVRawValue = submittedRawNav;
         _appliedNAV = acceptedNav;
         _lastNAVBookValue = bridgePrincipal;
         _lastNAVObservedAt = observedAt;
+        _clearPendingDeployPrincipalIfCovered(acceptedNav, bridgePrincipal);
         emit ManualCustodianNAVAcknowledged(submittedRawNav, acceptedNav, bridgePrincipal, observedAt);
         return true;
     }
@@ -987,53 +1013,24 @@ contract HLTradingBridge is
     {
         if (msg.sender != riskusdVault) revert UnauthorizedVault(msg.sender);
         _requireNoLossSettlementInProgress();
+        _requireNewerNAVObservation(observedAt);
+        IRISKUSDVaultManualNAVState manualVault = IRISKUSDVaultManualNAVState(riskusdVault);
         uint256 knownSince = _principalBookKnownSince;
         if (knownSince == 0) revert PrincipalBookAnchorUnavailable();
         if (observedAt <= knownSince) revert ManualNAVObservationNotAfterPrincipalChange(observedAt, knownSince);
-        if (lossNonce != 0) return _normalizeManualLossNonceNAV(nav);
-        return _normalizeManualZeroNonceNAV(nav, observedAt);
-    }
-
-    function _normalizeManualLossNonceNAV(uint256 nav) private view returns (bool, uint256) {
-        if (_directionalFreeze) {
-            uint256 manualObservationNav = _normalizeCurrentBookNAVToObservationBook(_lastNAVBookValue, nav);
-            if (manualObservationNav > _appliedNAV) revert DirectionFrozen();
-        }
-        return (true, nav);
-    }
-
-    function _normalizeManualZeroNonceNAV(uint256 nav, uint256 observedAt) private view returns (bool, uint256) {
-        IRISKUSDVaultManualNAVState manualVault = IRISKUSDVaultManualNAVState(riskusdVault);
         uint256 principal = _deployedPrincipal;
         uint256 vaultPrincipal = manualVault.totalDeployed();
         if (vaultPrincipal != principal) revert VaultPrincipalMismatch(vaultPrincipal, principal);
-        uint256 bridgeObservedAt = _lastNAVObservedAt;
-        uint256 vaultObservedAt = manualVault.lastAttestationTimestamp();
-        if (observedAt < bridgeObservedAt || observedAt < vaultObservedAt) {
-            revert InvalidManualNAVObservation(observedAt, block.timestamp);
-        }
         uint256 normalizedNav = _normalizeCustodianNAV(principal, nav, observedAt, _appliedNAV, false);
-        if (normalizedNav < principal) return (false, 0);
-        return (true, normalizedNav);
+        bool shouldRecord = lossNonce != 0 || normalizedNav >= principal;
+        return (shouldRecord, shouldRecord ? normalizedNav : 0);
     }
 
-    function _seedPrincipalBookAnchor(uint256 bookValue, uint256 observedAt) private {
-        if (block.timestamp == 0 || observedAt != block.timestamp) revert PrincipalBookAnchorUnavailable();
-        uint256 principal = _deployedPrincipal;
-        if (bookValue != principal) revert PrincipalBookAnchorUnavailable();
-        uint256 vaultPrincipal = IRISKUSDVaultManualNAVState(riskusdVault).totalDeployed();
-        if (vaultPrincipal != principal) revert VaultPrincipalMismatch(vaultPrincipal, principal);
-        _updatePrincipalBookAnchor(principal);
-    }
-
-    function _updatePrincipalBookAnchor(uint256 principal) private {
+    function _updatePrincipalBookAnchor() private {
         _principalBookKnownSince = block.timestamp;
     }
 
-    /// @notice Rebases a normalized observation-book NAV into current-book units: `applied` is
-    /// denominated in the keeper observation book (`bookValue`), and the return is denominated in
-    /// the current deployment book (`_deployedPrincipal`). Exact inverse of
-    /// `_normalizeCurrentBookNAVToObservationBook`: one normalization home, no forked unit math.
+    /// @notice Rebases the prior observation-book NAV into the current principal book.
     function _normalizeAppliedNAVToCurrentBook(uint256 bookValue, uint256 applied) internal view returns (uint256) {
         uint256 principal = _deployedPrincipal;
         uint256 normalized;
@@ -1042,26 +1039,6 @@ contract HLTradingBridge is
         } else {
             uint256 returnedAfterObservation = bookValue - principal;
             normalized = applied > returnedAfterObservation ? applied - returnedAfterObservation : 0;
-        }
-        return normalized;
-    }
-
-    /// @notice Inverts a current-book NAV into observation-book units: `nav` is denominated in the
-    /// current deployment book (`_deployedPrincipal`), and the return is denominated in the keeper
-    /// observation book (`bookValue`). Exact mirror of `_normalizeAppliedNAVToCurrentBook`, so
-    /// manual current-book reports are capped and freeze-checked in the same units as keeper posts.
-    function _normalizeCurrentBookNAVToObservationBook(uint256 bookValue, uint256 nav)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 principal = _deployedPrincipal;
-        uint256 normalized;
-        if (principal >= bookValue) {
-            uint256 deployedAfterObservation = principal - bookValue;
-            normalized = nav > deployedAfterObservation ? nav - deployedAfterObservation : 0;
-        } else {
-            normalized = nav + (bookValue - principal);
         }
         return normalized;
     }
@@ -1076,14 +1053,44 @@ contract HLTradingBridge is
         if (!allowZeroBaseline && (observedAt == 0 || bookValue == 0)) revert StaleNAV();
         if (block.timestamp > observedAt + DAY_SECONDS) revert StaleNAV();
 
-        uint256 maxUp = bookValue + (bookValue * 1_000 / BPS_DENOMINATOR);
+        uint256 maxUp = bookValue + bookValue / 10;
         uint256 cappedNav = rawNav > maxUp ? maxUp : rawNav;
+        uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, currentAppliedNAV);
+        if (cappedNav > previousNAV) {
+            (, uint256 intervalStartNAV, uint256 used) = _navInterval(observedAt, previousNAV);
+            uint256 intervalBudget = intervalStartNAV / 10;
+            uint256 remaining = intervalBudget > used ? intervalBudget - used : 0;
+            if (cappedNav - previousNAV > remaining) cappedNav = previousNAV + remaining;
+        }
         if (_directionalFreeze) {
-            uint256 frozenComparison = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, currentAppliedNAV);
             uint256 cappedNavCurrentBook = _normalizeAppliedNAVToCurrentBook(bookValue, cappedNav);
-            if (cappedNavCurrentBook > frozenComparison) revert DirectionFrozen();
+            if (cappedNavCurrentBook > previousNAV) revert DirectionFrozen();
         }
         return cappedNav;
+    }
+
+    function _navInterval(uint256 observedAt, uint256 previousNAV)
+        private
+        view
+        returns (uint256 startAt, uint256 startNAV, uint256 used)
+    {
+        startAt = _navIntervalStartAt;
+        startNAV = _navIntervalStartNAV;
+        used = _positiveNAVDeltaUsed;
+        uint256 interval = IRISKUSDVaultNAVPort(riskusdVault).attestationIntervalSeconds();
+        if (interval == 0) revert StaleNAV();
+        if (startAt == 0 || observedAt >= startAt + interval || (startNAV == 0 && previousNAV > 0 && used == 0)) {
+            return (observedAt, previousNAV, 0);
+        }
+    }
+
+    function _recordNAVIntervalBudget(uint256 nav, uint256 observedAt) private {
+        uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, _appliedNAV);
+        (uint256 startAt, uint256 startNAV, uint256 used) = _navInterval(observedAt, previousNAV);
+        if (nav > previousNAV) used += nav - previousNAV;
+        _navIntervalStartAt = startAt;
+        _navIntervalStartNAV = startNAV;
+        _positiveNAVDeltaUsed = used;
     }
 
     function _enforceDeployCaps(uint256 usdcE6) internal {

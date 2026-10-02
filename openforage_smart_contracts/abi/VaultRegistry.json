@@ -1428,6 +1428,53 @@
   },
   {
     "type": "error",
+    "name": "TierVaultYieldClaimProbeFailed",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "yieldSource",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TierVaultYieldClaimsNotReady",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "yieldSource",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TierVaultsNotUsed",
     "inputs": []
   },
@@ -1444,6 +1491,32 @@
         "name": "slot",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnfundedTierVaultClaim",
+    "inputs": [
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "tierVault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "yieldSource",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

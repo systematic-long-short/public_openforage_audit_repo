@@ -18,6 +18,7 @@ interface IDistributorTreasury {
 contract RegisterAllowlist is Script {
     error AllowlistNotDeployed(address target);
     error RegistrarFinalizeWaiting(bytes4 selector);
+    error SystemRegistrarNotFinalized(address account);
     error DistributorKeyMismatch(address signer, address distributor);
 
     uint256 internal sendCount;
@@ -42,6 +43,7 @@ contract RegisterAllowlist is Script {
 
         vm.startBroadcast(ownerKey);
         _finalizeRegistrar(allowlist, keeper);
+        _finalizeSystemRegistrar(allowlist, forageTreasury);
         _registerSystemAccount(allowlist, distributor);
         _registerSystemAccount(allowlist, launchVotingDelegate);
         for (uint256 i; i < 7; ++i) {
@@ -75,18 +77,42 @@ contract RegisterAllowlist is Script {
             console.log("SEND finalizeRegistrar", allowlist);
             ++sendCount;
         } catch (bytes memory reason) {
-            if (reason.length < 4) _rethrow(reason);
-            bytes4 selector = bytes4(reason);
-            if (
-                selector != Allowlist.FinalizeDelayNotElapsed.selector
-                    && selector != Allowlist.NoPendingProposal.selector && selector != Allowlist.ProposalExpired.selector
-            ) {
-                _rethrow(reason);
-            }
-            waitSelector = selector;
-            console.log(string.concat("WAIT finalizeRegistrar ", vm.toString(abi.encodePacked(selector))));
-            ++waitCount;
+            _recordFinalizeWait(reason, "finalizeRegistrar");
         }
+    }
+
+    function _finalizeSystemRegistrar(address allowlist, address forageTreasury) internal {
+        if (Allowlist(allowlist).isSystemRegistrar(forageTreasury)) {
+            console.log("SKIP finalizeSystemRegistrar", forageTreasury);
+            ++skipCount;
+            return;
+        }
+        bool finalized;
+        try Allowlist(allowlist).finalizeSystemRegistrar() {
+            finalized = true;
+        } catch (bytes memory reason) {
+            _recordFinalizeWait(reason, "finalizeSystemRegistrar");
+        }
+        if (!finalized) return;
+        if (!Allowlist(allowlist).isSystemRegistrar(forageTreasury)) {
+            revert SystemRegistrarNotFinalized(forageTreasury);
+        }
+        console.log("SEND finalizeSystemRegistrar", forageTreasury);
+        ++sendCount;
+    }
+
+    function _recordFinalizeWait(bytes memory reason, string memory action) internal {
+        if (reason.length < 4) _rethrow(reason);
+        bytes4 selector = bytes4(reason);
+        if (
+            selector != Allowlist.FinalizeDelayNotElapsed.selector && selector != Allowlist.NoPendingProposal.selector
+                && selector != Allowlist.ProposalExpired.selector
+        ) {
+            _rethrow(reason);
+        }
+        waitSelector = selector;
+        console.log(string.concat("WAIT ", action, " ", vm.toString(abi.encodePacked(selector))));
+        ++waitCount;
     }
 
     function _registerSystemAccount(address allowlist, address account) internal {

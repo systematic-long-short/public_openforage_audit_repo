@@ -212,12 +212,12 @@ contract Blocklist is
         emit VoteEligibilityObserverSet(previous, address(0));
     }
 
-    function isBlocked(address account) public view returns (bool) {
+    function isBlocked(address account) public view freshOnly returns (bool) {
         uint256 expiry = blockedUntil[account];
         return expiry != 0 && expiry >= block.timestamp;
     }
 
-    function wasBlockedAt(address account, uint256 timepoint) public view returns (bool) {
+    function wasBlockedAt(address account, uint256 timepoint) public view freshOnly returns (bool) {
         if (timepoint > type(uint48).max) return false;
 
         uint256 expiry = _blockedUntilCheckpoints[account].upperLookupRecent(uint48(timepoint));

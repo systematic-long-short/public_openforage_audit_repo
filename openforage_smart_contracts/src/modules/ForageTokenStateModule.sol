@@ -562,6 +562,7 @@ contract ForageTokenStateModule {
     {
         if (source.code.length == 0) return;
         address activeAllowlist = allowlistAddress();
+        if (candidateAllowlist == address(0)) candidateAllowlist = activeAllowlist;
         (bool activeSystem, address beneficiary) = _currentVestingSourceRegistration(source, activeAllowlist);
         if (!activeSystem || beneficiary == address(0)) return;
         (bool candidateSystem, address candidateBeneficiary) =
@@ -582,12 +583,8 @@ contract ForageTokenStateModule {
             revert VoteEligibilitySyncPending(_voteEligibilitySyncTimepoint);
         }
         BlocklistRotationStorage storage state = _blocklistRotationStorage();
-        if (state.pendingAllowlist != address(0)) {
-            if (msg.sender == allowlistAddress()) {
-                _registerPendingVestingSource(account, state.pendingAllowlist, true);
-            } else if (msg.sender == state.pendingAllowlist) {
-                _registerPendingVestingSource(account, state.pendingAllowlist, false);
-            }
+        if (state.pendingAllowlist != address(0) && msg.sender == allowlistAddress()) {
+            _registerPendingVestingSource(account, state.pendingAllowlist, true);
         }
         if (state.pendingVoteEligibilitySyncs[account]) {
             state.pendingVoteEligibilitySyncCursors[account] = type(uint256).max;
@@ -1103,9 +1100,7 @@ contract ForageTokenStateModule {
             rotation, generation, sync.source, pendingSync.registeredBeneficiary, allowlist_
         );
         if (pendingAllowlist != address(0)) {
-            _updateVestingSourceAllowlistHandoff(
-                rotation.projections[generation], sync.source, pendingSync.registeredBeneficiary, pendingAllowlist
-            );
+            _updateVestingSourceAllowlistHandoff(rotation.projections[generation], sync.source, pendingAllowlist);
         }
     }
 
@@ -1209,10 +1204,10 @@ contract ForageTokenStateModule {
     function _updateVestingSourceAllowlistHandoff(
         Projection storage projection,
         address source,
-        address beneficiary,
         address expectedAllowlist
     ) private {
-        bool incomplete = beneficiary != address(0) && _vestingSourceAllowlist(source) != expectedAllowlist;
+        bool incomplete =
+            _vestingBeneficiaryBySource[source] != address(0) && _vestingSourceAllowlist(source) != expectedAllowlist;
         bool previous = projection.vestingSourceAllowlistHandoffs[source];
         if (incomplete == previous) return;
         projection.vestingSourceAllowlistHandoffs[source] = incomplete;

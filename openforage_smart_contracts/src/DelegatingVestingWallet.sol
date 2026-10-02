@@ -8,6 +8,10 @@ import "./AllowlistGatedUpgradeable.sol";
 import "./interfaces/IBlocklist.sol";
 import "./interfaces/IAllowlist.sol";
 
+interface IForageTokenBlocklist {
+    function blocklist() external view returns (address);
+}
+
 /// @title DelegatingVestingWallet
 /// @notice Non-upgradeable per-beneficiary FORAGE vesting with cliff and voting delegation
 contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
@@ -29,6 +33,7 @@ contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
     error BlockedAddress(address account);
     error BlocklistAlreadySet();
     error BlocklistNotSet();
+    error CurrentBlocklistUnavailable(address dependency);
     error ForageTokenNotPrecommitted();
     error ForageTokenAlreadyPrecommitted();
     error UnexpectedForageToken(address expected, address provided);
@@ -114,6 +119,7 @@ contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
         if (msg.sender != _tokenSetter && msg.sender != _blocklistSetter) {
             revert UnauthorizedTokenSetter(msg.sender);
         }
+        if (_forageToken != address(0)) revert ForageTokenAlreadySet();
         address oldBlocklist = _blocklist;
         if (oldBlocklist == address(0)) revert BlocklistNotSet();
         if (_isHealthyBlocklist(oldBlocklist)) revert BlocklistAlreadySet();
@@ -151,6 +157,9 @@ contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
         if (forageToken_ != precommittedForageToken_) {
             revert UnexpectedForageToken(precommittedForageToken_, forageToken_);
         }
+        address blocklist_ = _blocklist;
+        if (blocklist_ == address(0)) revert BlocklistNotSet();
+        if (blocklist_.code.length == 0) revert TargetHasNoCode(blocklist_);
         // OF-NEW-08 (12th audit): Require non-zero token balance to prevent zero _originalAllocation
         if (IERC20(forageToken_).balanceOf(address(this)) == 0) revert NoTokenBalance();
         _requireNotBlocked(address(this));
@@ -218,7 +227,7 @@ contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
     }
 
     function blocklist() external view returns (address) {
-        return _blocklist;
+        return _effectiveBlocklist();
     }
 
     function start() external view returns (uint64) {
@@ -295,9 +304,48 @@ contract DelegatingVestingWallet is AllowlistGatedUpgradeable {
     }
 
     function _requireNotBlocked(address account) private view {
-        address blocklist_ = _blocklist;
-        if (blocklist_ != address(0) && IBlocklist(blocklist_).isBlocked(account)) {
-            revert BlockedAddress(account);
+        address blocklist_ = _effectiveBlocklist();
+        uint32 selector = uint32(IBlocklist.isBlocked.selector);
+        uint256 blocked;
+        bool ok;
+        uint256 returnSize;
+        assembly ("memory-safe") {
+            let pointer := mload(0x40)
+            mstore(pointer, shl(224, selector))
+            mstore(add(pointer, 4), account)
+            ok := staticcall(gas(), blocklist_, pointer, 36, pointer, 32)
+            returnSize := returndatasize()
+            if and(ok, eq(returnSize, 32)) { blocked := mload(pointer) }
+        }
+        if (!ok || returnSize != 32 || blocked > 1) {
+            revert CurrentBlocklistUnavailable(blocklist_);
+        }
+        if (blocked == 1) revert BlockedAddress(account);
+    }
+
+    function _effectiveBlocklist() private view returns (address blocklist_) {
+        address forageToken_ = _forageToken;
+        if (forageToken_ == address(0)) return _blocklist;
+        if (forageToken_.code.length == 0) {
+            revert CurrentBlocklistUnavailable(forageToken_);
+        }
+        uint32 selector = uint32(IForageTokenBlocklist.blocklist.selector);
+        uint256 encodedBlocklist;
+        bool ok;
+        uint256 returnSize;
+        assembly ("memory-safe") {
+            let pointer := mload(0x40)
+            mstore(pointer, shl(224, selector))
+            ok := staticcall(gas(), forageToken_, pointer, 4, pointer, 32)
+            returnSize := returndatasize()
+            if and(ok, eq(returnSize, 32)) { encodedBlocklist := mload(pointer) }
+        }
+        if (!ok || returnSize != 32 || encodedBlocklist > type(uint160).max) {
+            revert CurrentBlocklistUnavailable(forageToken_);
+        }
+        blocklist_ = address(uint160(encodedBlocklist));
+        if (blocklist_ == address(0) || blocklist_.code.length == 0) {
+            revert CurrentBlocklistUnavailable(blocklist_);
         }
     }
 

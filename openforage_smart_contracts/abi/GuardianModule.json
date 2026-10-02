@@ -317,6 +317,19 @@
   },
   {
     "type": "function",
+    "name": "canonicalCustodianRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "executeAcceleratedRotation",
     "inputs": [
       {
@@ -528,6 +541,57 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "guardianSeatSetupSnapshot",
+    "inputs": [
+      {
+        "name": "current",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "successor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "snapshot",
+        "type": "tuple",
+        "internalType": "struct GuardianModule.GuardianSeatSetupSnapshot",
+        "components": [
+          {
+            "name": "currentPermissions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "successorPermissions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "currentEntries",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "successorEntries",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "allowlist",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -1327,6 +1391,33 @@
   },
   {
     "type": "error",
+    "name": "GovernorTimelockMismatch",
+    "inputs": [
+      {
+        "name": "governorTimelock",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pendingTimelock",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GovernorTimelockViewUnavailable",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "GuardianCannotLoosen",
     "inputs": []
   },
@@ -1341,6 +1432,42 @@
     "inputs": [
       {
         "name": "observedVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianSeatTransitionInvalid",
+    "inputs": [
+      {
+        "name": "current",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "successor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "currentPermissions",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "successorPermissions",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentEntries",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "successorEntries",
         "type": "uint256",
         "internalType": "uint256"
       }

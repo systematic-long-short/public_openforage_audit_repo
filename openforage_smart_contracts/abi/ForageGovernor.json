@@ -1,7 +1,13 @@
 [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "canonicalCustodianRegistry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -2081,6 +2087,54 @@
   },
   {
     "type": "error",
+    "name": "GuardianModuleRegistryMismatch",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedRegistry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualRegistry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianTimelockMigrationNotPrepared",
+    "inputs": [
+      {
+        "name": "requestedTimelock",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pendingTimelock",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianTimelockStateUnavailable",
+    "inputs": [
+      {
+        "name": "guardianModule",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "IncompatibleGuardianModule",
     "inputs": []
   },
@@ -2134,6 +2188,22 @@
     "type": "error",
     "name": "NotInitializing",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "QueuedProposalBlocksTimelockUpdate",
+    "inputs": [
+      {
+        "name": "queuedCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
