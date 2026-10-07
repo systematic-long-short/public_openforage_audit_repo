@@ -10,6 +10,8 @@ interface IBlocklist {
 interface IBlocklistVoteEligibility {
     function blockedUntil(address account) external view returns (uint256);
 
+    function blockedUntilAt(address account, uint256 timepoint) external view returns (uint256);
+
     function supportsVoteEligibilityObserver() external pure returns (bool);
 
     function registerVoteEligibilityObserver() external;

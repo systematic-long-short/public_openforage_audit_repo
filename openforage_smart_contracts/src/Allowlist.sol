@@ -89,8 +89,10 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     mapping(address => address) private _vestingSourceBeneficiary;
     mapping(address => uint32) public vestingSourceCount;
     mapping(address => bool) private _pendingVestingSourceRegistration;
+    mapping(address => bool) private _unsupportedVestingSourceBeneficiary;
+    mapping(address => Checkpoints.Trace208) private _vestingSourceRegistrationCheckpoints;
 
-    uint256[28] private __gap;
+    uint256[26] private __gap;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -144,7 +146,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     function _requireFreshLayout() private view {
         uint256 layoutVersion = _freshLayoutVersion();
-        if (layoutVersion != 1) {
+        if (layoutVersion != 2) {
             revert AllowlistFreshDeploymentRequired(layoutVersion);
         }
     }
@@ -154,7 +156,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
     }
 
     function _setFreshLayoutVersion() private {
-        StorageSlot.getUint256Slot(_freshLayoutSlot()).value = 1;
+        StorageSlot.getUint256Slot(_freshLayoutSlot()).value = 2;
     }
 
     function _freshLayoutSlot() private pure returns (bytes32) {
@@ -183,7 +185,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _caseRef[account] = caseRef_;
 
         emit Approved(account, until, basis_, caseRef_);
-        _recordEligibilityChange(account);
+        _recordEligibilityChange(account, false);
     }
 
     function approveOperator(address account) external onlyEligibleOwner {
@@ -203,7 +205,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
         emit Approved(account, until, 0, bytes32(0));
-        _recordEligibilityChange(account);
+        _recordEligibilityChange(account, false);
     }
 
     function revoke(address account) external freshOnly {
@@ -222,15 +224,16 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _basis[account] = 0;
         _caseRef[account] = bytes32(0);
 
-        if (currentOwner && _systemAccounts[account]) {
-            _updateVestingSourceRegistration(account, false);
+        bool registrationChanged;
+        if (_systemAccounts[account] && (account.code.length == 0 || _has7702DelegationDesignator(account))) {
+            registrationChanged = _updateVestingSourceRegistration(account, false);
             _systemAccounts[account] = false;
             emit SystemAccountSet(account, false);
         }
 
         if (currentOwner) emit OperatorApproved(account);
         emit Revoked(account, msg.sender);
-        _recordEligibilityChange(account);
+        _recordEligibilityChange(account, registrationChanged);
     }
 
     function shrinkApprovalsPerDayCap(uint32 newCap) external freshOnly {
@@ -253,11 +256,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         }
 
         _captureEligibilityBaseline(account);
-        _updateVestingSourceRegistration(account, isSystem);
+        bool registrationChanged = _updateVestingSourceRegistration(account, isSystem);
         _systemAccounts[account] = isSystem;
 
         emit SystemAccountSet(account, isSystem);
-        _recordEligibilityChange(account);
+        _recordEligibilityChange(account, registrationChanged);
     }
 
     function proposeRegistrar(address account) external onlyEligibleOwner {
@@ -401,12 +404,27 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return systemAccount_;
     }
 
+    function eligibilityStateAt(address account, uint256 timepoint)
+        external
+        view
+        freshOnly
+        returns (uint64 allowedUntil_, bool systemAccount_)
+    {
+        if (timepoint > type(uint48).max) return (0, false);
+        if (!_eligibilityHistoryInitialized || timepoint < _eligibilityHistoryStart) {
+            return (type(uint64).max, _systemAccounts[account]);
+        }
+        return _eligibilityStateAt(account, uint48(timepoint));
+    }
+
     function supportsVoteEligibilityObserver() external pure returns (bool) {
         return true;
     }
 
     function registerVoteEligibilityObserver() external freshOnly {
-        if (msg.sender.code.length == 0 || !_systemAccounts[msg.sender]) revert NotSystemRegistrar();
+        if (msg.sender.code.length == 0 || _has7702DelegationDesignator(msg.sender) || !_systemAccounts[msg.sender]) {
+            revert NotSystemRegistrar();
+        }
         address previous = _voteEligibilityObserver;
         if (previous != address(0) && previous != msg.sender) revert VotingTokenAlreadyRegistered(previous);
 
@@ -444,6 +462,22 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return _vestingSourceBeneficiary[source];
     }
 
+    function vestingSourceRegistrationAt(address source, uint256 timepoint)
+        external
+        view
+        freshOnly
+        returns (address beneficiary, bool registrationPending, bool unsupportedBeneficiary)
+    {
+        if (timepoint > type(uint48).max) return (address(0), false, false);
+        if (!_eligibilityHistoryInitialized || timepoint < _eligibilityHistoryStart) {
+            return (address(0), false, false);
+        }
+        uint208 registration = _vestingSourceRegistrationCheckpoints[source].upperLookupRecent(uint48(timepoint));
+        beneficiary = address(uint160(registration >> 2));
+        registrationPending = (registration & 1) != 0;
+        unsupportedBeneficiary = (registration & 2) != 0;
+    }
+
     function isVestingSourceRegistrationPending(address source) external view freshOnly returns (bool) {
         return _pendingVestingSourceRegistration[source];
     }
@@ -467,7 +501,7 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         _caseRef[account] = bytes32(0);
 
         emit OperatorApproved(account);
-        _recordEligibilityChange(account);
+        _recordEligibilityChange(account, false);
     }
 
     function _requireEligibleOwner() private view {
@@ -518,44 +552,73 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
         return (_allowedUntil[account], _systemAccounts[account]);
     }
 
-    function _recordEligibilityChange(address account) private {
+    function _recordEligibilityChange(address account, bool registrationChanged) private {
         if (block.timestamp > type(uint48).max) revert TimestampOutOfRange(block.timestamp);
+        uint48 timepoint = uint48(block.timestamp);
         uint208 state = (uint208(_allowedUntil[account]) << 1) | (_systemAccounts[account] ? 1 : 0);
-        _eligibilityCheckpoints[account].push(uint48(block.timestamp), state);
+        _eligibilityCheckpoints[account].push(timepoint, state);
+        if (registrationChanged) {
+            uint208 registration = (uint208(uint160(_vestingSourceBeneficiary[account])) << 2)
+                | (_pendingVestingSourceRegistration[account] ? uint208(1) : uint208(0))
+                | (_unsupportedVestingSourceBeneficiary[account] ? uint208(2) : uint208(0));
+            _vestingSourceRegistrationCheckpoints[account].push(timepoint, registration);
+        }
 
         address observer = _voteEligibilityObserver;
         if (observer != address(0)) IVoteEligibilityObserver(observer).syncVoteEligibility(account);
     }
 
-    function _updateVestingSourceRegistration(address source, bool isSystem) private {
+    function _updateVestingSourceRegistration(address source, bool isSystem) private returns (bool changed) {
         address beneficiary_ = _vestingSourceBeneficiary[source];
+        bool pending = _pendingVestingSourceRegistration[source];
+        bool unsupported = _unsupportedVestingSourceBeneficiary[source];
         if (!isSystem) {
             _setVestingSourceRegistrationPending(source, false);
-            if (beneficiary_ == address(0)) return;
+            _unsupportedVestingSourceBeneficiary[source] = false;
+            if (beneficiary_ == address(0)) return pending || unsupported;
             uint32 previousCount = vestingSourceCount[beneficiary_];
             if (previousCount == 0) revert VestingSourceRegistrationUnderflow(beneficiary_);
             vestingSourceCount[beneficiary_] = previousCount - 1;
             delete _vestingSourceBeneficiary[source];
-            return;
+            return true;
         }
         if (source.code.length == 0) {
-            if (beneficiary_ == address(0)) _setVestingSourceRegistrationPending(source, true);
-            return;
+            if (beneficiary_ == address(0)) {
+                _unsupportedVestingSourceBeneficiary[source] = false;
+                _setVestingSourceRegistrationPending(source, true);
+                return !pending || unsupported;
+            }
+            return false;
         }
-        if (beneficiary_ != address(0)) return;
+        if (beneficiary_ != address(0)) {
+            _unsupportedVestingSourceBeneficiary[source] = false;
+            _setVestingSourceRegistrationPending(source, false);
+            return pending || unsupported;
+        }
 
         (bool ok, bytes memory data) =
             source.staticcall(abi.encodeWithSelector(IVestingBeneficiarySource.beneficiary.selector));
-        if (!ok || data.length != 32) return;
+        if (!ok || data.length == 0) return false;
+        if (data.length != 32) {
+            _unsupportedVestingSourceBeneficiary[source] = true;
+            _setVestingSourceRegistrationPending(source, false);
+            return !unsupported || pending;
+        }
         beneficiary_ = abi.decode(data, (address));
-        if (beneficiary_ == address(0)) return;
+        if (beneficiary_ == address(0)) {
+            _unsupportedVestingSourceBeneficiary[source] = true;
+            _setVestingSourceRegistrationPending(source, false);
+            return !unsupported || pending;
+        }
 
         uint32 sourceCount = vestingSourceCount[beneficiary_];
         uint256 maximum = MAX_VESTING_SOURCES_PER_BENEFICIARY;
         if (sourceCount >= maximum) revert TooManyVestingSources(beneficiary_, sourceCount, maximum);
         _vestingSourceBeneficiary[source] = beneficiary_;
         vestingSourceCount[beneficiary_] = sourceCount + 1;
+        _unsupportedVestingSourceBeneficiary[source] = false;
         _setVestingSourceRegistrationPending(source, false);
+        return true;
     }
 
     function _setVestingSourceRegistrationPending(address source, bool pending) private {
@@ -566,6 +629,11 @@ contract Allowlist is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, F
 
     function _isAllowed(address account) private view returns (bool) {
         return _systemAccounts[account] || _allowedUntil[account] >= uint64(block.timestamp);
+    }
+
+    function _has7702DelegationDesignator(address account) private view returns (bool) {
+        bytes memory runtimeCode = account.code;
+        return runtimeCode.length == 23 && runtimeCode[0] == 0xef && runtimeCode[1] == 0x01 && runtimeCode[2] == 0x00;
     }
 
     function _isAllowedStateAt(uint64 allowedUntil_, bool systemAccount_, uint256 timepoint)

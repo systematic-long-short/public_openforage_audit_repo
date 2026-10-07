@@ -1,7 +1,13 @@
 [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "voteSyncQueue",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -1023,6 +1029,11 @@
         "name": "allowlist_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "timepoint",
+        "type": "uint48",
+        "internalType": "uint48"
       }
     ],
     "outputs": [

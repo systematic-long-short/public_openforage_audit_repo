@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./IForageGovernorPause.sol";
 import "./VaultRegistry.sol";
@@ -42,8 +41,6 @@ contract StakingQueue is
     FinalizeDelayProfile,
     AllowlistGatedUpgradeable
 {
-    using SafeERC20 for IERC20;
-
     struct QueueEntry {
         address depositor;
         uint256 riskusdAmount;
@@ -118,6 +115,7 @@ contract StakingQueue is
     error TierDepositCapAboveVaultCapacity(uint256 cap, uint256 vaultCapacity);
     error TierDepositCapWideningNotAllowed(uint8 tier, uint256 requested, uint256 effectiveCap);
     error TierDepositCapExceeded(uint8 tier, uint256 requested, uint256 available);
+    error SafeERC20FailedOperation(address token);
     error CombinedBackingPerShareDecreased(uint256 beforeRay, uint256 afterRay);
     error CombinedBackingAssetsDecreased(uint256 beforeAssets, uint256 afterAssets);
     error BlockedAddress(address account);
@@ -231,6 +229,8 @@ contract StakingQueue is
     uint256 public constant MAX_FIXED_FORAGE_PRICE_USD = 1_000_000e6;
     uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
+    uint256 private constant _PRICE_FEED_GAS_LIMIT = 120_000;
+    uint256 private constant _PRICE_FEED_DECIMALS_GAS_LIMIT = 30_000;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
     uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
@@ -296,13 +296,20 @@ contract StakingQueue is
     mapping(uint8 => uint256) private _tierStandardScanCursor;
     mapping(uint8 => uint256) private _tierPriorityScanCursor;
     mapping(uint8 => uint256) private _tierStandardScanSnapshotEnd;
+    mapping(uint8 => uint256) private _queueCompactionCursor;
 
-    uint256[17] private __gap; // reserved for future upgrades
+    uint256[16] private __gap; // reserved for future upgrades
 
     // -- Module delegation (ERC-7201 namespaced storage) --
     /// @custom:storage-location erc7201:openforage.storage.QueueModule
     struct QueueModuleStorage {
         address module;
+        bool priorityIndexInitialized;
+        mapping(uint8 => uint256) priorityHead;
+        mapping(uint8 => uint256) priorityTail;
+        mapping(uint256 => uint256) priorityPrevious;
+        mapping(uint256 => uint256) priorityNext;
+        mapping(uint256 => bool) priorityActive;
     }
 
     bytes32 private constant QUEUE_MODULE_STORAGE_LOCATION =
@@ -351,6 +358,7 @@ contract StakingQueue is
         _forage = forage_;
         _forageLockAccountingInitialized = true;
         _forageLockAggregateAccountingInitialized = true;
+        _getQueueModuleStorage().priorityIndexInitialized = true;
         _vaultRegistry = vaultRegistry_;
         for (uint256 i; i < 4;) {
             _tierVaults[i] = tierVaults_[i];
@@ -366,6 +374,16 @@ contract StakingQueue is
     // OF-19-002: owner, governor, or guardian module
     modifier onlyOwnerOrGovernor() {
         if (msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)) {
+            revert OwnableUnauthorizedAccount(msg.sender);
+        }
+        _;
+    }
+
+    modifier onlyQueueProcessor() {
+        if (
+            msg.sender != owner() && msg.sender != _forageGovernor && !_isGuardianModule(msg.sender)
+                && !_expiredLockupProcessors[msg.sender]
+        ) {
             revert OwnableUnauthorizedAccount(msg.sender);
         }
         _;
@@ -392,7 +410,10 @@ contract StakingQueue is
     }
 
     function _requireForageLockAccounting() internal view {
-        if (!_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized) {
+        if (
+            !_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized
+                || !_getQueueModuleStorage().priorityIndexInitialized
+        ) {
             revert LegacyForageLockAccountingUnsupported();
         }
     }
@@ -499,24 +520,12 @@ contract StakingQueue is
         return false;
     }
 
-    function _revalidatePriorityForageLock(uint256 queueId, address depositor, uint256 remainingRiskusd)
-        private
-        returns (bool)
-    {
-        uint256 requiredLock;
-        if (_priorityEntryAdmissionMode[queueId] == uint8(PriceMode.FIXED_PRICE) + 1) {
-            requiredLock = _forageLockRequirementPerEntry[queueId];
-        } else if (_priorityEntryAdmissionMode[queueId] == uint8(PriceMode.ORACLE) + 1) {
-            (bool sequencerReady, bytes4 reason) = _trySequencerUp();
-            if (!sequencerReady) _revertActiveForagePriceReason(reason);
-            uint256 price = _activeForagePriceUsd();
-            uint256 multiplier = _priorityMultiplier;
-            if (price == 0 || multiplier == 0) return false;
-            requiredLock = Math.ceilDiv(remainingRiskusd * 1e18, price * multiplier);
-            if (requiredLock < 1e15) requiredLock = 1e15;
-        } else {
+    function _revalidatePriorityForageLock(uint256 queueId, address depositor, uint256) private returns (bool) {
+        uint8 admissionMode = _priorityEntryAdmissionMode[queueId];
+        if (admissionMode != uint8(PriceMode.FIXED_PRICE) + 1 && admissionMode != uint8(PriceMode.ORACLE) + 1) {
             revert LegacyForageLockAccountingUnsupported();
         }
+        uint256 requiredLock = _forageLockRequirementPerEntry[queueId];
         if (requiredLock == 0 || _forage.code.length == 0) revert PriorityLockUnavailable();
         return _revalidateForageLock(queueId, depositor, requiredLock);
     }
@@ -576,6 +585,7 @@ contract StakingQueue is
         whenNotPaused
         nonReentrant
     {
+        _preflightQueueAdmission(riskusdAmount, tier);
         _delegateToModule();
     }
 
@@ -586,7 +596,22 @@ contract StakingQueue is
         whenNotPaused
         nonReentrant
     {
+        if (minimumShares == 0) revert ZeroAmount();
+        if (deadline < block.timestamp) revert InvalidQueueEntry();
+        _preflightQueueAdmission(riskusdAmount, tier);
         _delegateToModule();
+    }
+
+    function _preflightQueueAdmission(uint256 riskusdAmount, uint8 tier) internal view {
+        if (riskusdAmount == 0) revert ZeroAmount();
+        _validateTier(tier);
+        if (_vaultId == 0) revert VaultIdNotSet();
+        _requireNotBlocked(msg.sender);
+        VaultConfig memory config = VaultRegistry(_vaultRegistry).getVault(_vaultId);
+        if (config.status != VaultStatus.Active) revert VaultNotActive();
+        if (riskusdAmount > config.capacityCap) revert NoCapacityAvailable();
+        uint256 tierCap = _effectiveTierDepositCapForCap(tier, config.capacityCap);
+        if (riskusdAmount > tierCap) revert TierDepositCapExceeded(tier, riskusdAmount, tierCap);
     }
 
     function setQueueEntryBounds(uint256 queueId, uint256 minimumShares, uint256 deadline)
@@ -616,6 +641,7 @@ contract StakingQueue is
         external
         onlyFreshQueue
         onlyAllowedCaller
+        onlyQueueProcessor
         whenNotPaused
         nonReentrant
     {
@@ -834,8 +860,12 @@ contract StakingQueue is
     {
         if (oracle_ == address(0)) revert ZeroAddress();
         if (maxStaleness_ == 0 || maxStaleness_ > 30 days) revert InvalidOracleStaleness();
-        decimals_ = IForagePriceOracle(oracle_).decimals();
-        if (decimals_ > 18) revert ParameterTooLarge();
+        try IForagePriceOracle(oracle_).decimals{gas: _PRICE_FEED_DECIMALS_GAS_LIMIT}() returns (uint8 liveDecimals) {
+            if (liveDecimals > 18) revert ParameterTooLarge();
+            return liveDecimals;
+        } catch {
+            revert InvalidOraclePrice();
+        }
     }
 
     function _validatePendingDelay(uint256 proposedAt) internal view {
@@ -919,31 +949,24 @@ contract StakingQueue is
 
         uint256[] storage lane = priority ? _tierPriorityQueue[tier] : _tierStandardQueue[tier];
         uint256 length = lane.length;
-
         if (length == 0) revert EmptyQueue();
 
-        uint256 nextPriorityQueueId;
-        if (priority) {
-            uint256 scanCursor = _tierPriorityScanCursor[tier];
-            if (scanCursor < length) nextPriorityQueueId = lane[scanCursor];
-        }
-        uint256 translatedPriorityCursor;
-        uint256 writeIdx;
-        for (uint256 i; i < length;) {
+        uint8 cursorKey = priority ? tier + 4 : tier;
+        uint256 start = _queueCompactionCursor[cursorKey];
+        if (start >= length) start = 0;
+        uint256 scanCount = _min(length - start, PRIORITY_LOOKAHEAD_SCAN_LIMIT);
+        uint256 scanEnd = start + scanCount;
+        uint256 removedCount;
+        for (uint256 i = start; i < scanEnd;) {
             uint256 queueId = lane[i];
-            QueueEntry storage entry = _queueEntries[queueId];
-            if (
-                (priority ? entry.priority : !entry.priority) && !entry.processed && !entry.cancelled
-                    && !_isExpired(entry)
-            ) {
-                if (queueId < nextPriorityQueueId) {
+            if (queueId != 0) {
+                QueueEntry storage entry = _queueEntries[queueId];
+                bool liveInLane = (priority ? entry.priority : !entry.priority) && !entry.processed && !entry.cancelled;
+                if (!liveInLane && !_isExpired(entry)) {
+                    lane[i] = 0;
                     unchecked {
-                        ++translatedPriorityCursor;
+                        ++removedCount;
                     }
-                }
-                lane[writeIdx] = queueId;
-                unchecked {
-                    ++writeIdx;
                 }
             }
             unchecked {
@@ -951,21 +974,26 @@ contract StakingQueue is
             }
         }
 
-        uint256 removedCount = length - writeIdx;
-        for (uint256 i; i < removedCount;) {
+        uint256 trimCount;
+        while (lane.length != 0 && lane[lane.length - 1] == 0 && trimCount < PRIORITY_LOOKAHEAD_SCAN_LIMIT) {
             lane.pop();
             unchecked {
-                ++i;
+                ++trimCount;
             }
         }
         if (!priority) removedCount += _compactDemotedStandardHeap(tier, PRIORITY_LOOKAHEAD_SCAN_LIMIT);
 
         if (priority) {
-            _tierPriorityHead[tier] = 0;
-            _tierPriorityScanCursor[tier] = translatedPriorityCursor;
+            uint256 laneLength = lane.length;
+            if (_tierPriorityHead[tier] > laneLength) _tierPriorityHead[tier] = laneLength;
+            if (_tierPriorityScanCursor[tier] > laneLength) _tierPriorityScanCursor[tier] = laneLength;
         } else {
-            _tierStandardHead[tier] = 0;
+            if (_tierStandardHead[tier] > lane.length) _tierStandardHead[tier] = lane.length;
         }
+
+        uint256 nextCursor = scanEnd == length ? 0 : scanEnd;
+        if (nextCursor >= lane.length) nextCursor = 0;
+        _queueCompactionCursor[cursorKey] = nextCursor;
 
         emit QueueCompacted(tier, priority, removedCount);
     }
@@ -979,29 +1007,7 @@ contract StakingQueue is
         onlyOwner
         nonReentrant
     {
-        if (recipient == address(0)) revert ZeroAddress();
-        QueueEntry storage entry = _queueEntries[entryId];
-        if (entry.processed || entry.cancelled) revert InvalidQueueEntry();
-        uint256 amount = _remainingQueueRiskusd(entryId, entry);
-        if (amount == 0) revert InvalidQueueEntry();
-        _requireNotBlocked(recipient);
-
-        address depositor = entry.depositor;
-        _removeDemotedStandardEntry(entry.tier, entryId);
-        entry.cancelled = true;
-        _clearQueueEntryProgress(entryId);
-        if (entry.priority) {
-            _priorityRiskusdQueued[depositor] -= amount;
-        }
-
-        // OF-M01: Update state BEFORE external calls (CEI pattern)
-        _totalQueuedRiskusd -= amount;
-
-        _releaseForageLock(entryId, depositor);
-
-        _riskusd.safeTransfer(recipient, amount);
-
-        emit QueueEntryCancelled(entryId, depositor, recipient, amount);
+        _delegateToModule();
     }
 
     /// @notice OF-16-020: Allow depositors to manually trigger their own reversion when
@@ -1217,6 +1223,11 @@ contract StakingQueue is
         uint256 mult = _priorityMultiplier;
         if (mult == 0) return 0;
         uint256 price = _activeForagePriceUsd();
+        if (_priceMode == uint8(PriceMode.ORACLE)) {
+            uint256 priceCeiling = _foragePriceUsd;
+            if (priceCeiling == 0) return 0;
+            if (price > priceCeiling) price = priceCeiling;
+        }
         if (price == 0) return 0;
         (bool success, bytes memory data) = _forage.staticcall(abi.encodeWithSelector(_SEL_LOCKED_BALANCE, depositor));
         if (success && data.length >= 32) {
@@ -1284,7 +1295,16 @@ contract StakingQueue is
         if (oracle == address(0)) return (false, 0, OracleNotConfigured.selector);
         (bool sequencerOk, bytes4 sequencerReason) = _trySequencerUp();
         if (!sequencerOk) return (false, 0, sequencerReason);
-        try IForagePriceOracle(oracle).latestRoundData() returns (
+        uint8 liveDecimals;
+        try IForagePriceOracle(oracle).decimals{gas: _PRICE_FEED_DECIMALS_GAS_LIMIT}() returns (uint8 decimals_) {
+            if (decimals_ != _foragePriceOracleDecimals) {
+                return (false, 0, InvalidOraclePrice.selector);
+            }
+            liveDecimals = decimals_;
+        } catch {
+            return (false, 0, InvalidOraclePrice.selector);
+        }
+        try IForagePriceOracle(oracle).latestRoundData{gas: _PRICE_FEED_GAS_LIMIT}() returns (
             uint80 roundId, int256 answer, uint256, uint256 updatedAt, uint80 answeredInRound
         ) {
             if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp || answeredInRound < roundId) {
@@ -1294,7 +1314,7 @@ contract StakingQueue is
                 return (false, 0, StaleFORAGEPrice.selector);
             }
 
-            uint256 normalized = _normalizeOraclePrice(uint256(answer), _foragePriceOracleDecimals);
+            uint256 normalized = _normalizeOraclePrice(uint256(answer), liveDecimals);
             if (normalized == 0 || normalized > MAX_FIXED_FORAGE_PRICE_USD) {
                 return (false, 0, InvalidOraclePrice.selector);
             }
@@ -1313,7 +1333,7 @@ contract StakingQueue is
             return (true, bytes4(0));
         }
 
-        try ISequencerUptimeFeed(feed).latestRoundData() returns (
+        try ISequencerUptimeFeed(feed).latestRoundData{gas: _PRICE_FEED_GAS_LIMIT}() returns (
             uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
         ) {
             if (updatedAt == 0 || updatedAt > block.timestamp || answeredInRound < roundId) {
@@ -1330,11 +1350,6 @@ contract StakingQueue is
         } catch {
             return (false, SequencerUptimeFeedUnavailable.selector);
         }
-    }
-
-    function _isSequencerFailure(bytes4 reason) internal pure returns (bool) {
-        return reason == SequencerUptimeFeedUnavailable.selector || reason == SequencerDown.selector
-            || reason == SequencerGracePeriodNotOver.selector;
     }
 
     function _revertActiveForagePriceReason(bytes4 reason) internal view {
@@ -1510,7 +1525,7 @@ contract StakingQueue is
         while (index < heap.length && scanned < scanLimit) {
             uint256 queueId = heap[index];
             QueueEntry storage entry = _queueEntries[queueId];
-            if (entry.processed || entry.cancelled || _isExpired(entry)) {
+            if (entry.processed || entry.cancelled) {
                 _removeDemotedStandardEntry(tier, queueId);
                 unchecked {
                     ++removedCount;

@@ -113,6 +113,7 @@ contract RISKUSDVault is
     error DailyMintCapExceeded();
     error DailyRedemptionCapExceeded();
     error PerBlockMintCapExceeded(uint256 provided, uint256 cap);
+    error PerBlockMintCapRetired();
     error DeploymentBufferExceeded();
     error SolvencyInvariantViolated(uint256 backingAssets, uint256 riskusdSupply);
     error InvalidAttestationInterval();
@@ -200,7 +201,7 @@ contract RISKUSDVault is
     uint256 public constant WEEKLY_WINDOW = 7 days;
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
-    uint256 private constant FRESH_DEPLOYMENT_VERSION = 2;
+    uint256 private constant FRESH_DEPLOYMENT_VERSION = 5;
     uint256 internal constant DEPLOYMENT_BUFFER_SCAN_LIMIT = 64;
     bytes4 internal constant GET_ACTIVE_VAULTS_PAGE_SELECTOR = bytes4(keccak256("getActiveVaultsPage(uint256,uint256)"));
 
@@ -301,9 +302,9 @@ contract RISKUSDVault is
     /// @dev KYC-03: basis-keyed minimum first deposit and the per-wallet first-deposit flag (two appended slots).
     mapping(uint8 => uint256) private _minimumFirstDeposit;
     mapping(address => bool) private _depositedOnce;
+    uint256 internal _mintBlockStartSupplyPlusOne;
 
-    /// @dev Reserved storage gap (39 - 32 appended slots - 1 rescue mapping - 1 blocklist - 1 freeze slot - 2 KYC slots = 2)
-    uint256[2] private __gap;
+    bool internal _weeklyMintWindowStartSupplyInitialized;
 
     // --- Module storage (ERC-7201) ---
 
@@ -385,16 +386,17 @@ contract RISKUSDVault is
         _vaultRegistry = IVaultRegistry(vaultRegistry_);
         _weeklyRedemptionCapBps = 500; // R-31/F2: 5% launch default
         _maxDeploymentRatioBps = 9500; // R-31/F2: 95% launch default
-        _weeklyMintCapBps = 20000; // R-28: max 2x start-window supply per 7 days
-        _dailyMintCapBps = 2000; // Human review 2026-04-28: max 20% start-window supply per day
+        _weeklyMintCapBps = 5000;
+        _dailyMintCapBps = 1000;
         _dailyRedemptionCapBps = 200; // Target default: max 2% start-window supply per day
-        _perBlockMintCapBps = 2000; // Human review 2026-04-28: max 20% of supply per block
-        _perBlockMintCapMax = 10_000_000e6; // R-8: absolute $10M cap
         _deploymentBufferBps = 500; // R-31/I-14: retain 5% across active tier vault assets
         _attestationIntervalSeconds = 1 days;
         _weeklyRedemptionWindowStart = block.timestamp;
         _weeklyMintWindowStart = block.timestamp;
-        _dailyMintWindowStart = block.timestamp;
+        _weeklyMintWindowStartSupply = _riskusd.totalSupply();
+        _weeklyMintWindowStartSupplyInitialized = true;
+        _dailyMintWindowStart = block.timestamp / DAILY_WINDOW * DAILY_WINDOW;
+        _dailyMintWindowStartSupply = _riskusd.totalSupply();
         _dailyRedemptionWindowStart = block.timestamp;
         // _minReserveRatioBps defaults to 0
         // _custodian and _lossReporter default to address(0) unless a genesis initializer sets them.
@@ -418,12 +420,13 @@ contract RISKUSDVault is
         }
         uint256 backingAssetsBefore = solvencyBackingAssets();
         uint256 riskusdSupplyBefore = _riskusd.totalSupply();
+        _syncWeeklyMintWindow(riskusdSupplyBefore);
+        _syncDailyMintWindow(riskusdSupplyBefore);
 
         // Update state before external calls (CEI). Public deposits are throttled;
         // Protocol accounting uses the lossReporter role and must remain live.
         bool mintCapExempt = msg.sender == _lossReporter;
         if (!mintCapExempt) {
-            _enforcePerBlockMintCap(usdcAmount);
             _enforceDailyMintCap(usdcAmount);
             _enforceWeeklyMintCap(usdcAmount);
         }
@@ -450,6 +453,8 @@ contract RISKUSDVault is
         _requireNotBlocked(msg.sender);
         uint256 backingAssetsBefore = solvencyBackingAssets();
         uint256 riskusdSupplyBefore = _riskusd.totalSupply();
+        _syncWeeklyMintWindow(riskusdSupplyBefore);
+        _syncDailyMintWindow(riskusdSupplyBefore);
 
         _seedRedemptionCapBases(riskusdSupplyBefore);
         uint256 weeklyMintConsumed = _consumeWeeklyRedemptionMint(riskusdAmount);
@@ -495,7 +500,13 @@ contract RISKUSDVault is
 
     // --- Custodian Operations ---
 
-    function deployCapital(uint256 usdcAmount) external onlyAllowedCaller whenNotPaused nonReentrant {
+    function deployCapital(uint256 usdcAmount)
+        external
+        freshDeploymentOnly
+        onlyAllowedCaller
+        whenNotPaused
+        nonReentrant
+    {
         _delegateToModule();
     }
 
@@ -536,14 +547,18 @@ contract RISKUSDVault is
 
     /// @notice Records the latest custodian NAV attestation for runtime solvency checks.
     /// @dev Called by the custodian bridge after validating the cross-chain attestation.
-    function recordCustodianNAV(uint256 nav) external onlyAllowedCaller {
+    function recordCustodianNAV(uint256 nav) external freshDeploymentOnly onlyAllowedCaller {
         _delegateToModule();
     }
 
     /// @notice Records the latest custodian NAV attestation and nonce for loss settlement.
     /// @dev The custodian bridge calls this after validating the off-chain NAV attestation.
     /// It does not mutate loss accounting or create a sticky lock; lossPending() is derived.
-    function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce) external onlyAllowedCaller {
+    function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce)
+        external
+        freshDeploymentOnly
+        onlyAllowedCaller
+    {
         _delegateToModule();
     }
 
@@ -551,6 +566,7 @@ contract RISKUSDVault is
     /// @dev Custodian bridges use this overload so freshness reflects data age, not submission age.
     function recordCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
         external
+        freshDeploymentOnly
         onlyAllowedCaller
     {
         _delegateToModule();
@@ -561,6 +577,7 @@ contract RISKUSDVault is
     /// enter the same nonce-bound settlement path as custodian bridge attestations.
     function recordManualCustodianNAV(uint256 vaultId, uint256 nav, uint256 lossNonce, uint256 observedAt)
         external
+        freshDeploymentOnly
         onlyAllowedCaller
         nonReentrant
     {
@@ -574,6 +591,8 @@ contract RISKUSDVault is
     /// The RISKUSD.burn() call is minter-only and bypasses pause per OF-M06.
     /// @dev Verifies target attested-loss nonce binding when a nonce-bound loss is open.
     function burnForLoss(uint256 vaultId, uint256 riskusdAmount) external onlyAllowedCaller nonReentrant {
+        _requireFreshDeployment();
+        _syncDailyMintWindow(_riskusd.totalSupply());
         _delegateToModule();
     }
 
@@ -582,6 +601,8 @@ contract RISKUSDVault is
         onlyAllowedCaller
         nonReentrant
     {
+        _requireFreshDeployment();
+        _syncDailyMintWindow(_riskusd.totalSupply());
         _delegateToModule();
     }
 
@@ -738,7 +759,8 @@ contract RISKUSDVault is
     }
 
     function setPerBlockMintCap(uint256 bps_, uint256 maxAmount_) external onlyAllowedCaller onlyOwner {
-        _delegateToModule();
+        _requireFreshDeployment();
+        revert PerBlockMintCapRetired();
     }
 
     function setDeploymentBufferBps(uint256 bps_) external onlyAllowedCaller onlyOwner {
@@ -766,14 +788,13 @@ contract RISKUSDVault is
         _delegateToModule();
     }
 
-    /// @notice Emergency-only asymmetric cap control for same-block public minting.
-    /// @dev Both dimensions must tighten. Zero in either dimension halts public minting.
     function shrinkPerBlockMintCap(uint256 bps_, uint256 maxAmount_)
         external
         onlyAllowedCaller
         onlyEmergencyCapTightener
     {
-        _delegateToModule();
+        _requireFreshDeployment();
+        revert PerBlockMintCapRetired();
     }
 
     /// @notice Emergency-only asymmetric cap control for custodian deployment exposure.
@@ -937,6 +958,7 @@ contract RISKUSDVault is
     }
 
     function dailyMintUsed() external view returns (uint256) {
+        if (_dailyMintWindowStart != block.timestamp / DAILY_WINDOW * DAILY_WINDOW) return 0;
         return _dailyMintUsed;
     }
 
@@ -946,7 +968,18 @@ contract RISKUSDVault is
     }
 
     function dailyMintWindowStart() external view returns (uint256) {
-        return _dailyMintWindowStart;
+        uint256 dayStart = block.timestamp / DAILY_WINDOW * DAILY_WINDOW;
+        return _dailyMintWindowStart == dayStart ? _dailyMintWindowStart : dayStart;
+    }
+
+    function dayStartDepositSupply() external view returns (uint256) {
+        return _dayStartDepositSupply();
+    }
+
+    function _dayStartDepositSupply() private view returns (uint256) {
+        _requireFreshDeployment();
+        if (_dailyMintWindowStart != block.timestamp / DAILY_WINDOW * DAILY_WINDOW) return _riskusd.totalSupply();
+        return _dailyMintWindowStartSupply;
     }
 
     function dailyRedemptionWindowStart() external view returns (uint256) {
@@ -1126,14 +1159,14 @@ contract RISKUSDVault is
         uint256 effectiveSupply;
         if (block.timestamp >= _weeklyMintWindowStart + WEEKLY_WINDOW) {
             uint256 currentSupply = _riskusd.totalSupply();
-            effectiveSupply = _lastMintActiveSupply > currentSupply ? _lastMintActiveSupply : currentSupply;
-        } else if (_weeklyMintWindowStartSupply == 0) {
+            effectiveSupply = currentSupply;
+        } else if (!_weeklyMintWindowStartSupplyInitialized) {
             effectiveSupply = _weeklyMintUsed == 0 ? _riskusd.totalSupply() : 0;
         } else {
             effectiveSupply = _weeklyMintWindowStartSupply;
         }
         uint256 cap = effectiveSupply * _weeklyMintCapBps / 10000;
-        return cap == 0 ? 10_000_000e6 : cap;
+        return cap < 10_000_000e6 ? 10_000_000e6 : cap;
     }
 
     function weeklyMintRemaining() external view returns (uint256) {
@@ -1148,21 +1181,12 @@ contract RISKUSDVault is
     function effectiveDailyMintCap() public view returns (uint256) {
         if (_dailyMintCapBps == 0) return 0;
 
-        uint256 effectiveSupply;
-        if (block.timestamp >= _dailyMintWindowStart + DAILY_WINDOW) {
-            uint256 currentSupply = _riskusd.totalSupply();
-            effectiveSupply = _lastDailyMintActiveSupply > currentSupply ? _lastDailyMintActiveSupply : currentSupply;
-        } else if (_dailyMintWindowStartSupply == 0) {
-            effectiveSupply = _dailyMintUsed == 0 ? _riskusd.totalSupply() : 0;
-        } else {
-            effectiveSupply = _dailyMintWindowStartSupply;
-        }
-        uint256 cap = effectiveSupply * _dailyMintCapBps / 10000;
-        return cap == 0 ? 10_000_000e6 : cap;
+        uint256 cap = _dayStartDepositSupply() * _dailyMintCapBps / 10000;
+        return cap < 10_000_000e6 ? 10_000_000e6 : cap;
     }
 
     function dailyMintRemaining() external view returns (uint256) {
-        if (block.timestamp >= _dailyMintWindowStart + DAILY_WINDOW) {
+        if (_dailyMintWindowStart != block.timestamp / DAILY_WINDOW * DAILY_WINDOW) {
             return effectiveDailyMintCap();
         }
         uint256 cap = effectiveDailyMintCap();
@@ -1476,73 +1500,48 @@ contract RISKUSDVault is
         if (_dailyRedemptionUsed + riskusdAmount > cap) revert DailyRedemptionCapExceeded();
     }
 
-    function _enforcePerBlockMintCap(uint256 riskusdAmount) internal {
-        if (block.number != _mintUsedBlockNumber) {
-            _mintUsedBlockNumber = block.number;
-            _mintUsedThisBlock = 0;
-        }
-
-        if (_perBlockMintCapBps == 0 || _perBlockMintCapMax == 0) {
-            revert PerBlockMintCapExceeded(riskusdAmount, 0);
-        }
-
-        uint256 supply = _riskusd.totalSupply();
-        uint256 supplyCap = supply * _perBlockMintCapBps / 10000;
-        uint256 cap = supply == 0 ? _perBlockMintCapMax : supplyCap;
-        if (cap > _perBlockMintCapMax) cap = _perBlockMintCapMax;
-        if (cap == 0) cap = 1;
-        uint256 remaining = cap > _mintUsedThisBlock ? cap - _mintUsedThisBlock : 0;
-        if (riskusdAmount > remaining) revert PerBlockMintCapExceeded(riskusdAmount, remaining);
-        _mintUsedThisBlock += riskusdAmount;
+    function _syncDailyMintWindow(uint256 supply) private {
+        uint256 dayStart = block.timestamp / DAILY_WINDOW * DAILY_WINDOW;
+        if (_dailyMintWindowStart == dayStart) return;
+        _dailyMintWindowStart = dayStart;
+        _dailyMintUsed = 0;
+        _dailyMintWindowStartSupply = supply;
     }
 
-    function _enforceWeeklyMintCap(uint256 riskusdAmount) internal {
-        uint256 cachedTotalSupply = _riskusd.totalSupply();
-
+    function _syncWeeklyMintWindow(uint256 supply) internal {
         if (block.timestamp >= _weeklyMintWindowStart + WEEKLY_WINDOW) {
             _weeklyMintUsed = 0;
             uint256 elapsed = (block.timestamp - _weeklyMintWindowStart) / WEEKLY_WINDOW;
             _weeklyMintWindowStart += elapsed * WEEKLY_WINDOW;
-            uint256 baseline = _lastMintActiveSupply > cachedTotalSupply ? _lastMintActiveSupply : cachedTotalSupply;
-            _weeklyMintWindowStartSupply = baseline;
-            _lastMintActiveSupply = cachedTotalSupply;
-        } else if (_weeklyMintUsed == 0 && _weeklyMintWindowStartSupply == 0) {
-            _weeklyMintWindowStartSupply = cachedTotalSupply;
+            _weeklyMintWindowStartSupply = supply;
+            _weeklyMintWindowStartSupplyInitialized = true;
+        } else if (!_weeklyMintWindowStartSupplyInitialized) {
+            _weeklyMintWindowStartSupply = supply;
+            _weeklyMintWindowStartSupplyInitialized = true;
         }
+    }
+
+    function _enforceWeeklyMintCap(uint256 riskusdAmount) internal {
+        uint256 cachedTotalSupply = _riskusd.totalSupply();
+        _syncWeeklyMintWindow(cachedTotalSupply);
+        if (!_weeklyMintWindowStartSupplyInitialized) revert InvalidState();
 
         if (_weeklyMintCapBps == 0) revert WeeklyMintCapExceeded();
 
         uint256 cap = _weeklyMintWindowStartSupply * _weeklyMintCapBps / 10000;
-        if (cap == 0) {
-            cap = 10_000_000e6;
-        }
+        if (cap < 10_000_000e6) cap = 10_000_000e6;
         if (_weeklyMintUsed + riskusdAmount > cap) revert WeeklyMintCapExceeded();
         _weeklyMintUsed += riskusdAmount;
-
-        _lastMintActiveSupply = _lastMintActiveSupply > cachedTotalSupply ? _lastMintActiveSupply : cachedTotalSupply;
     }
 
     function _enforceDailyMintCap(uint256 riskusdAmount) internal {
         uint256 cachedTotalSupply = _riskusd.totalSupply();
-
-        if (block.timestamp >= _dailyMintWindowStart + DAILY_WINDOW) {
-            _dailyMintUsed = 0;
-            uint256 elapsed = (block.timestamp - _dailyMintWindowStart) / DAILY_WINDOW;
-            _dailyMintWindowStart += elapsed * DAILY_WINDOW;
-            uint256 baseline =
-                _lastDailyMintActiveSupply > cachedTotalSupply ? _lastDailyMintActiveSupply : cachedTotalSupply;
-            _dailyMintWindowStartSupply = baseline;
-            _lastDailyMintActiveSupply = cachedTotalSupply;
-        } else if (_dailyMintUsed == 0 && _dailyMintWindowStartSupply == 0) {
-            _dailyMintWindowStartSupply = cachedTotalSupply;
-        }
+        _syncDailyMintWindow(cachedTotalSupply);
 
         if (_dailyMintCapBps == 0) revert DailyMintCapExceeded();
 
         uint256 cap = _dailyMintWindowStartSupply * _dailyMintCapBps / 10000;
-        if (cap == 0) {
-            cap = 10_000_000e6;
-        }
+        if (cap < 10_000_000e6) cap = 10_000_000e6;
         if (_dailyMintUsed + riskusdAmount > cap) revert DailyMintCapExceeded();
         _dailyMintUsed += riskusdAmount;
 

@@ -7,8 +7,8 @@ solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 libraries = [
-    "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard:0x1f2A21CFF1dD5B8f0223463378544B7fD9664A26",
-    "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier:0x6e2e04c79cd4c4ac65973a1dfff378a289aaa488",
+    "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard:0xc7b0cdc73e6a351bbbd784afec4ed581a6e20a5f",
+    "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier:0xD194A279dDC19BC479592bA4C677A2961992D8Eb",
 ]
 fs_permissions = [
     { access = "read", path = "./src" },
@@ -28,8 +28,8 @@ via_ir = true
 revert_strings = "strip"
 bytecode_hash = "none"
 libraries = [
-    "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard:0x1f2A21CFF1dD5B8f0223463378544B7fD9664A26",
-    "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier:0x6e2e04c79cd4c4ac65973a1dfff378a289aaa488",
+    "src/ForageGovernorTimelockGuard.sol:ForageGovernorTimelockMigrationGuard:0xc7b0cdc73e6a351bbbd784afec4ed581a6e20a5f",
+    "src/libraries/GuardianAuthorityClassifier.sol:GuardianAuthorityClassifier:0xD194A279dDC19BC479592bA4C677A2961992D8Eb",
 ]
 
 [profile.default.fmt]

@@ -193,7 +193,9 @@ contract Blocklist is
         } catch {
             revert InvalidVoteEligibilityObserver(msg.sender);
         }
-        if (msg.sender.code.length == 0 || !systemAccount_) revert InvalidVoteEligibilityObserver(msg.sender);
+        if (msg.sender.code.length == 0 || _has7702DelegationDesignator(msg.sender) || !systemAccount_) {
+            revert InvalidVoteEligibilityObserver(msg.sender);
+        }
 
         address previous = _voteEligibilityObserver;
         if (previous != address(0) && previous != msg.sender) {
@@ -224,9 +226,19 @@ contract Blocklist is
         return expiry != 0 && expiry >= timepoint;
     }
 
+    function blockedUntilAt(address account, uint256 timepoint) external view freshOnly returns (uint256) {
+        if (timepoint > type(uint48).max) return 0;
+        return _blockedUntilCheckpoints[account].upperLookupRecent(uint48(timepoint));
+    }
+
     function _notifyVoteEligibilityObserver(address account) private {
         address observer = _voteEligibilityObserver;
         if (observer != address(0)) IVoteEligibilityObserver(observer).syncVoteEligibility(account);
+    }
+
+    function _has7702DelegationDesignator(address account) private view returns (bool) {
+        bytes memory runtimeCode = account.code;
+        return runtimeCode.length == 23 && runtimeCode[0] == 0xef && runtimeCode[1] == 0x01 && runtimeCode[2] == 0x00;
     }
 
     function _requireProposalReady(uint256 proposedAt) private view {

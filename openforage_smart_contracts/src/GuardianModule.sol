@@ -103,6 +103,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     bytes4 private constant _TIMELOCK_SCHEDULE_BATCH_SELECTOR =
         bytes4(keccak256("scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)"));
     bytes4 private constant _TIMELOCK_VIEW_SELECTOR = bytes4(keccak256("timelock()"));
+    bytes4 private constant _TIMELOCK_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
     uint256 private constant _REGISTRY_TARGET = 32;
 
     // ── State variables ──────────────────────────────────────────────────
@@ -183,38 +184,18 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         revert CanonicalCustodianRegistryRequired();
     }
 
-    function initializeWithCustodianRegistry(
-        address governor_,
-        address timelock_,
-        address custodianRegistry_,
-        address[] calldata initialGuardians_,
-        uint256[] calldata initialGuardianPermissions_
-    ) external onlyDuringConstructionBeforeInitialization initializer {
-        if (governor_ == address(0)) revert ZeroAddress();
-        if (timelock_ == address(0)) revert ZeroAddress();
-        if (custodianRegistry_ == address(0)) revert ZeroAddress();
-        if (initialGuardians_.length != initialGuardianPermissions_.length) revert ArrayLengthMismatch();
-
-        governor = governor_;
-        timelock = timelock_;
-        _custodianRegistry.canonical = custodianRegistry_;
-        emit CustodianRegistryUpdated(address(0), custodianRegistry_);
-
-        for (uint256 i; i < initialGuardians_.length;) {
-            if (initialGuardians_[i] == address(0)) revert ZeroAddress();
-            if (initialGuardianPermissions_[i] == 0) revert InvalidParameter();
-            if (guardianPermissions[initialGuardians_[i]] != 0) revert DuplicateGuardian();
-            // OF-19-001: Validate permissions (MAX_VALID + PauseAndCancelForbidden)
-            _validatePermissions(initialGuardianPermissions_[i]);
-
-            guardianPermissions[initialGuardians_[i]] = initialGuardianPermissions_[i];
-            _mutateGuardianRoster(initialGuardians_[i], address(0), 0);
-
-            emit GuardianPermissionsUpdated(initialGuardians_[i], 0, initialGuardianPermissions_[i]);
-            unchecked {
-                ++i;
-            }
-        }
+    function initializeWithCustodianRegistry(GuardianAuthorityClassifier.InitializationConfig calldata config)
+        external
+        onlyDuringConstructionBeforeInitialization
+        initializer
+    {
+        governor = config.governor;
+        timelock = config.timelock;
+        _custodianRegistry.canonical = config.custodianRegistry;
+        emit CustodianRegistryUpdated(address(0), config.custodianRegistry);
+        GuardianAuthorityClassifier.initializeGuardianRoster(
+            _guardianList, _guardianRosterEntryCount, guardianPermissions, config
+        );
         _freshLayoutVersion = 2;
     }
 
@@ -256,7 +237,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         if (targets.length == 0) revert EmptyProposal();
 
         GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
-        _revertIfSelfTargetingGuardianMutation(registryOwner, targets, calldatas, budget);
+        _revertIfSelfTargetingGuardianMutation(registryOwner, targets, values, calldatas, budget);
 
         // Cancel via governor (governor._validateCancel authorizes this module)
         IForageGovernorMinimal(governor).cancel(targets, values, calldatas, descriptionHash);
@@ -333,10 +314,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         uint256 oldPermissions = guardianPermissions[guardian_];
         guardianPermissions[guardian_] = permissions;
 
-        if (permissions == 0 && oldPermissions != 0) {
-            _mutateGuardianRoster(guardian_, address(0), 1);
-        } else if (oldPermissions == 0 && permissions != 0) {
-            _mutateGuardianRoster(guardian_, address(0), 0);
+        if (permissions != 0 || oldPermissions != 0) {
+            uint8 operation = permissions == 0 ? 1 : oldPermissions == 0 ? 0 : 3;
+            _mutateGuardianRoster(guardian_, address(0), operation);
         }
 
         emit GuardianPermissionsUpdated(guardian_, oldPermissions, permissions);
@@ -547,8 +527,8 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function acceptTimelock() external freshOnly onlyAllowedCaller {
         if (msg.sender != pendingTimelock) revert NotPendingTimelock();
         if (block.timestamp < timelockProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
-        if (block.timestamp > timelockProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-        _requireGovernorTimelockMatchesPending();
+        bool proposalExpired = block.timestamp > timelockProposedAt + PROPOSAL_EXPIRY;
+        _requireGovernorTimelockMatchesPending(proposalExpired);
         address oldTimelock = timelock;
         timelock = pendingTimelock;
         pendingTimelock = address(0);
@@ -559,6 +539,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     /// @notice Wire the allowlist that gates every entry point. Timelock authority only.
     function setAllowlist(address allowlist_) external freshOnly {
         _requireCurrentTimelockAuthority();
+        GuardianAuthorityClassifier.validateProposalGuardianAllowlist(_guardianList, guardianPermissions, allowlist_);
         _transitionAllowlist(allowlist_);
     }
 
@@ -614,9 +595,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function _replaceGuardianSeat(address current, address successor) internal {
         uint256 permissions = guardianPermissions[current];
         if (permissions == 0) revert NotGuardian();
-        if (!_mutateGuardianRoster(current, successor, 2)) revert NotGuardian();
         guardianPermissions[successor] = permissions;
         guardianPermissions[current] = 0;
+        if (!_mutateGuardianRoster(current, successor, 2)) revert NotGuardian();
         emit GuardianPermissionsUpdated(current, permissions, 0);
         emit GuardianPermissionsUpdated(successor, 0, permissions);
     }
@@ -638,7 +619,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     function _mutateGuardianRoster(address guardian_, address successor, uint8 operation) private returns (bool) {
         return GuardianAuthorityClassifier.mutateGuardianRoster(
-            _guardianList, _guardianRosterEntryCount, guardian_, successor, operation
+            _guardianList, _guardianRosterEntryCount, guardianPermissions, guardian_, successor, operation
         );
     }
 
@@ -670,9 +651,6 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    /// @dev OF-19-001: Shared permission validation used by both initialize() and
-    /// setGuardianPermissions(). Enforces MAX_VALID_PERMISSIONS (OF-16-014) and
-    /// PauseAndCancelForbidden (OF-16-005) in a single place.
     function _validatePermissions(uint256 permissions) internal pure {
         if (permissions > MAX_VALID_PERMISSIONS) revert InvalidPermissionBitmask();
         if ((permissions & PERMISSION_CAN_PAUSE != 0) && (permissions & PERMISSION_CAN_CANCEL != 0)) {
@@ -685,10 +663,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) revert Unauthorized();
     }
 
-    function _requireGovernorTimelockMatchesPending() private view {
+    function _requireGovernorTimelockMatchesPending(bool proposalExpired) private view {
         address expectedTimelock = pendingTimelock;
         address governorTimelock = _readGovernorTimelock();
         if (governorTimelock != expectedTimelock) {
+            if (proposalExpired) revert ProposalExpired();
             revert GovernorTimelockMismatch(governorTimelock, expectedTimelock);
         }
     }
@@ -706,44 +685,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     }
 
     function _validateEmergencyCalldata(bytes calldata data) internal pure returns (bytes4 selector) {
-        if (data.length < 4) revert InvalidEmergencyAction();
-        selector = bytes4(data[:4]);
-        if (selector == IEmergencyPausable.pause.selector) {
-            if (data.length != 4) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        if (
-            selector == IEmergencyRiskVaultCaps.shrinkWeeklyRedemptionCapBps.selector
-                || selector == IEmergencyRiskVaultCaps.shrinkWeeklyMintCapBps.selector
-                || selector == IEmergencyRiskVaultCaps.shrinkDailyMintCapBps.selector
-                || selector == IEmergencyRiskVaultCaps.tightenMaxDeploymentRatioBps.selector
-                || selector == IEmergencyRiskVaultCaps.tightenDeploymentBufferBps.selector
-                || selector == IEmergencyAtRiskCaps.shrinkWeeklyWithdrawalCapBps.selector
-                || selector == IEmergencyHLBridgeCaps.shrinkPerBlockDeployCap.selector
-                || selector == IEmergencyHLBridgeCaps.shrinkPerDayDeployCap.selector
-                || selector == IEmergencyUSDCTreasuryCaps.shrinkLossRateCapBps.selector
-                || selector == IEmergencyAllowlistCaps.revoke.selector
-                || selector == IEmergencyAllowlistCaps.shrinkApprovalsPerDayCap.selector
-        ) {
-            if (data.length != 36) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        if (
-            selector == IEmergencyRiskVaultCaps.shrinkPerBlockMintCap.selector
-                || selector == IEmergencyHLBridgeCaps.tightenReturnCapitalCaps.selector
-        ) {
-            if (data.length != 68) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        if (selector == IEmergencyHLBridgeCaps.freezeAttestations.selector) {
-            if (data.length != 4) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        revert InvalidEmergencyAction();
+        (bool valid, bytes4 decodedSelector) = GuardianAuthorityClassifier.validateEmergencyCalldata(data);
+        if (!valid) revert InvalidEmergencyAction();
+        return decodedSelector;
     }
 
     function _executeEmergencyCalldata(address target, bytes calldata data) internal returns (bool success) {
@@ -847,6 +791,16 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 return false;
             }
         }
+        if (selector == IEmergencyFORAGETreasuryCaps.shrinkDistributorDailyCap.selector) {
+            uint256 newCap = abi.decode(data[4:], (uint256));
+            try IEmergencyFORAGETreasuryCaps(target).shrinkDistributorDailyCap(newCap) {
+                emit EmergencyCallSucceeded(target, selector);
+                return true;
+            } catch (bytes memory reason) {
+                emit EmergencyCallFailed(target, selector, reason);
+                return false;
+            }
+        }
         return _executeEmergencyUSDCTreasuryCalldata(target, data, selector);
     }
 
@@ -931,6 +885,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function _revertIfSelfTargetingGuardianMutation(
         address registryOwner,
         address[] memory targets,
+        uint256[] memory values,
         bytes[] memory calldatas,
         GovernancePayloadBudget.Budget memory budget
     ) internal view {
@@ -949,7 +904,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         address executor = _readGovernorTimelock();
         GuardianMutationScanContext memory context = GuardianMutationScanContext(registryOwner, executor, executor, 0);
         for (uint256 i; i < targets.length;) {
-            if (_isSelfTargetingGuardianMutation(context, targets[i], calldatas[i], budget)) {
+            if (_isSelfTargetingGuardianMutation(context, targets[i], values[i], calldatas[i], budget)) {
                 revert SelfTargetingGuardianMutation();
             }
             unchecked {
@@ -961,6 +916,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function _isSelfTargetingGuardianMutation(
         GuardianMutationScanContext memory context,
         address target,
+        uint256 value,
         bytes memory data,
         GovernancePayloadBudget.Budget memory budget
     ) internal view returns (bool) {
@@ -975,6 +931,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                     GuardianAuthorityClassifier.tryDecodeRelay(data);
                 if (!ok) revert SelfTargetingGuardianMutation();
                 if (nested.data.length >= data.length) revert SelfTargetingGuardianMutation();
+                uint256 nestedValue = _wordAt(data, 36);
                 bool protectedChild = nested.target == governor || nested.target == context.executor;
                 uint256 nestedDepth = context.depth;
                 if (protectedChild) {
@@ -983,17 +940,19 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 }
                 GuardianMutationScanContext memory nestedContext =
                     GuardianMutationScanContext(context.registryOwner, context.executor, governor, nestedDepth);
-                return _isSelfTargetingGuardianMutation(nestedContext, nested.target, nested.data, budget);
+                return _isSelfTargetingGuardianMutation(nestedContext, nested.target, nestedValue, nested.data, budget);
             }
         }
 
         if (target == context.executor) {
             if (selector == _TIMELOCK_SCHEDULE_SELECTOR) {
+                if (value != 0) return false;
                 _consumeGuardianVisits(budget, 1);
                 (bool ok, GovernancePayloadBudget.OperationPayload memory nested) =
                     GuardianAuthorityClassifier.tryDecodeSchedule(data);
                 if (!ok) revert SelfTargetingGuardianMutation();
                 if (nested.data.length >= data.length) revert SelfTargetingGuardianMutation();
+                uint256 nestedValue = _wordAt(data, 36);
                 bool protectedChild = nested.target == governor || nested.target == context.executor;
                 uint256 nestedDepth = context.depth;
                 if (protectedChild) {
@@ -1002,9 +961,10 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 }
                 GuardianMutationScanContext memory nestedContext =
                     GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, nestedDepth);
-                return _isSelfTargetingGuardianMutation(nestedContext, nested.target, nested.data, budget);
+                return _isSelfTargetingGuardianMutation(nestedContext, nested.target, nestedValue, nested.data, budget);
             }
             if (selector == _TIMELOCK_SCHEDULE_BATCH_SELECTOR) {
+                if (value != 0) return false;
                 return _scanScheduleBatchForSelfMutation(context, data, budget);
             }
         }
@@ -1013,7 +973,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         if (target == governor) {
             flags = 4;
         } else if (target == context.executor) {
-            flags = 8;
+            if (value == 0 || selector == _TIMELOCK_UPGRADE_SELECTOR) flags = 8;
         } else if (target == address(this)) {
             flags = 16;
             if (
@@ -1063,18 +1023,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         (bool targetsOk, address[] memory targets) =
             GuardianAuthorityClassifier.tryReadScheduleBatchTargets(data, header);
         if (!targetsOk) revert SelfTargetingGuardianMutation();
-        uint256 depth = context.depth;
-        for (uint256 i; i < targets.length;) {
-            if ((targets[i] == governor || targets[i] == context.executor)) _requireGuardianDepth(depth);
-            unchecked {
-                ++i;
-            }
-        }
         (bool batchOk, GovernancePayloadBudget.ScheduleBatchPayload memory batch) =
             GuardianAuthorityClassifier.tryDecodeScheduleBatch(data, header, targets);
-        if (!batchOk || batch.targets.length != batch.calldatas.length) revert SelfTargetingGuardianMutation();
+        if (!batchOk) revert SelfTargetingGuardianMutation();
         GuardianMutationScanContext memory batchContext =
-            GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, depth);
+            GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, context.depth);
         return _scanScheduleBatchChildren(batchContext, data, budget, batch);
     }
 
@@ -1084,6 +1037,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         GovernancePayloadBudget.Budget memory budget,
         GovernancePayloadBudget.ScheduleBatchPayload memory batch
     ) private view returns (bool) {
+        uint256 valuesHead = 4 + _wordAt(data, 36) + 32;
         for (uint256 i; i < batch.targets.length;) {
             address nestedTarget = batch.targets[i];
             bytes memory nestedData = batch.calldatas[i];
@@ -1094,9 +1048,10 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 _requireGuardianDepth(nestedDepth);
                 nestedDepth += 1;
             }
+            uint256 nestedValue = _wordAt(data, valuesHead + i * 32);
             GuardianMutationScanContext memory nestedContext =
                 GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, nestedDepth);
-            if (_isSelfTargetingGuardianMutation(nestedContext, nestedTarget, nestedData, budget)) {
+            if (_isSelfTargetingGuardianMutation(nestedContext, nestedTarget, nestedValue, nestedData, budget)) {
                 return true;
             }
             unchecked {
@@ -1192,6 +1147,10 @@ interface IEmergencyAllowlistCaps {
 
 interface IEmergencyUSDCTreasuryCaps {
     function shrinkLossRateCapBps(uint256 newCapBps) external;
+}
+
+interface IEmergencyFORAGETreasuryCaps {
+    function shrinkDistributorDailyCap(uint256 newCap) external;
 }
 
 /// @dev Minimal interface for GuardianModule to interact with ForageGovernor.

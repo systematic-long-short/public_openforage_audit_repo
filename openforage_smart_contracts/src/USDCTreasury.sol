@@ -12,9 +12,11 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./AllowlistGatedUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./interfaces/IAtRiskUSDProfitClaims.sol";
+import {IAllowlist} from "./interfaces/IAllowlist.sol";
 import {IUSDCTreasuryLossSettlement, IUSDCTreasuryYieldClaims} from "./interfaces/IUSDCTreasuryYieldClaims.sol";
 import "./interfaces/IVaultRegistry.sol";
 import {USDCTreasuryAccountingModule} from "./modules/USDCTreasuryAccountingModule.sol";
+import {USDCTreasuryProfitPolicyModule} from "./modules/USDCTreasuryProfitPolicyModule.sol";
 
 interface IUSDCTreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
@@ -32,6 +34,7 @@ interface IRISKUSDVaultLossSettlement {
     function latestLossAmount() external view returns (uint256);
     function lossPending() external view returns (bool);
     function forageGovernor() external view returns (address);
+    function lastAttestationTimestamp() external view returns (uint256);
 }
 
 interface IUSDCTreasuryTierVault is IAtRiskUSDProfitClaims {
@@ -39,10 +42,6 @@ interface IUSDCTreasuryTierVault is IAtRiskUSDProfitClaims {
     function totalSupply() external view returns (uint256);
     function accrueYield(uint256 riskusdAmount) external;
     function absorbLoss(uint256 riskusdAmount) external;
-}
-
-interface IUSDCTreasuryGuardianQuery {
-    function guardianModule() external view returns (address);
 }
 
 /// @title USDCTreasury
@@ -79,14 +78,6 @@ contract USDCTreasury is
         uint256 reportTimeTierAssetsTotal;
     }
 
-    struct LossSettlementPlan {
-        uint256 tierLoss;
-        uint256 retainedCover;
-        uint256[4] tierAssets;
-        uint256[4] tierLosses;
-        address[4] tierVaults;
-    }
-
     struct PnLReturnState {
         uint256 outstandingClaim;
         uint256 existingPending;
@@ -100,6 +91,8 @@ contract USDCTreasury is
     error ZeroAmount();
     error UnauthorizedAttestor();
     error UnauthorizedBridge();
+    error TreasuryRoleCollision(address account, address conflictingAccount);
+    error RoleSourceUnavailable(address source);
     error UnauthorizedDistributor();
     error PurposeCapExceeded();
     error InsufficientEarmark();
@@ -117,6 +110,13 @@ contract USDCTreasury is
     error PnLReturnAccountingUninitialized();
     error PnLReturnExceedsUnpaidProfit(uint256 vaultId, uint256 requested, uint256 unpaid);
     error ProposalExpired();
+    error CustodianNAVNotFresh(address vault, uint256 attestedAt, uint256 currentTime, uint256 interval);
+    error ProfitRecognitionExceedsNAVHeadroom(uint256 requested, uint256 available);
+    error LossExceedsUnreturnedProfit(uint256 requested, uint256 available);
+    error PnLReturnExceedsNAVHeadroom(uint256 requested, uint256 available);
+    error AgentPayWindowClosed(uint256 currentTime);
+    error AgentPayTotalInvariant(uint256 credited, uint256 paid);
+    error AgentPayLifetimeCapExceeded(uint256 credited, uint256 paid, uint256 requested, uint256 remaining);
     error InvalidLossRateCap(uint256 capBps);
     error LossRateCapWideningNotAllowed(uint256 requested, uint256 current);
     error LossRateCapExceeded(uint256 requested, uint256 remaining);
@@ -147,13 +147,15 @@ contract USDCTreasury is
     uint16 public constant FOUNDATION_DAILY_CAP_BPS = 1_000;
     uint16 public constant PROTOCOL_SHARE_BPS = 3_000;
     uint256 public constant PROTOCOL_RETAINED_DAILY_CAP = 1_000_000e6;
-    uint16 public constant AGENT_PAY_CAP_BPS = 1_000;
     uint256 public constant MAX_AGENT_PAY_BATCH = 100;
     uint256 public constant PROPOSAL_EXPIRY = 30 days;
     uint256 public constant LOSS_RATE_WINDOW = 1 days;
     uint256 public constant DEFAULT_LOSS_RATE_CAP_BPS = 1_000;
     uint256 public constant MAX_LOSS_RATE_CAP_BPS = type(uint16).max;
-    uint64 private constant LOSS_SETTLEMENT_VERSION = 1;
+    uint64 private constant LOSS_SETTLEMENT_VERSION = 4;
+    uint8 private constant PNL_POLICY_RECOGNITION = 0;
+    uint8 private constant PNL_POLICY_LOSS = 1;
+    uint8 private constant PNL_POLICY_RETURN = 2;
 
     IERC20 private _usdc;
     address public override riskusdVault;
@@ -198,8 +200,12 @@ contract USDCTreasury is
     PendingLossSettlement private _pendingLossSettlement;
     uint64 private _lossSettlementVersion;
     AccountingModuleSlot private _accountingModule;
-
-    uint256[6] private __gap;
+    uint16 public AGENT_PAY_CAP_BPS;
+    uint256 private _agentPayCreditedTotal;
+    uint256 private _agentPayDisbursedTotal;
+    uint256 private _aggregateUnreturnedRecognizedProfit;
+    uint256 private _pnlCashOutReportTimestamp;
+    uint256 private _pnlCashOutAgainstReport;
 
     event PnLRecognized(uint256 indexed vaultId, int256 amount);
     event PrincipalReturned(uint256 amount);
@@ -220,8 +226,11 @@ contract USDCTreasury is
         uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount, uint256 remaining
     );
 
+    USDCTreasuryProfitPolicyModule private immutable _profitPolicyModule;
+
     constructor() {
         _disableInitializers();
+        _profitPolicyModule = new USDCTreasuryProfitPolicyModule();
     }
 
     modifier onlyOwnerOrDistributor() {
@@ -283,6 +292,11 @@ contract USDCTreasury is
         _profitReturnAccountingInitialized = true;
         _lossSettlementVersion = LOSS_SETTLEMENT_VERSION;
         _accountingModule.module = accountingModule_;
+        _agentPayCreditedTotal = 0;
+        _agentPayDisbursedTotal = 0;
+        _aggregateUnreturnedRecognizedProfit = 0;
+        _pnlCashOutReportTimestamp = 0;
+        _pnlCashOutAgainstReport = 0;
     }
 
     function yieldClaimsReady() external view override returns (bool) {
@@ -293,22 +307,28 @@ contract USDCTreasury is
         return _unfundedTierYieldClaim[tierVault];
     }
 
-    function setPnLAttestor(address attestor) external onlyAllowedCaller onlyOwner {
-        if (attestor == address(0)) revert ZeroAddress();
-        pnlAttestor = attestor;
-        emit PnLAttestorSet(attestor);
+    function setPnLAttestor(address attestor) external freshOnly onlyAllowedCaller onlyOwner {
+        uint256 slot;
+        assembly {
+            slot := pnlAttestor.slot
+        }
+        _delegateAccountingModule(USDCTreasuryAccountingModule.setPnLAttestor.selector, slot, uint160(attestor));
     }
 
-    function setHLTradingBridge(address bridge) external onlyAllowedCaller onlyOwner {
-        if (bridge == address(0)) revert ZeroAddress();
-        hlTradingBridge = bridge;
-        emit HLTradingBridgeSet(bridge);
+    function setHLTradingBridge(address bridge) external freshOnly onlyAllowedCaller onlyOwner {
+        uint256 slot;
+        assembly {
+            slot := hlTradingBridge.slot
+        }
+        _delegateAccountingModule(USDCTreasuryAccountingModule.setHLTradingBridge.selector, slot, uint160(bridge));
     }
 
     function setBlocklist(address blocklist_) external onlyAllowedCaller onlyOwner {
-        if (blocklist_ == address(0)) revert ZeroAddress();
-        blocklist = blocklist_;
-        emit BlocklistSet(blocklist_);
+        uint256 slot;
+        assembly {
+            slot := blocklist.slot
+        }
+        _delegateAccountingModule(USDCTreasuryAccountingModule.setBlocklist.selector, slot, uint160(blocklist_));
     }
 
     function setAllowlist(address allowlist_) external onlyOwner {
@@ -323,6 +343,7 @@ contract USDCTreasury is
 
     function acceptDistributor() external freshOnly onlyAllowedCaller {
         if (msg.sender != _pendingDistributor) revert UnauthorizedDistributor();
+        if (!IAllowlist(allowlist()).isSystemAccount(msg.sender)) revert UnauthorizedDistributor();
         address oldDistributor = _distributor;
         _distributor = msg.sender;
         _pendingDistributor = address(0);
@@ -342,6 +363,7 @@ contract USDCTreasury is
         if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
         if (amount >= 0) {
             uint256 profit = SignedMath.abs(amount);
+            _delegateProfitPolicyModule(profit, unreturnedRecognizedProfit[vaultId], PNL_POLICY_RECOGNITION);
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
             _validateYieldClaimProjection(vaultId, config);
             recognizedProfit[vaultId] += profit;
@@ -351,6 +373,7 @@ contract USDCTreasury is
             _validateYieldClaimProjection(vaultId, config);
         } else {
             uint256 loss = SignedMath.abs(amount);
+            _delegateProfitPolicyModule(loss, unreturnedRecognizedProfit[vaultId], PNL_POLICY_LOSS);
             if (_hasOpenAttestedLoss()) revert AttestedLossPending();
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
             uint256 writtenDown = _writeDownUnpaidClaims(vaultId, loss, config);
@@ -364,13 +387,19 @@ contract USDCTreasury is
     }
 
     function setLossRateCapBps(uint256 newCapBps) external onlyAllowedCaller onlyOwner {
-        _setLossRateCapBps(newCapBps);
+        uint256 slot;
+        assembly {
+            slot := lossRateCapBps.slot
+        }
+        _delegateAccountingModule(USDCTreasuryAccountingModule.setLossRateCapBps.selector, slot, newCapBps);
     }
 
     function shrinkLossRateCapBps(uint256 newCapBps) external freshOnly onlyAllowedCaller {
-        _requireGuardianModule();
-        if (newCapBps > lossRateCapBps) revert LossRateCapWideningNotAllowed(newCapBps, lossRateCapBps);
-        _setLossRateCapBps(newCapBps);
+        uint256 slot;
+        assembly {
+            slot := lossRateCapBps.slot
+        }
+        _delegateAccountingModule(USDCTreasuryAccountingModule.shrinkLossRateCapBps.selector, slot, newCapBps);
     }
 
     function returnPrincipalUSDC(uint256) external pure {
@@ -421,6 +450,7 @@ contract USDCTreasury is
         if (recognizedProfit[vaultId] == 0) revert PnLNotRecognized(vaultId);
         uint256 unpaid = unreturnedRecognizedProfit[vaultId];
         if (amount > unpaid) revert PnLReturnExceedsUnpaidProfit(vaultId, amount, unpaid);
+        _delegateProfitPolicyModule(amount, 0, PNL_POLICY_RETURN);
         PnLReturnState memory state = _preflightPnLReturn(vaultId);
         unreturnedRecognizedProfit[vaultId] = unpaid - amount;
         _collectPnLReturn(amount);
@@ -473,6 +503,7 @@ contract USDCTreasury is
         earmarkBalance[EARMARK_PROTOCOL_RETAINED] += allocation.retained;
         earmarkBalance[EARMARK_VAULT_TOP_UP] += allocation.vaultTopUp;
         earmarkBalance[EARMARK_AGENT_PAY] += allocation.agent;
+        _agentPayCreditedTotal += allocation.agent;
         VaultFeeCarry storage carry = _vaultFeeCarry[vaultId];
         carry.protocolRemainder = allocation.protocolRemainder;
         carry.foundationRemainder = allocation.foundationRemainder;
@@ -559,19 +590,10 @@ contract USDCTreasury is
         nonReentrant
         returns (bool complete, uint256 originalLoss)
     {
-        if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
-        IRISKUSDVaultLossSettlement centralVault = IRISKUSDVaultLossSettlement(riskusdVault);
-        uint256 latestNonce = centralVault.latestLossNonce();
-        if (lossNonce == 0 || lossNonce != latestNonce || lossNonce <= centralVault.settledLossNonce()) {
-            revert LossNonceMismatch(lossNonce, latestNonce);
-        }
-        uint256 pendingVaultId = centralVault.lossPendingVaultId();
-        if (pendingVaultId == 0 || vaultId != pendingVaultId) revert LossVaultMismatch(vaultId, pendingVaultId);
-        uint256 loss = centralVault.latestLossAmount();
-        if (loss == 0 || !centralVault.lossPending()) revert NoPendingLoss();
-        LossSettlementPlan memory plan = _prepareLossSettlement(vaultId, lossNonce, loss);
-        originalLoss = _pendingLossSettlement.originalLoss;
-        complete = _applyLossSettlement(vaultId, lossNonce, centralVault, plan);
+        bytes memory result = _delegateAccountingModule(
+            abi.encodeWithSelector(USDCTreasuryAccountingModule.settleLoss.selector, vaultId, lossNonce)
+        );
+        (complete, originalLoss) = abi.decode(result, (bool, uint256));
     }
 
     function disburse(bytes32 earmark, address recipient, uint256 amount)
@@ -580,6 +602,7 @@ contract USDCTreasury is
         onlyOwner
         nonReentrant
     {
+        if (earmark == EARMARK_AGENT_PAY) revert DestinationNotAllowed();
         _disburse(earmark, recipient, amount);
     }
 
@@ -593,6 +616,9 @@ contract USDCTreasury is
         uint256 count = recipients.length;
         if (count == 0 || count != amounts.length) revert InvalidBatch();
         if (count > MAX_AGENT_PAY_BATCH) revert BatchLimitExceeded();
+        _agentPayDisbursedTotal = _profitPolicyModule.nextAgentPayDisbursedTotal(
+            msg.sender, _agentPayCreditedTotal, _agentPayDisbursedTotal, amounts
+        );
         for (uint256 i; i < count; ++i) {
             _disburse(EARMARK_AGENT_PAY, recipients[i], amounts[i]);
         }
@@ -658,7 +684,13 @@ contract USDCTreasury is
         revert RenounceOwnershipDisabled();
     }
 
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
@@ -677,6 +709,7 @@ contract USDCTreasury is
         uint256 earmarkAvailable = earmarkBalance[earmark];
         if (earmarkAvailable < amount) revert InsufficientEarmark();
         if (earmark == EARMARK_PROTOCOL_RETAINED) {
+            if (_pendingLossSettlement.nonce == 0 && _hasOpenAttestedLoss()) revert AttestedLossPending();
             uint256 reservedCover = _pendingLossSettlement.remainingRetainedCover;
             if (reservedCover > earmarkAvailable || amount > earmarkAvailable - reservedCover) {
                 revert InsufficientEarmark();
@@ -688,11 +721,7 @@ contract USDCTreasury is
         } else if (earmark == EARMARK_PROTOCOL_RETAINED) {
             _enforceFixedWindowCap(earmark, amount, PROTOCOL_RETAINED_DAILY_CAP);
             if (recipient != protocolPrimary && recipient != protocolBackup) revert DestinationNotAllowed();
-        } else if (earmark == EARMARK_AGENT_PAY) {
-            _enforceEarmarkWindowCap(earmark, amount, earmarkBalance[earmark], AGENT_PAY_CAP_BPS);
-            uint256 paymentCap = earmarkBalance[earmark] * AGENT_PAY_CAP_BPS / 10_000;
-            if (amount > paymentCap) revert PurposeCapExceeded();
-        } else {
+        } else if (earmark != EARMARK_AGENT_PAY) {
             revert DestinationNotAllowed();
         }
         earmarkBalance[earmark] -= amount;
@@ -738,24 +767,6 @@ contract USDCTreasury is
             }
             _tierAccountingValue[vaultId][i] = recorded + yieldAmount;
             _unfundedTierYieldClaim[tierVault] = projected + yieldAmount;
-        }
-    }
-
-    function _tierAssetSnapshot(VaultConfig memory config)
-        private
-        view
-        returns (uint256[4] memory tierAssets, uint256 totalAssets)
-    {
-        for (uint8 i; i < 4; ++i) {
-            address tierVault = config.tierVaults[i];
-            if (tierVault == address(0)) {
-                if (config.status != VaultStatus.WindingDown) revert TierVaultUnavailable(tierVault);
-                continue;
-            }
-            if (tierVault.code.length == 0) revert TierVaultUnavailable(tierVault);
-            uint256 assets = IUSDCTreasuryTierVault(tierVault).legitimateAssets();
-            tierAssets[i] = assets;
-            totalAssets += assets;
         }
     }
 
@@ -833,11 +844,37 @@ contract USDCTreasury is
         pendingVaultTopUp[vaultId] = outstanding;
         earmarkBalance[EARMARK_VAULT_TOP_UP] = earmark - excess;
         earmarkBalance[EARMARK_AGENT_PAY] += excess;
+        _agentPayCreditedTotal += excess;
     }
 
     function _reduceUnreturnedRecognizedProfit(uint256 vaultId, uint256 loss) private {
         uint256 unreturned = unreturnedRecognizedProfit[vaultId];
-        unreturnedRecognizedProfit[vaultId] = unreturned - Math.min(loss, unreturned);
+        uint256 reduced = Math.min(loss, unreturned);
+        unreturnedRecognizedProfit[vaultId] = unreturned - reduced;
+    }
+
+    function _delegateProfitPolicyModule(uint256 amount, uint256 localUnreturned, uint8 mode) private {
+        address module = address(_profitPolicyModule);
+        address vault = riskusdVault;
+        uint256 aggregateSlot;
+        assembly {
+            aggregateSlot := _aggregateUnreturnedRecognizedProfit.slot
+        }
+        bytes4 selector = USDCTreasuryProfitPolicyModule.updatePnLAccounting.selector;
+        assembly ("memory-safe") {
+            let pointer := mload(0x40)
+            mstore(pointer, selector)
+            mstore(add(pointer, 4), vault)
+            mstore(add(pointer, 36), amount)
+            mstore(add(pointer, 68), localUnreturned)
+            mstore(add(pointer, 100), aggregateSlot)
+            mstore(add(pointer, 132), mode)
+            if iszero(delegatecall(gas(), module, pointer, 164, 0, 0)) {
+                let size := returndatasize()
+                returndatacopy(pointer, 0, size)
+                revert(pointer, size)
+            }
+        }
     }
 
     function _requireTierHasSupply(address tierVault, uint256 amount) private view {
@@ -863,155 +900,39 @@ contract USDCTreasury is
         earmarkBalance[EARMARK_VAULT_TOP_UP] = earmark - amount;
     }
 
-    function _sum(uint256[4] memory values) private pure returns (uint256 total) {
-        for (uint8 i; i < 4; ++i) {
-            total += values[i];
-        }
-    }
-
-    function _consumeLossRateBudget(uint256 vaultId, uint256 requestedLoss, uint256 tierAssets)
-        private
-        returns (uint256 chargedLoss)
-    {
-        if (requestedLoss == 0) return 0;
-        LossRateWindow storage window = _lossRateWindows[vaultId];
-        if (window.start == 0 || block.timestamp >= window.start + LOSS_RATE_WINDOW) {
-            window.tierAssets = tierAssets;
-        }
-        uint256 nextWindowStart;
-        uint256 nextWindowUsed;
-        (chargedLoss, nextWindowStart, nextWindowUsed) = USDCTreasuryAccountingModule(_accountingModule.module)
-            .consumeLossRateBudget(
-            requestedLoss, window.tierAssets, lossRateCapBps, window.start, window.used, block.timestamp
-        );
-        window.start = nextWindowStart;
-        window.used = nextWindowUsed;
-    }
-
-    function _startLossSettlement(uint256 vaultId, uint256 lossNonce, uint256 loss) private {
-        VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
-        (uint256[4] memory tierAssets, uint256 totalTierAssets) = _tierAssetSnapshot(config);
-        uint256 tierLoss = loss < totalTierAssets ? loss : totalTierAssets;
-        uint256 retainedCover = loss - tierLoss;
-        if (retainedCover > earmarkBalance[EARMARK_PROTOCOL_RETAINED]) revert InsufficientEarmark();
-        uint256[4] memory allocations = _allocateCapped(tierLoss, tierAssets, totalTierAssets);
-        PendingLossSettlement storage pending = _pendingLossSettlement;
-        pending.nonce = lossNonce;
-        pending.vaultId = vaultId;
-        pending.originalLoss = loss;
-        pending.remainingRetainedCover = retainedCover;
-        pending.reportTimeTierAssetsTotal = totalTierAssets;
-        for (uint8 i; i < 4; ++i) {
-            pending.remainingTierAllocations[i] = allocations[i];
-        }
-    }
-
-    function _prepareLossSettlement(uint256 vaultId, uint256 lossNonce, uint256 loss)
-        private
-        returns (LossSettlementPlan memory plan)
-    {
-        PendingLossSettlement storage pending = _pendingLossSettlement;
-        if (pending.nonce == 0) _startLossSettlement(vaultId, lossNonce, loss);
-        if (pending.nonce != lossNonce) revert LossNonceMismatch(lossNonce, pending.nonce);
-        if (pending.vaultId != vaultId) revert LossVaultMismatch(vaultId, pending.vaultId);
-        uint256 tierLossRemaining = _sum(pending.remainingTierAllocations);
-        uint256 expectedLoss = tierLossRemaining + pending.remainingRetainedCover;
-        if (expectedLoss != loss) revert SettlementValueMismatch(address(this), expectedLoss, loss);
-        VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
-        (uint256[4] memory tierAssets,) = _tierAssetSnapshot(config);
-        plan.tierAssets = tierAssets;
-        plan.tierVaults = config.tierVaults;
-        plan.tierLoss = _consumeLossRateBudget(vaultId, tierLossRemaining, pending.reportTimeTierAssetsTotal);
-        if (plan.tierLoss != 0) {
-            plan.tierLosses = _allocateCapped(plan.tierLoss, pending.remainingTierAllocations, tierLossRemaining);
-        }
-        plan.retainedCover = tierLossRemaining == plan.tierLoss ? pending.remainingRetainedCover : 0;
-    }
-
-    function _applyLossSettlement(
-        uint256 vaultId,
-        uint256 lossNonce,
-        IRISKUSDVaultLossSettlement centralVault,
-        LossSettlementPlan memory plan
-    ) private returns (bool complete) {
-        PendingLossSettlement storage pending = _pendingLossSettlement;
-        pending.remainingRetainedCover -= plan.retainedCover;
-        IERC20 riskusd = IERC20(centralVault.riskusd());
-        _absorbTierLosses(pending, plan, riskusd);
-        uint256 expectedRemaining = _sum(pending.remainingTierAllocations) + pending.remainingRetainedCover;
-        _coverAndBurnLoss(vaultId, plan, centralVault);
-        uint256 actualRemaining = centralVault.latestLossAmount();
-        if (centralVault.latestLossNonce() != lossNonce || actualRemaining != expectedRemaining) {
-            revert LossNonceMismatch(actualRemaining, expectedRemaining);
-        }
-        complete = expectedRemaining == 0;
-        uint256 settledNonce = centralVault.settledLossNonce();
-        if (complete) {
-            if (settledNonce != lossNonce || actualRemaining != 0) revert LossNonceMismatch(settledNonce, lossNonce);
-            uint256 settledOriginalLoss = pending.originalLoss;
-            delete _pendingLossSettlement;
-            emit AttestedLossSettled(vaultId, lossNonce, settledOriginalLoss);
-        } else {
-            if (settledNonce >= lossNonce) revert LossNonceMismatch(settledNonce, lossNonce);
-            emit LossSettlementProgressed(vaultId, lossNonce, plan.tierLoss, actualRemaining);
-        }
-    }
-
-    function _absorbTierLosses(PendingLossSettlement storage pending, LossSettlementPlan memory plan, IERC20 riskusd)
-        private
-    {
-        for (uint8 i; i < 4; ++i) {
-            uint256 amount = plan.tierLosses[i];
-            pending.remainingTierAllocations[i] -= amount;
-            if (amount == 0) continue;
-            address tierVault = plan.tierVaults[i];
-            IUSDCTreasuryTierVault tier = IUSDCTreasuryTierVault(tierVault);
-            uint256 treasuryRiskusdBefore = riskusd.balanceOf(address(this));
-            tier.absorbLoss(amount);
-            _requireValueDecrease(tierVault, plan.tierAssets[i], tier.legitimateAssets(), amount);
-            _requireValueIncrease(tierVault, treasuryRiskusdBefore, riskusd.balanceOf(address(this)), amount);
-        }
-    }
-
-    function _coverAndBurnLoss(
-        uint256 vaultId,
-        LossSettlementPlan memory plan,
-        IRISKUSDVaultLossSettlement centralVault
-    ) private {
-        if (plan.retainedCover != 0) {
-            uint256 retained = earmarkBalance[EARMARK_PROTOCOL_RETAINED];
-            earmarkBalance[EARMARK_PROTOCOL_RETAINED] = retained - plan.retainedCover;
-            _usdc.forceApprove(riskusdVault, plan.retainedCover);
-        }
-        centralVault.coverAndBurnForLoss(vaultId, plan.tierLoss, plan.retainedCover);
-        if (plan.retainedCover != 0) _usdc.forceApprove(riskusdVault, 0);
-    }
-
-    function _setLossRateCapBps(uint256 newCapBps) private {
-        if (newCapBps == 0 || newCapBps > MAX_LOSS_RATE_CAP_BPS) revert InvalidLossRateCap(newCapBps);
-        uint256 oldCapBps = lossRateCapBps;
-        lossRateCapBps = newCapBps;
-        emit LossRateCapUpdated(oldCapBps, newCapBps);
-    }
-
     function _requireAccountingModuleReady() private view {
+        uint64 version = _lossSettlementVersion;
+        if (version != LOSS_SETTLEMENT_VERSION) revert SettlementVersionRequired(version);
         if (!_yieldClaimsReady) revert LegacyTreasuryStateUnsupported();
         address module = _accountingModule.module;
         if (module == address(0) || module.code.length == 0) revert AccountingModuleUnavailable(module);
     }
 
-    function _requireGuardianModule() private view {
-        address governor = IRISKUSDVaultLossSettlement(riskusdVault).forageGovernor();
-        if (governor.code.length == 0) revert UnauthorizedLossCapShrinker(msg.sender);
-        address guardianModule;
-        try IUSDCTreasuryGuardianQuery(governor).guardianModule() returns (address module) {
-            guardianModule = module;
-        } catch {
-            revert UnauthorizedLossCapShrinker(msg.sender);
+    function _delegateAccountingModule(bytes4 selector, uint256 slot, uint256 value) private {
+        address module = _accountingModule.module;
+        address vault = riskusdVault;
+        assembly ("memory-safe") {
+            let pointer := mload(0x40)
+            mstore(pointer, selector)
+            mstore(add(pointer, 4), vault)
+            mstore(add(pointer, 36), slot)
+            mstore(add(pointer, 68), value)
+            if iszero(delegatecall(gas(), module, pointer, 100, 0, 0)) {
+                let size := returndatasize()
+                returndatacopy(pointer, 0, size)
+                revert(pointer, size)
+            }
         }
-        if (guardianModule == address(0) || msg.sender != guardianModule) {
-            revert UnauthorizedLossCapShrinker(msg.sender);
+    }
+
+    function _delegateAccountingModule(bytes memory callData) private returns (bytes memory) {
+        (bool success, bytes memory result) = _accountingModule.module.delegatecall(callData);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
         }
+        return result;
     }
 
     function _hasOpenAttestedLoss() private view returns (bool) {
@@ -1044,14 +965,6 @@ contract USDCTreasury is
         pure
     {
         uint256 actual = afterValue >= beforeValue ? afterValue - beforeValue : type(uint256).max;
-        if (actual != expected) revert SettlementValueMismatch(account, expected, actual);
-    }
-
-    function _requireValueDecrease(address account, uint256 beforeValue, uint256 afterValue, uint256 expected)
-        private
-        pure
-    {
-        uint256 actual = beforeValue >= afterValue ? beforeValue - afterValue : type(uint256).max;
         if (actual != expected) revert SettlementValueMismatch(account, expected, actual);
     }
 
@@ -1089,7 +1002,7 @@ contract USDCTreasury is
         }
     }
 
-    function _authorizeUpgrade(address) internal override onlyOwner {
+    function _authorizeUpgrade(address) internal override freshOnly onlyOwner {
         // Match the codebase's upgrade-wipes-pending-proposals norm (OF-L06).
         pendingFoundationPrimary = address(0);
         pendingFoundationPrimaryAt = 0;

@@ -276,6 +276,19 @@
   },
   {
     "type": "function",
+    "name": "emergencyPrincipalLane",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "finalizeAllowedPeer",
     "inputs": [
       {
@@ -465,6 +478,25 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hasActiveExecutor",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1435,6 +1467,19 @@
   },
   {
     "type": "function",
+    "name": "setEmergencyPrincipalLane",
+    "inputs": [
+      {
+        "name": "lane",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "totalDeployed",
     "inputs": [],
     "outputs": [
@@ -1561,6 +1606,25 @@
         "type": "address",
         "indexed": false,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianDeployDayStartSupplySnapshotted",
+    "inputs": [
+      {
+        "name": "utcDay",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "supply",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1866,6 +1930,19 @@
   },
   {
     "type": "event",
+    "name": "CustodianRegistryVaultBound",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "CustodianReturnRecorded",
     "inputs": [
       {
@@ -1938,6 +2015,25 @@
       },
       {
         "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EmergencyPrincipalLaneSet",
+    "inputs": [
+      {
+        "name": "previousLane",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "lane",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -2267,20 +2363,10 @@
   },
   {
     "type": "error",
-    "name": "CustodianPerBlockCapExceeded",
+    "name": "CustodianPerBlockDeployCapRetired",
     "inputs": [
       {
-        "name": "id",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
         "name": "provided",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "available",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2309,6 +2395,17 @@
   },
   {
     "type": "error",
+    "name": "CustodianRegistryDayStartSupplyUnavailable",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CustodianRegistryFreshDeploymentRequired",
     "inputs": [
       {
@@ -2320,22 +2417,28 @@
   },
   {
     "type": "error",
-    "name": "CustodianReturnPerCallCapExceeded",
+    "name": "CustodianRegistryVaultMismatch",
     "inputs": [
       {
-        "name": "id",
-        "type": "bytes32",
-        "internalType": "bytes32"
+        "name": "canonicalVault",
+        "type": "address",
+        "internalType": "address"
       },
       {
-        "name": "provided",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
+        "name": "providedVault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CustodianRegistryVaultUnavailable",
+    "inputs": [
       {
-        "name": "available",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -2362,6 +2465,22 @@
   },
   {
     "type": "error",
+    "name": "CustodianRoleCollision",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "conflictingAccount",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -2375,6 +2494,17 @@
     "type": "error",
     "name": "ERC1967NonPayable",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmergencyPrincipalLaneUnavailable",
+    "inputs": [
+      {
+        "name": "lane",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2518,6 +2648,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidEmergencyPrincipalLane",
+    "inputs": [
+      {
+        "name": "lane",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidGuardianModule",
     "inputs": [
       {
@@ -2637,6 +2778,17 @@
     "type": "error",
     "name": "RenounceOwnershipDisabled",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RoleSourceUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

@@ -1322,6 +1322,13 @@
   },
   {
     "type": "function",
+    "name": "settleWeeklyExit",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "shrinkWeeklyWithdrawalCapBps",
     "inputs": [
       {
@@ -2143,6 +2150,50 @@
   },
   {
     "type": "event",
+    "name": "WeeklyExitSettled",
+    "inputs": [
+      {
+        "name": "windowStart",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "demandShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "roomShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeeklyExitSharesReleased",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "WeeklyWithdrawalCapBpsUpdated",
     "inputs": [
       {
@@ -2841,6 +2892,11 @@
   },
   {
     "type": "error",
+    "name": "NoWeeklyExitAllocation",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitializing",
     "inputs": []
   },
@@ -3040,6 +3096,49 @@
       },
       {
         "name": "outstanding",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitAccountingInvariant",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitArithmeticOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitSettlementRequired",
+    "inputs": [
+      {
+        "name": "closesAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitWindowOpen",
+    "inputs": [
+      {
+        "name": "closesAt",
         "type": "uint256",
         "internalType": "uint256"
       }

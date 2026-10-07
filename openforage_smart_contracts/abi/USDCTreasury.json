@@ -1589,6 +1589,59 @@
   },
   {
     "type": "error",
+    "name": "AgentPayLifetimeCapExceeded",
+    "inputs": [
+      {
+        "name": "credited",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "paid",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "remaining",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AgentPayTotalInvariant",
+    "inputs": [
+      {
+        "name": "credited",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "paid",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AgentPayWindowClosed",
+    "inputs": [
+      {
+        "name": "currentTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AllowlistUnavailable",
     "inputs": []
   },
@@ -1632,6 +1685,32 @@
         "name": "caller",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CustodianNAVNotFresh",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "attestedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "interval",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -1696,6 +1775,22 @@
     "type": "error",
     "name": "LegacyTreasuryStateUnsupported",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LossExceedsUnreturnedProfit",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1827,6 +1922,22 @@
   },
   {
     "type": "error",
+    "name": "PnLReturnExceedsNAVHeadroom",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PnLReturnExceedsUnpaidProfit",
     "inputs": [
       {
@@ -1853,6 +1964,22 @@
   },
   {
     "type": "error",
+    "name": "ProfitRecognitionExceedsNAVHeadroom",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ProposalExpired",
     "inputs": []
   },
@@ -1870,6 +1997,17 @@
     "type": "error",
     "name": "RenounceOwnershipDisabled",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RoleSourceUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1948,6 +2086,22 @@
         "name": "actual",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TreasuryRoleCollision",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "conflictingAccount",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },

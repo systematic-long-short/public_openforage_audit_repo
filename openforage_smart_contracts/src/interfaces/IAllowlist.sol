@@ -21,6 +21,11 @@ interface IAllowlist {
 interface IAllowlistVestingRegistry {
     function vestingSourceBeneficiary(address source) external view returns (address);
 
+    function vestingSourceRegistrationAt(address source, uint256 timepoint)
+        external
+        view
+        returns (address beneficiary, bool registrationPending, bool unsupportedBeneficiary);
+
     function maxVestingSourcesPerBeneficiary() external view returns (uint256);
 }
 
@@ -32,6 +37,11 @@ interface IAllowlistVoteEligibility {
     function isAllowedAt(address account, uint256 timepoint) external view returns (bool);
 
     function isSystemAccountAt(address account, uint256 timepoint) external view returns (bool);
+
+    function eligibilityStateAt(address account, uint256 timepoint)
+        external
+        view
+        returns (uint64 allowedUntil, bool systemAccount);
 
     function supportsVoteEligibilityObserver() external pure returns (bool);
 

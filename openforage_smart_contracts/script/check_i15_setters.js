@@ -170,6 +170,10 @@ const DOCUMENTED_NON_TRUST_BOUNDARY_SETTERS = {
     "probed caller-gate re-point through AllowlistGatedUpgradeable._setAllowlist: the target must be a contract whose isSystemAccount(this) staticcall returns or the call reverts AllowlistUnavailable, so a bad target cannot silently lock the gate.",
   "CustodianRegistry.sol:setAllowlist":
     "probed caller-gate re-point through AllowlistGatedUpgradeable._setAllowlist: the target must be a contract whose isSystemAccount(this) staticcall returns or the call reverts AllowlistUnavailable, so a bad target cannot silently lock the gate.",
+  "CustodianRegistry.sol:setEmergencyPrincipalLane":
+    "DEC-41 freezes a direct owner, onlyAllowedCaller, freshOnly binding; the selected lane must have code and its current principalLaneOpen view controls only the principal-return cap bypass.",
+  "HLTradingBridge.sol:setEmergencyPrincipalLane":
+    "DEC-41 binds the fresh-deployment setter to the owner and allowlisted caller; it rejects zero or code-less lanes and emits the old and new binding, while the configured lane only disables the daily principal-return cap and the host retains deployed-principal, blocklist, open-lane and current-guardian checks.",
   "VaultRegistry.sol:setAllowlist":
     "probed caller-gate re-point through AllowlistGatedUpgradeable._setAllowlist; the entry is present before this adopter lands so the lint result does not depend on landing order.",
   "HLTradingBridge.sol:setAllowlist":
@@ -184,7 +188,7 @@ const DOCUMENTED_NON_TRUST_BOUNDARY_SETTERS = {
     "owner-or-system-registrar boolean system flag; every adopter re-reads isAllowed per call through the caller gate, so the flag passes the gate without holding fund custody (KYC-01).",
 };
 
-const TRUST_NAME_PATTERN = /(?:Custodian|LossReporter|Depositor|Distributor|Executor|Guardian|Governor|Peer|Oracle|Minter|Registrar|VaultRegistry|RISKUSDVault|YieldSource|StakingQueue|Allowlist|MinimumFirstDeposit)/;
+const TRUST_NAME_PATTERN = /(?:Custodian|LossReporter|Depositor|Distributor|Executor|Guardian|Governor|Peer|Oracle|Minter|Registrar|VaultRegistry|RISKUSDVault|YieldSource|StakingQueue|Allowlist|MinimumFirstDeposit|EmergencyPrincipalLane)/;
 
 function listSolidityFiles(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -1196,16 +1200,16 @@ function runSetupControls() {
 
   const rotationModulePath = path.join(MODULES_DIR, "ForageTokenStateModule.sol");
   const rotationModule = fs.readFileSync(rotationModulePath, "utf8");
-  const schema2Status = replaceSetupText(rotationModule,
-    "state.inventoryVersion == 1 && state.projectionSchemaVersion == 3\n            && state.vestingMembershipSchemaVersion == 1 && state.epochs.length != 0;",
-    "state.inventoryVersion == 1 && state.projectionSchemaVersion == 2\n            && state.vestingMembershipSchemaVersion == 1 && state.epochs.length != 0;",
-    "pre-marker schema 2 status control");
-  controls.push(expectSetupRefusal("pre-marker-schema-2-refusal", (failures) =>
-    checkForageFreshOnly(token, schema2Status, tokenPath, rotationModulePath, failures),
+  const staleSchemaStatus = replaceSetupText(rotationModule,
+    "status.inventorySupported = state.inventoryVersion == 1 && state.projectionSchemaVersion == 4\n            && state.vestingMembershipSchemaVersion == 1 && state.voteEligibilitySyncSchemaVersion == 6\n            && state.epochs.length != 0;",
+    "status.inventorySupported = state.inventoryVersion == 1 && state.projectionSchemaVersion == 3\n            && state.vestingMembershipSchemaVersion == 1 && state.voteEligibilitySyncSchemaVersion == 2\n            && state.epochs.length != 0;",
+    "stale projection and sync schema status control");
+  controls.push(expectSetupRefusal("stale-projection-and-sync-schema-refusal", (failures) =>
+    checkForageFreshOnly(token, staleSchemaStatus, tokenPath, rotationModulePath, failures),
   "SETUP-FORAGE-LEGACY-REFUSAL"));
   const pastVotesFallback = replaceSetupText(token,
-    "if (_wasBlockedAt(account, timepoint, projection.blocklist, projection.allowlist)) return 0;\n        uint256 trackedVotes = projection.indexedVotes;",
-    "if (_wasBlockedAt(account, timepoint, projection.blocklist, projection.allowlist)) return 0;\n        uint256 trackedVotes = projection.indexedVotes + _pastLegacyEligibleVotes(account, timepoint, projection.blocklist);",
+    "if (projection.blocked) return 0;\n        uint256 trackedVotes = projection.indexedVotes;",
+    "if (projection.blocked) return 0;\n        uint256 trackedVotes = projection.indexedVotes + _pastLegacyEligibleVotes(account, timepoint, projection.blocklist);",
     "past legacy-source query fallback");
   controls.push(expectSetupRefusal("fresh-only-past-votes-legacy-fallback", (failures) =>
     checkForageFreshOnly(pastVotesFallback, rotationModule, tokenPath, rotationModulePath, failures)));
@@ -1218,15 +1222,15 @@ function runSetupControls() {
     checkForageFreshOnly(missingFreshRefusal, rotationModule, tokenPath, rotationModulePath, failures)));
 
   const beneficiaryFallback = replaceSetupText(rotationModule,
-    "if (_readOptionalVestingBeneficiary(query.source) != address(0)) {\n                revert UnsupportedLegacyVestingBeneficiary(query.source);\n            }",
-    "if (_readOptionalVestingBeneficiary(query.source) != address(0)) { beneficiary = _readOptionalVestingBeneficiary(query.source); }",
-    "legacy beneficiary eligibility fallback");
+    "_historicalVestingSourceRegistration(query.allowlist, query.source, timepoint)",
+    "_currentVestingSourceRegistration(query.source, query.allowlist)",
+    "current beneficiary registration at queue drain");
   controls.push(expectSetupRefusal("fresh-only-beneficiary-fallback", (failures) =>
     checkForageFreshOnly(token, beneficiaryFallback, tokenPath, rotationModulePath, failures)));
 
   const unboundedRotationPage = replaceSetupText(rotationModule,
-    "uint256 pageLength = remaining > BLOCKLIST_ROTATION_PAGE_SIZE ? BLOCKLIST_ROTATION_PAGE_SIZE : remaining;",
-    "uint256 pageLength = remaining;",
+    "uint256 length = remaining > BLOCKLIST_ROTATION_PAGE_SIZE ? BLOCKLIST_ROTATION_PAGE_SIZE : remaining;",
+    "uint256 length = remaining;",
     "unbounded rotation page");
   controls.push(expectSetupRefusal("unbounded-rotation-page", (failures) => checkForageRotationModule(unboundedRotationPage, rotationModulePath, failures)));
 
@@ -1714,7 +1718,7 @@ function checkForageNormalCalls(source, filePath, failures) {
   if (solidityFunctionDeclarations(source, "transfer").length !== 0) {
     setupFailure(failures, filePath, "SETUP-FORAGE-OPEN-TRANSFER", "transfer must remain on the inherited ERC20 update path.");
   }
-  const initializationTail = "super._update(from,to,value);if(!_isInitializing()){if(from!=address(0)){_delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken,(from)));}if(to!=address(0)){_delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken,(to)));}}";
+  const initializationTail = "super._update(from,to,value);if(!_isInitializing()){_delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncSourceFromToken,(from,to,value)));}";
   if (!updateCode.endsWith(initializationTail)) {
     setupFailure(failures, filePath, "SETUP-FORAGE-BOOTSTRAP", "vote-source synchronization must remain outside Initializable initialization.");
   }
@@ -1974,7 +1978,7 @@ function checkForageSetterGates(source, filePath, failures) {
   if (
     !beginAllowlistCode.includes("state.pendingAllowlist=allowlist_;") ||
     !beginAllowlistCode.includes("state.pendingSnapshotLength=state.sources.length") ||
-    !processAllowlistCode.includes("_processProjectionPage(state);") ||
+    !processAllowlistCode.includes("ForageTokenVoteEligibilitySyncQueue.processAllowlistPage,(_SELF)") ||
     !rotationStatusCode.includes("status.allowlistReindexActive=state.pendingAllowlist!=address(0)") ||
     !rotationStatusCode.includes("status.pendingAllowlist=state.pendingAllowlist;") ||
     !pendingSyncCode.includes("pendingAllowlist==address(0)")
@@ -1988,34 +1992,52 @@ function checkForageRotationModule(source, filePath, failures) {
   const start = setupFunction(source, "beginBlocklistRotation", filePath, "rotation start", failures);
   const allowlistStart = setupFunction(source, "beginAllowlistReindex", filePath, "allowlist reindex start", failures);
   const page = setupFunction(source, "processBlocklistRotation", filePath, "rotation page", failures);
-  const pageCore = setupFunction(source, "_processProjectionPage", filePath, "rotation page core", failures);
+  const pageCore = setupFunction(source, "processRotationPage", filePath, "rotation page core", failures);
+  const allowlistPageCore = setupFunction(source, "processAllowlistPage", filePath, "allowlist projection page core", failures);
+  const queuePage = setupFunction(source, "_queueProjectionPage", filePath, "FIFO projection page queue", failures);
+  const pageCompletion = setupFunction(source, "_completeProjectionPage", filePath, "projection page completion", failures);
+  const ensureCut = setupFunction(source, "ensureProjectionComplete", filePath, "projection cut barrier", failures);
+  const appendTask = setupFunction(source, "_appendTask", filePath, "monotonic FIFO task append", failures);
+  const removeTask = setupFunction(source, "_removeTask", filePath, "FIFO task removal", failures);
   const activate = setupFunction(source, "_activateProjection", filePath, "projection activation", failures);
   const sync = setupFunction(source, "_prepareSourceSync", filePath, "source inventory writer", failures);
   const sourceSync = setupFunction(source, "_syncSource", filePath, "source update router", failures);
+  const sourceApply = setupFunction(source, "_applySourceSync", filePath, "source projection router", failures);
   const activeSync = setupFunction(source, "_syncActiveProjection", filePath, "active projection writer", failures);
   const pendingSync = setupFunction(source, "_syncPendingProjection", filePath, "pending projection writer", failures);
   const beginCode = compactSolidity(start?.body || "");
   const allowlistStartCode = compactSolidity(allowlistStart?.body || "");
+  const beginHeader = compactSolidity(start?.header || "");
+  const allowlistStartHeader = compactSolidity(allowlistStart?.header || "");
+  const pageCode = compactSolidity(page?.body || "");
   const pageCoreCode = compactSolidity(pageCore?.body || "");
+  const allowlistPageCode = compactSolidity(allowlistPageCore?.body || "");
+  const queuePageCode = compactSolidity(queuePage?.body || "");
+  const pageCompletionCode = compactSolidity(pageCompletion?.body || "");
+  const ensureCutCode = compactSolidity(ensureCut?.body || "");
+  const appendTaskCode = compactSolidity(appendTask?.body || "");
+  const removeTaskCode = compactSolidity(removeTask?.body || "");
   const activationCode = compactSolidity(activate?.body || "");
   const syncCode = compactSolidity(sync?.body || "");
-  const inventoryGuard = beginCode.indexOf("if(state.inventoryVersion!=1||state.projectionSchemaVersion!=3){revertLegacySourceInventoryUnavailable(_blocklist,blocklist);}");
-  const allowlistInventoryGuard = allowlistStartCode.indexOf("if(state.inventoryVersion!=1||state.projectionSchemaVersion!=3){revertLegacySourceInventoryUnavailable(_blocklist,allowlist_);}");
   const allowlistPendingWrite = allowlistStartCode.indexOf("state.pendingAllowlist=allowlist_;");
   const pendingWrite = beginCode.indexOf("state.pendingBlocklist=blocklist;");
   const inventoryAppend = syncCode.indexOf("_recordVoteSource(rotation,source);");
   const beneficiaryWrite = syncCode.indexOf("_rememberRegisteredBeneficiary(source,sync.registeredBeneficiary);");
   const sourceSyncCode = compactSolidity(sourceSync?.body || "");
+  const sourceApplyCode = compactSolidity(sourceApply?.body || "");
   const activeSyncCode = compactSolidity(activeSync?.body || "");
   const pendingSyncCode = compactSolidity(pendingSync?.body || "");
-  const activeProjection = sourceSyncCode.indexOf("_syncActiveProjection(rotation,sync);");
-  const pendingProjection = sourceSyncCode.indexOf("_syncPendingProjection(rotation,sync);");
+  const prepareSource = sourceSyncCode.indexOf("_prepareSourceSync(");
+  const applySource = sourceSyncCode.indexOf("_applySourceSync(sync,timepoint);");
+  const activeProjection = sourceApplyCode.indexOf("_syncActiveProjection(rotation,sync);");
+  const pendingProjection = sourceApplyCode.indexOf("_syncPendingProjection(rotation,sync);");
   const activeProjectionUpdate = activeSyncCode.indexOf("_applyProjectionSourceUpdate(");
   const activeMembershipUpdate = activeSyncCode.indexOf("_updateProjectionVestingSourceMembership(");
   const pendingProjectionUpdate = pendingSyncCode.indexOf("_applyProjectionSourceUpdate(");
   const pendingMembershipUpdate = pendingSyncCode.indexOf("_updateProjectionVestingSourceMembership(");
-  const pendingProjectionCalls = sourceSyncCode.match(/_syncPendingProjection\(rotation,sync\);/g) || [];
-  if (!page || !source.includes("uint256 private constant BLOCKLIST_ROTATION_PAGE_SIZE = 8;") ||
+  const pendingProjectionCalls = sourceApplyCode.match(/_syncPendingProjection\(rotation,sync\);/g) || [];
+  if (!page || !pageCode.includes("ForageTokenVoteEligibilitySyncQueue.processRotationPage,(_SELF)") ||
+      !source.includes("uint256 private constant BLOCKLIST_ROTATION_PAGE_SIZE = 8;") ||
       !pageCoreCode.includes("remaining>BLOCKLIST_ROTATION_PAGE_SIZE") ||
       !beginCode.includes("state.pendingSnapshotLength=state.sources.length;")) {
     setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-PAGE", "staging must process a source-fixed bounded page.");
@@ -2023,20 +2045,39 @@ function checkForageRotationModule(source, filePath, failures) {
   if (!pageCoreCode.includes("snapshot=state.pendingSnapshotLength") || !pageCoreCode.includes("remaining=snapshot-state.cursor")) {
     setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-PAGE", "page boundaries must use the start-time inventory snapshot.");
   }
-  if (inventoryGuard < 0 || pendingWrite < inventoryGuard) {
-    setupFailure(failures, filePath, "SETUP-FORAGE-LEGACY-REFUSAL", "legacy inventory must typed-refuse before pending provider mutation.");
+  if (
+    !allowlistPageCode.includes("state.cursor<state.pendingSnapshotLength") ||
+    !allowlistPageCode.includes("remaining>BLOCKLIST_ROTATION_PAGE_SIZE") ||
+    !allowlistPageCode.includes("_queueProjectionPage(stateModule,state,start,start") ||
+    !queuePageCode.includes("_queueObserver(state,source,timepoint)") ||
+    !queuePageCode.includes("state.pendingProjectionPageEnd=end") ||
+    !queuePageCode.includes("state.pendingProjectionPageBarrier=state.pendingVoteSyncTailTaskId+1") ||
+    !pageCompletionCode.includes("head!=0&&head<=barrier") ||
+    !pageCompletionCode.includes("barrier=barrierPlusOne-1") ||
+    pageCompletionCode.includes("_voteEligibilitySyncCount") ||
+    !pageCompletionCode.includes("state.cursor=end") ||
+    !pageCompletionCode.includes("state.pendingProjectionPageBarrier=0") ||
+    !ensureCutCode.includes("state.pendingProjectionPageBarrier==0") ||
+    !appendTaskCode.includes("taskId=tailTask+1") ||
+    !removeTask || removeTaskCode.includes("state.pendingVoteSyncTailTaskId=0") ||
+    !activationCode.includes("ForageTokenVoteEligibilitySyncQueue.ensureProjectionComplete")
+  ) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-ROTATION-FIFO", "projection pages must commit only after their captured FIFO prefix completes.");
   }
-  if (allowlistInventoryGuard < 0 || allowlistPendingWrite < allowlistInventoryGuard) {
-    setupFailure(failures, filePath, "SETUP-FORAGE-LEGACY-REFUSAL", "legacy inventory must typed-refuse before pending Allowlist mutation.");
+  if (!beginHeader.includes("onlyFreshDelegateCall") || pendingWrite < 0) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-LEGACY-REFUSAL", "the fresh-only marker guard must run before pending provider mutation.");
+  }
+  if (!allowlistStartHeader.includes("onlyFreshDelegateCall") || allowlistPendingWrite < 0) {
+    setupFailure(failures, filePath, "SETUP-FORAGE-LEGACY-REFUSAL", "the fresh-only marker guard must run before pending Allowlist mutation.");
   }
   if (inventoryAppend < 0 || beneficiaryWrite < inventoryAppend) {
     setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY-ORDER", "each source must enter the unique inventory before beneficiary or projection writes.");
   }
-  if (sourceSyncCode.indexOf("_prepareSourceSync(") < 0 || sourceSyncCode.indexOf("_prepareSourceSync(") > sourceSyncCode.indexOf("_syncActiveProjection(")) {
-    setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY-ORDER", "source inventory preparation must precede active and pending projection updates.");
-  }
+   if (prepareSource < 0 || applySource < prepareSource) {
+     setupFailure(failures, filePath, "SETUP-FORAGE-INVENTORY-ORDER", "source inventory preparation must precede active and pending projection updates.");
+   }
   if (
-    activeProjection < 0 || pendingProjection <= activeProjection || pendingProjectionCalls.length !== 1 ||
+    !sourceApply || activeProjection < 0 || pendingProjection <= activeProjection || pendingProjectionCalls.length !== 1 ||
     activeProjectionUpdate < 0 || activeMembershipUpdate <= activeProjectionUpdate ||
     pendingProjectionUpdate < 0 || pendingMembershipUpdate <= pendingProjectionUpdate
   ) {
@@ -2056,7 +2097,7 @@ function checkForageRotationModule(source, filePath, failures) {
   }
 }
 
-function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, failures) {
+function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, failures, allowlistSourceOverride) {
   const inventory = setupFunction(tokenSource, "_requireFreshInventory", tokenPath, "fresh-only guard", failures);
   const liveVotes = setupFunction(tokenSource, "getVotes", tokenPath, "live vote query", failures);
   const pastVotes = setupFunction(tokenSource, "getPastVotes", tokenPath, "historical vote query", failures);
@@ -2065,15 +2106,24 @@ function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, 
   const sourceEligibilityForwarder = setupFunction(tokenSource, "sourceEligibilityForBlocklist", tokenPath, "eligibility bridge forwarder", failures);
   const sourceEligibilityDelegate = setupFunction(tokenSource, "_delegateSourceEligibilityForBlocklist", tokenPath, "eligibility delegate call", failures);
   const sourceEligibility = setupFunction(moduleSource, "sourceEligibilityForBlocklistModule", modulePath, "registered-beneficiary eligibility", failures);
-  const historicalBlock = setupFunction(tokenSource, "_wasBlockedAt", tokenPath, "registered historical beneficiary", failures);
+  const pastProjectionEntry = setupFunction(moduleSource, "pastIndexedProjection", modulePath, "historical projection entry", failures);
+  const historicalBlock = setupFunction(moduleSource, "_wasBlockedAtTimepoint", modulePath, "registered historical beneficiary", failures);
   const liveProjection = setupFunction(moduleSource, "_liveIndexedEligibleVotes", modulePath, "fresh live projection", failures);
   const pastProjection = setupFunction(moduleSource, "_pastIndexedEligibleVotes", modulePath, "fresh historical projection", failures);
   const epoch = setupFunction(moduleSource, "_epochAt", modulePath, "fresh epoch selection", failures);
   const sourceSync = setupFunction(moduleSource, "_prepareSourceSync", modulePath, "fresh source inventory", failures);
+  const allowlistPath = path.join(SRC_DIR, "Allowlist.sol");
+  const allowlistSource = allowlistSourceOverride || fs.readFileSync(allowlistPath, "utf8");
+  const registrationHistory = setupFunction(allowlistSource, "_recordEligibilityChange", allowlistPath, "registration history writer", failures);
+  const registrationWriter = setupFunction(allowlistSource, "_updateVestingSourceRegistration", allowlistPath, "vesting registration writer", failures);
+  const registrationHistoryView = setupFunction(allowlistSource, "vestingSourceRegistrationAt", allowlistPath, "historical vesting registration view", failures);
+  const allowlistFreshGuard = setupFunction(allowlistSource, "_requireFreshLayout", allowlistPath, "fresh Allowlist layout guard", failures);
+  const allowlistFreshMarker = setupFunction(allowlistSource, "_setFreshLayoutVersion", allowlistPath, "fresh Allowlist layout marker", failures);
   checkForageMarkerSchema(tokenSource, moduleSource, tokenPath, modulePath, failures);
   if (!inventory || !liveVotes || !pastVotes || !transferUpdate || !sourceEligibilityForwarder ||
-      !sourceEligibilityDelegate || !sourceEligibility || !historicalBlock ||
-      !liveProjection || !pastProjection || !epoch || !sourceSync) return;
+      !sourceEligibilityDelegate || !sourceEligibility || !pastProjectionEntry || !historicalBlock ||
+      !liveProjection || !pastProjection || !epoch || !sourceSync || !registrationHistory ||
+      !registrationWriter || !registrationHistoryView || !allowlistFreshGuard || !allowlistFreshMarker) return;
   const inventoryCode = compactSolidity(inventory.body);
   const liveCode = compactSolidity(liveVotes.body);
   const pastCode = compactSolidity(pastVotes.body);
@@ -2085,6 +2135,13 @@ function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, 
   const sourceEligibilityForwarderCode = compactSolidity(sourceEligibilityForwarder.body);
   const sourceEligibilityDelegateCode = compactSolidity(sourceEligibilityDelegate.body);
   const sourceEligibilityCode = compactSolidity(sourceEligibility.body);
+  const pastProjectionEntryCode = compactSolidity(pastProjectionEntry.body);
+  const historicalBlockCode = compactSolidity(historicalBlock.body);
+  const registrationHistoryCode = compactSolidity(registrationHistory.body);
+  const registrationWriterCode = compactSolidity(registrationWriter.body);
+  const registrationHistoryViewCode = compactSolidity(registrationHistoryView.body);
+  const allowlistFreshGuardCode = compactSolidity(allowlistFreshGuard.body);
+  const allowlistFreshMarkerCode = compactSolidity(allowlistFreshMarker.body);
   if (!inventoryCode.includes("!status.inventorySupported||status.epochCount==0") ||
       !inventoryCode.includes("revertLegacySourceInventoryUnavailable(_blocklist,address(0))")) {
     setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "pre-fresh storage must typed-refuse before new behavior.");
@@ -2110,24 +2167,33 @@ function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, 
   }
   if (!sourceEligibilityDelegateCode.includes("ForageTokenSourceEligibilityQuery({") ||
       !sourceEligibilityDelegateCode.includes("rememberedBeneficiary:_vestingBeneficiaryBySource[source]") ||
+      !sourceEligibilityDelegateCode.includes("timepoint:timepoint") ||
       !sourceEligibilityDelegateCode.includes("ForageTokenStateModule.sourceEligibilityForBlocklistModule,(query)")) {
     setupFailure(failures, tokenPath, "SETUP-FORAGE-ELIGIBILITY-BRIDGE", "the delegate query must carry the explicit remembered beneficiary slot value.");
   }
-  const legacyProbe = sourceEligibilityCode.indexOf("if(!query.registrationKnown&&eligibility.systemAccount&&query.source.code.length!=0){");
-  const registryRefusal = sourceEligibilityCode.indexOf(
-    "if(registered!=address(0))revertUnsupportedLegacyVestingBeneficiary(query.source);", legacyProbe,
-  );
-  const sourceRefusal = sourceEligibilityCode.indexOf(
-    "if(_readOptionalVestingBeneficiary(query.source)!=address(0)){revertUnsupportedLegacyVestingBeneficiary(query.source);}",
-    registryRefusal,
-  );
-  if (legacyProbe < 0 || registryRefusal <= legacyProbe || sourceRefusal <= registryRefusal ||
-      sourceEligibilityCode.includes("beneficiary=_readOptionalVestingBeneficiary(query.source)")) {
-    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "unregistered vesting beneficiaries must refuse before any legacy source fallback.");
+  if (!sourceEligibilityCode.includes("uint48timepoint=query.timepoint") ||
+      sourceEligibilityCode.includes("_voteEligibilitySyncTimepoint") ||
+      !sourceEligibilityCode.includes("_historicalVestingSourceRegistration(query.allowlist,query.source,timepoint)") ||
+      !sourceEligibilityCode.includes("registered!=beneficiary||query.registrationKnown!=(registered!=address(0))") ||
+      !sourceEligibilityCode.includes("if(registrationPending)revertVestingSourceRegistrationRequired(query.source,beneficiary)") ||
+      !sourceEligibilityCode.includes("if(unsupportedBeneficiary)revertUnsupportedLegacyVestingBeneficiary(query.source)") ||
+      sourceEligibilityCode.includes("vestingSourceBeneficiary(query.source)") ||
+      sourceEligibilityCode.includes("_readOptionalVestingBeneficiary(query.source)")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "source eligibility must verify registration and pending/unsupported state at the task timepoint without a live fallback.");
   }
-  if (!compactSolidity(historicalBlock.body).includes("addressbeneficiary=_vestingBeneficiaryBySource[account];") ||
-      compactSolidity(historicalBlock.body).includes("_legacyVestingBeneficiary")) {
-    setupFailure(failures, tokenPath, "SETUP-FORAGE-FRESH-ONLY", "historical beneficiary checks must use the registered source mapping only.");
+  if (!pastCode.includes("projection.blocked") ||
+      !pastProjectionEntryCode.includes("projection.blocked=_wasBlockedAtTimepoint(delegatee,timepoint,projection.blocklist,projection.allowlist)") ||
+      !historicalBlockCode.includes("_historicalVestingSourceRegistration(allowlist_,account,timepoint)") ||
+      historicalBlockCode.includes("_vestingBeneficiaryBySource[account]")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "historical vote blocking must use task-time registered-beneficiary history.");
+  }
+  if (!registrationHistoryCode.includes("_vestingSourceRegistrationCheckpoints[account].push(timepoint,registration)") ||
+      !registrationHistoryViewCode.includes("_vestingSourceRegistrationCheckpoints[source].upperLookupRecent(uint48(timepoint))") ||
+      !compactSolidity(registrationHistoryView.header).includes("viewfreshOnly") ||
+      !registrationWriterCode.includes("_vestingSourceBeneficiary[source]") ||
+      !allowlistFreshGuardCode.includes("layoutVersion!=2") ||
+      !allowlistFreshMarkerCode.includes("value=2")) {
+    setupFailure(failures, allowlistPath, "SETUP-FORAGE-LEGACY-REFUSAL", "historical vesting registration must be checkpointed and exposed only from the fresh schema.");
   }
   if (!liveProjectionCode.includes("projections[generation]") || liveProjectionCode.includes("_eligibleDelegateVotes") ||
       !pastProjectionCode.includes("projections[generation]") || pastProjectionCode.includes("_eligibleDelegateVotes")) {
@@ -2138,10 +2204,13 @@ function checkForageFreshOnly(tokenSource, moduleSource, tokenPath, modulePath, 
       epochCode.includes("return(0,_blocklist)")) {
     setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "historical epoch queries must fail closed without a fresh epoch.");
   }
-  const reject = sourceSyncCode.indexOf("_rejectUnregisteredVestingSource(");
+  const registrationAt = sourceSyncCode.indexOf("_vestingSourceRegistrationAt(source,token.allowlist(),timepoint)");
+  const pendingRefusal = sourceSyncCode.indexOf("if(sync.registrationPending)");
+  const unsupportedRefusal = sourceSyncCode.indexOf("if(sync.systemAccount&&sync.unsupportedRegistration)");
   const inventoryWrite = sourceSyncCode.indexOf("_recordVoteSource(rotation,source);");
-  if (reject < 0 || inventoryWrite < reject || sourceSyncCode.includes("unindexedLegacy")) {
-    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "unregistered vesting sources must refuse before inventory and projection writes.");
+  if (registrationAt < 0 || pendingRefusal < registrationAt || unsupportedRefusal < pendingRefusal ||
+      inventoryWrite < unsupportedRefusal || sourceSyncCode.includes("unindexedLegacy")) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "task-time vesting registration and unsupported-source refusals must precede inventory writes.");
   }
   if (moduleSource.includes("function legacySourceEligibleNow") || moduleSource.includes("_historicalDelegateSources[")) {
     setupFailure(failures, modulePath, "SETUP-FORAGE-FRESH-ONLY", "legacy source translation paths must be absent from the fresh-only module.");
@@ -2162,17 +2231,22 @@ function checkForageMarkerSchema(tokenSource, moduleSource, tokenPath, modulePat
   const tokenStatusCode = compactSolidity(tokenStatus.body);
   const upgradeCode = compactSolidity(upgrade.body);
   const authorizeCode = compactSolidity(authorizeUpgrade.body);
-  const schema3Guard = "if(state.inventoryVersion!=1||state.projectionSchemaVersion!=3||state.vestingMembershipSchemaVersion!=1||state.epochs.length==0){revertLegacySourceInventoryUnavailable(_blocklist,address(0));}";
-  const schema3Status = "status.inventorySupported=state.inventoryVersion==1&&state.projectionSchemaVersion==3&&state.vestingMembershipSchemaVersion==1&&state.epochs.length!=0;";
-  if (!moduleGuardCode.includes(schema3Guard) || !moduleStatusCode.includes(schema3Status)) {
-    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "schema 3 plus the fresh membership marker must gate inventory support and module access.");
+  const schema6Guard = "if(state.inventoryVersion!=1||state.projectionSchemaVersion!=4||state.vestingMembershipSchemaVersion!=1||state.voteEligibilitySyncSchemaVersion!=6||state.epochs.length==0){revertLegacySourceInventoryUnavailable(_blocklist,address(0));}";
+  const schema6Status = "status.inventorySupported=state.inventoryVersion==1&&state.projectionSchemaVersion==4&&state.vestingMembershipSchemaVersion==1&&state.voteEligibilitySyncSchemaVersion==6&&state.epochs.length!=0;";
+  if (!moduleGuardCode.includes(schema6Guard) || !moduleStatusCode.includes(schema6Status)) {
+    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "projection schema 4 and sync schema 6 must gate inventory support and module access.");
   }
   if (!initializeCode.includes("state.projectionSchemaVersion!=0") ||
-      !initializeCode.includes("state.projectionSchemaVersion=3;") ||
+      !initializeCode.includes("state.projectionSchemaVersion=4;") ||
       !initializeCode.includes("state.vestingMembershipSchemaVersion!=0") ||
       !initializeCode.includes("state.vestingMembershipSchemaVersion=1;") ||
+      !initializeCode.includes("state.voteEligibilitySyncSchemaVersion!=0") ||
+      !initializeCode.includes("state.voteEligibilitySyncSchemaVersion=6;") ||
+      !initializeCode.includes("state.pendingVoteSyncHeadTaskId!=0") ||
+      !initializeCode.includes("state.pendingVoteSyncTailTaskId!=0") ||
+      !initializeCode.includes("state.pendingProjectionPageBarrier!=0") ||
       !initializeCode.includes("state.epochs.push(")) {
-    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "schema 3 and its membership marker must be set only by empty-state fresh initialization, with no legacy backfill.");
+    setupFailure(failures, modulePath, "SETUP-FORAGE-LEGACY-REFUSAL", "fresh schema markers must be set only by empty-state initialization, with no legacy backfill.");
   }
   if (tokenStatusCode !== "return_requireFreshInventory();") {
     setupFailure(failures, tokenPath, "SETUP-FORAGE-LEGACY-REFUSAL", "the host status entry must typed-refuse unsupported marker storage.");
@@ -2182,7 +2256,7 @@ function checkForageMarkerSchema(tokenSource, moduleSource, tokenPath, modulePat
     tokenPath, "SETUP-FORAGE-UPGRADE-PREFLIGHT", failures);
   if (upgradeCode !== "super.upgradeToAndCall(newImplementation,data);" ||
       !authorizeCode.includes("_requireFreshInventory();")) {
-    setupFailure(failures, tokenPath, "SETUP-FORAGE-UPGRADE-PREFLIGHT", "upgrade must preflight marker schema 3 before the implementation switch.");
+     setupFailure(failures, tokenPath, "SETUP-FORAGE-UPGRADE-PREFLIGHT", "upgrade must preflight the fresh source inventory before the implementation switch.");
   }
 }
 
@@ -2270,12 +2344,14 @@ function checkSharedAllowlist(source, allowlist, targets, filePath, failures) {
 function checkFreshDeploymentSetup(failures) {
   const tokenPath = path.join(SRC_DIR, "ForageToken.sol");
   const riskusdPath = path.join(SRC_DIR, "RISKUSD.sol");
-  if (!fs.existsSync(tokenPath) || !fs.existsSync(riskusdPath) || !fs.existsSync(DEPLOY_SCRIPT)) {
-    setupFailure(failures, CONTRACTS_ROOT, "SETUP-PARSER-UNSUPPORTED", "source root must contain src/ForageToken.sol, src/RISKUSD.sol and script/Deploy.s.sol.");
+  const registryPath = path.join(SRC_DIR, "CustodianRegistry.sol");
+  if (!fs.existsSync(tokenPath) || !fs.existsSync(riskusdPath) || !fs.existsSync(registryPath) || !fs.existsSync(DEPLOY_SCRIPT)) {
+    setupFailure(failures, CONTRACTS_ROOT, "SETUP-PARSER-UNSUPPORTED", "source root must contain src/ForageToken.sol, src/RISKUSD.sol, src/CustodianRegistry.sol and script/Deploy.s.sol.");
     return;
   }
   const tokenSource = fs.readFileSync(tokenPath, "utf8");
   const riskusdSource = fs.readFileSync(riskusdPath, "utf8");
+  const registrySource = fs.readFileSync(registryPath, "utf8");
   const deploySource = fs.readFileSync(DEPLOY_SCRIPT, "utf8");
   checkForageInitialization(tokenSource, tokenPath, failures);
   checkForageGuard(tokenSource, tokenPath, failures);
@@ -2283,7 +2359,29 @@ function checkFreshDeploymentSetup(failures) {
   checkForageSetterGates(tokenSource, tokenPath, failures);
   checkRiskusdFreshOnly(riskusdSource, riskusdPath, failures);
   checkRiskusdAllowancePolicy(riskusdSource, riskusdPath, failures);
+  checkRegistryEmergencyPrincipalLane(registrySource, registryPath, failures);
   checkDeploySetup(deploySource, DEPLOY_SCRIPT, failures);
+}
+
+function checkRegistryEmergencyPrincipalLane(source, filePath, failures) {
+  const setter = setupFunction(source, "setEmergencyPrincipalLane", filePath, "Registry emergency lane setter", failures);
+  if (setter) {
+    const header = compactSolidity(setter.header);
+    const body = compactSolidity(setter.body);
+    for (const gate of ["freshOnly", "onlyAllowedCaller", "onlyOwner"]) {
+      if (!header.includes(gate)) setupFailure(failures, filePath, "I15-REGISTRY-EMERGENCY-LANE", `setter is missing ${gate}.`);
+    }
+    for (const required of ["lane==address(0)", "lane.code.length==0", "capital.emergencyPrincipalLane=lane;", "emitEmergencyPrincipalLaneSet(previousLane,lane);"]) {
+      if (!body.includes(required)) setupFailure(failures, filePath, "I15-REGISTRY-EMERGENCY-LANE", `setter is missing ${required}.`);
+    }
+  }
+  const getter = setupFunction(source, "emergencyPrincipalLane", filePath, "Registry emergency lane getter", failures);
+  if (getter && !compactSolidity(getter.header).includes("externalviewfreshOnlyreturns(address)")) {
+    setupFailure(failures, filePath, "I15-REGISTRY-EMERGENCY-LANE", "getter must remain external view and freshOnly.");
+  }
+  if (!compactSolidity(source).includes("_FRESH_LAYOUT_VERSION=6;")) {
+    setupFailure(failures, filePath, "I15-REGISTRY-EMERGENCY-LANE", "Registry fresh-layout version must be 6.");
+  }
 }
 
 function validateTrustSetter(setter, source, finalizeDelaySeconds, failures) {

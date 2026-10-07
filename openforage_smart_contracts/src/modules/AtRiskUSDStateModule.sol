@@ -17,24 +17,8 @@ import "../interfaces/IBlocklist.sol";
 import "../interfaces/IRISKUSDSettlement.sol";
 import "../interfaces/IVaultRegistry.sol";
 import {AtRiskUSDProfitModule} from "./AtRiskUSDProfitModule.sol";
-import {
-    IUSDCTreasuryCallerEligibility,
-    IUSDCTreasuryYieldClaims,
-    IYieldSourceBridgeRoute
-} from "../interfaces/IUSDCTreasuryYieldClaims.sol";
-
-interface IYieldSourceFundingPolicy {
-    function allowlist() external view returns (address);
-    function blocklist() external view returns (address);
-}
-
-interface IYieldSourceFundingOwner {
-    function owner() external view returns (address);
-}
-
-interface IYieldSourceFundingLossReporter {
-    function lossReporter() external view returns (address);
-}
+import {AtRiskUSDWeeklyExitModule} from "./AtRiskUSDWeeklyExitModule.sol";
+import {IUSDCTreasuryYieldClaims} from "../interfaces/IUSDCTreasuryYieldClaims.sol";
 
 contract AtRiskUSDStateModule is
     Initializable,
@@ -97,6 +81,11 @@ contract AtRiskUSDStateModule is
     error ZeroAmount();
     error ZeroAssetLegacySupply();
     error EmergencyRecoveryWindowClosed();
+    error WeeklyExitWindowOpen(uint256 closesAt);
+    error WeeklyExitSettlementRequired(uint256 closesAt);
+    error WeeklyExitAccountingInvariant(uint256 expected, uint256 actual);
+    error WeeklyExitArithmeticOverflow();
+    error NoWeeklyExitAllocation();
 
     event ExchangeRateInvariantFailure(uint256 beforeAssets, uint256 afterAssets);
     event YieldAccrued(uint256 riskusdAmount);
@@ -109,8 +98,11 @@ contract AtRiskUSDStateModule is
     );
     event WithdrawalExecuted(address indexed requester, uint256 riskusdAmount);
     event WithdrawalCancelled(address indexed requester, uint256 atriskusdAmount);
+    event LockupTransferred(address indexed from, address indexed to, uint256 lockExpiry);
     event WorthlessSharesBurned(address indexed holder, uint256 shares);
     event UnreachableWithdrawalRecovered(address indexed beneficiary, uint256 shares);
+    event WeeklyExitSettled(uint256 indexed windowStart, uint256 demandShares, uint256 roomShares);
+    event WeeklyExitSharesReleased(address indexed holder, uint256 shares);
 
     struct PendingWithdrawal {
         uint256 atriskusdAmount;
@@ -120,6 +112,14 @@ contract AtRiskUSDStateModule is
         uint256 cooldownPeriod;
         uint256 weeklyCapWindowStart;
         uint256 weeklyCapReservedAssets;
+    }
+
+    struct WeeklyExitCohort {
+        uint256 demandShares;
+        uint256 roomShares;
+        uint256 fractionRay;
+        uint256 activeRequests;
+        bool settled;
     }
 
     struct WithdrawalExecution {
@@ -174,14 +174,25 @@ contract AtRiskUSDStateModule is
     mapping(uint256 => uint256) private _autoRenewDisabledExpiryHeapIndexPlusOne;
     uint64 private _freshDeploymentVersion;
     uint64 private _profitEntitlementVersion;
-    uint256[28] private __gap;
+    uint256 private _weeklyExitDemandScaled;
+    uint256 private _weeklyExitAllocatedScaled;
+    uint256 private _weeklyExitRoomCarryScaled;
+    uint256 private _weeklyExitSurvivalIndex;
+    uint256 private _weeklyExitGeneration;
+    mapping(address => uint256) private _weeklyExitRequestBasis;
+    mapping(address => uint256) private _weeklyExitRequestStartIndex;
+    mapping(address => uint256) private _weeklyExitRequestGeneration;
+    mapping(address => uint256) private _weeklyExitClaimedScaled;
+    uint256 private _weeklyExitOpenRequests;
+    mapping(uint256 => WeeklyExitCohort) private _weeklyExitCohorts;
+    uint256[17] private __gap;
 
     uint256 internal constant WEEKLY_WITHDRAWAL_WINDOW = 7 days;
     uint256 internal constant DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS = 500;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 2;
-    uint64 private constant PROFIT_ENTITLEMENT_VERSION = 2;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 5;
+    uint64 private constant PROFIT_ENTITLEMENT_VERSION = 3;
 
     address private immutable _SELF;
     AtRiskUSDProfitModule private immutable _PROFIT_MODULE;
@@ -224,7 +235,9 @@ contract AtRiskUSDStateModule is
 
     function applyPendingYieldSource() external onlyDelegateCall {
         address old = _yieldSource;
-        _validateYieldSourceHandoff(old, _pendingYieldSource);
+        _delegateProfitModule(
+            abi.encodeCall(AtRiskUSDProfitModule.validateYieldSourceHandoff, (old, _pendingYieldSource))
+        );
         _yieldSource = _pendingYieldSource;
         _pendingYieldSource = address(0);
         _yieldSourceProposedAt = 0;
@@ -264,7 +277,6 @@ contract AtRiskUSDStateModule is
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (assets == 0) revert ZeroAmount();
         _requireNoLossPending();
-        _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
         _requireAllowedBeneficiary(receiver);
@@ -278,7 +290,6 @@ contract AtRiskUSDStateModule is
         if (msg.sender != _stakingQueue) revert UnauthorizedStakingQueue();
         if (shares == 0) revert ZeroAmount();
         _requireNoLossPending();
-        _requireNoZeroAssetLegacySupply();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(receiver);
         _requireAllowedBeneficiary(receiver);
@@ -307,7 +318,7 @@ contract AtRiskUSDStateModule is
         }
         uint256 backingPerShareBefore = _backingPerShareRay();
         _requireFundedPayout(assets);
-        _ensureWeeklyWithdrawalCapacity(assets);
+        _ensureDirectWeeklyWithdrawalCapacity(assets);
         shares = super.withdraw(assets, receiver, owner_);
         _weeklyWithdrawalUsed += assets;
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
@@ -333,7 +344,7 @@ contract AtRiskUSDStateModule is
         assets = previewRedeem(shares);
         if (assets == 0) revert ZeroRedemptionOutput();
         _requireFundedPayout(assets);
-        _ensureWeeklyWithdrawalCapacity(assets);
+        _ensureDirectWeeklyWithdrawalCapacity(assets);
         assets = super.redeem(shares, receiver, owner_);
         _weeklyWithdrawalUsed += assets;
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
@@ -354,7 +365,6 @@ contract AtRiskUSDStateModule is
         assets = previewRedeem(shares);
         if (assets == 0) revert ZeroRedemptionOutput();
         _requireFundedPayout(assets);
-        _enforceWeeklyWithdrawalCap(assets);
         _burn(depositor, shares);
         IERC20(asset()).safeTransfer(msg.sender, assets);
         emit Withdraw(msg.sender, msg.sender, depositor, assets, shares);
@@ -377,7 +387,6 @@ contract AtRiskUSDStateModule is
         assets = previewRedeem(shares);
         if (assets == 0) revert ZeroRedemptionOutput();
         _requireFundedPayout(assets);
-        _enforceWeeklyWithdrawalCap(assets);
         _burn(depositor, shares);
         IERC20(asset()).safeTransfer(msg.sender, assets);
         emit Withdraw(msg.sender, msg.sender, depositor, assets, shares);
@@ -393,9 +402,24 @@ contract AtRiskUSDStateModule is
         if (block.timestamp < cooldownEnd) revert CooldownNotElapsed(cooldownEnd);
         _requireNotBlocked(msg.sender);
 
-        (uint256 sharesToBurn, uint256 amountOut) = _fundedWithdrawalSlice(pending);
+        uint256 cohortStart = pending.weeklyCapWindowStart;
+        uint256 closesAt = _weeklyExitWindowEnd(cohortStart);
+        if (block.timestamp < closesAt) revert WeeklyExitWindowOpen(closesAt);
+        uint256 currentStart = _weeklyWithdrawalWindowStart;
+        if (currentStart < cohortStart) revert WeeklyExitSettlementRequired(_weeklyExitWindowEnd(currentStart));
+        if (currentStart == cohortStart) _settleWeeklyExitWindow();
+
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[cohortStart];
+        if (!cohort.settled) revert WeeklyExitSettlementRequired(closesAt);
+        uint256 entitlement =
+            AtRiskUSDWeeklyExitModule.entitlement(pending.atriskusdAmount, cohort.roomShares, cohort.demandShares);
+        uint256 sharesToBurn;
+        uint256 amountOut;
+        if (entitlement != 0) {
+            (sharesToBurn, amountOut) = _fundedWithdrawalSlice(pending, entitlement, _legitimateAssets);
+            if (amountOut == 0) sharesToBurn = 0;
+        }
         if (amountOut < minAmountOut) revert SlippageExceeded(amountOut, minAmountOut);
-        _accountPendingWithdrawalCap(pending, amountOut);
 
         WithdrawalExecution memory execution = WithdrawalExecution({
             sharesToBurn: sharesToBurn,
@@ -405,219 +429,10 @@ contract AtRiskUSDStateModule is
         _finishWithdrawal(execution);
     }
 
-    function _validateYieldSourceHandoff(address current, address successor) private view {
-        IUSDCTreasuryYieldClaims currentClaims = IUSDCTreasuryYieldClaims(current);
-        address currentVault;
-        address currentRegistry;
-        if (current != address(0)) {
-            currentClaims = _readyYieldClaims(current);
-            uint256 currentClaim = _readYieldClaim(currentClaims, current);
-            if (currentClaim != 0) revert YieldSourceClaimOutstanding(current, currentClaim);
-            (currentVault, currentRegistry) = _readYieldWiring(currentClaims, current);
-        }
-        IUSDCTreasuryYieldClaims successorClaims = _readyYieldClaims(successor);
-        uint256 successorClaim = _readYieldClaim(successorClaims, successor);
-        if (successorClaim != 0) revert YieldSourceClaimOutstanding(successor, successorClaim);
-        (address nextVault, address nextRegistry) = _readYieldWiring(successorClaims, successor);
-        if (current != address(0) && (nextVault != currentVault || nextRegistry != currentRegistry)) {
-            revert YieldSourceWiringMismatch(successor);
-        }
-        address attestor = _readPnLAttestor(successorClaims, successor);
-        IAllowlist callerAllowlist = _readTreasuryAllowlist(successor, attestor);
-        _requireTreasuryCallerAllowed(callerAllowlist, successor, attestor);
-        _requireYieldSourceReturnRoute(currentClaims, current, successorClaims, successor, callerAllowlist);
-        _requireYieldSourceFundingEligibility(successor, nextVault, callerAllowlist);
-    }
-
-    function _requireTreasuryCallerAllowed(IAllowlist callerAllowlist, address source, address caller) private view {
-        bool allowed;
-        try callerAllowlist.isAllowed(caller) returns (bool value) {
-            allowed = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, caller);
-        }
-        if (!allowed) revert YieldSourceCallerNotEligible(source, caller);
-    }
-
-    function _readPnLAttestor(IUSDCTreasuryYieldClaims claims, address source)
-        private
-        view
-        returns (address attestor)
-    {
-        try claims.pnlAttestor() returns (address value) {
-            attestor = value;
-        } catch {
-            revert YieldSourceAttestorUnavailable(source, address(0));
-        }
-        if (attestor == address(0)) revert YieldSourceAttestorUnavailable(source, attestor);
-    }
-
-    function _readTreasuryAllowlist(address source, address attestor)
-        private
-        view
-        returns (IAllowlist callerAllowlist)
-    {
-        address allowlistAddress;
-        try IUSDCTreasuryCallerEligibility(source).allowlist() returns (address value) {
-            allowlistAddress = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, attestor);
-        }
-        if (allowlistAddress.code.length == 0) revert YieldSourceCallerNotEligible(source, attestor);
-        callerAllowlist = IAllowlist(allowlistAddress);
-    }
-
-    function _requireYieldSourceReturnRoute(
-        IUSDCTreasuryYieldClaims currentClaims,
-        address current,
-        IUSDCTreasuryYieldClaims successorClaims,
-        address successor,
-        IAllowlist callerAllowlist
-    ) private view {
-        address currentBridge;
-        if (current != address(0)) currentBridge = _readYieldSourceBridge(currentClaims, current);
-        address successorBridge = _readYieldSourceBridge(successorClaims, successor);
-        if (current != address(0) && currentBridge != successorBridge) revert YieldSourceWiringMismatch(successor);
-        _requireTreasuryCallerAllowed(callerAllowlist, successor, successorBridge);
-        address treasury = _readBridgeTreasury(successor, successorBridge);
-        if (treasury != successor) {
-            revert YieldSourceBridgeRouteMismatch(successor, successorBridge, successor, treasury);
-        }
-        _requireFundingCallerUnblocked(successorBridge, successor, successor, true);
-    }
-
-    function _requireYieldSourceFundingEligibility(address source, address centralVault, IAllowlist treasuryAllowlist)
-        private
-        view
-    {
-        address treasuryOwner = _readYieldSourceOwner(source);
-        _requireTreasuryCallerAllowed(treasuryAllowlist, source, treasuryOwner);
-        _requireFundingCallerUnblocked(source, source, centralVault, true);
-        _requireFundingCallerAllowed(centralVault, source, source);
-        _requireYieldSourceLossReporter(source, centralVault);
-        _requireFundingCallerUnblocked(centralVault, source, source, false);
-        _requireFundingCallerAllowed(address(this), source, source);
-        _requireFundingCallerUnblocked(address(this), source, source, false);
-    }
-
-    function _requireFundingCallerAllowed(address policy, address source, address caller) private view {
-        address allowlistAddress;
-        try IYieldSourceFundingPolicy(policy).allowlist() returns (address value) {
-            allowlistAddress = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, caller);
-        }
-        if (allowlistAddress.code.length == 0) revert YieldSourceCallerNotEligible(source, caller);
-        _requireTreasuryCallerAllowed(IAllowlist(allowlistAddress), source, caller);
-    }
-
-    function _requireFundingCallerUnblocked(address policy, address source, address account, bool required)
-        private
-        view
-    {
-        address blocklist = _readYieldSourceBlocklist(policy, source, account, required);
-        if (blocklist == address(0)) return;
-        if (blocklist.code.length == 0) revert YieldSourceCallerNotEligible(source, account);
-        bool blocked;
-        try IBlocklist(blocklist).isBlocked(account) returns (bool value) {
-            blocked = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, account);
-        }
-        if (blocked) revert YieldSourceCallerNotEligible(source, account);
-    }
-
-    function _readYieldSourceBlocklist(address policy, address source, address account, bool required)
-        private
-        view
-        returns (address blocklist)
-    {
-        try IYieldSourceFundingPolicy(policy).blocklist() returns (address value) {
-            blocklist = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, account);
-        }
-        if (required && blocklist == address(0)) revert YieldSourceCallerNotEligible(source, account);
-    }
-
-    function _readYieldSourceOwner(address source) private view returns (address treasuryOwner) {
-        try IYieldSourceFundingOwner(source).owner() returns (address value) {
-            treasuryOwner = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, address(0));
-        }
-        if (treasuryOwner == address(0)) revert YieldSourceCallerNotEligible(source, treasuryOwner);
-    }
-
-    function _requireYieldSourceLossReporter(address source, address centralVault) private view {
-        address reporter;
-        try IYieldSourceFundingLossReporter(centralVault).lossReporter() returns (address value) {
-            reporter = value;
-        } catch {
-            revert YieldSourceCallerNotEligible(source, address(0));
-        }
-        if (reporter != source) revert YieldSourceCallerNotEligible(source, reporter);
-    }
-
-    function _readYieldSourceBridge(IUSDCTreasuryYieldClaims claims, address source)
-        private
-        view
-        returns (address bridge)
-    {
-        try claims.hlTradingBridge() returns (address value) {
-            bridge = value;
-        } catch {
-            revert YieldSourceBridgeUnavailable(source, address(0));
-        }
-        if (bridge.code.length == 0) revert YieldSourceBridgeUnavailable(source, bridge);
-    }
-
-    function _readBridgeTreasury(address source, address bridge) private view returns (address treasury) {
-        try IYieldSourceBridgeRoute(bridge).usdcTreasury() returns (address value) {
-            treasury = value;
-        } catch {
-            revert YieldSourceBridgeUnavailable(source, bridge);
-        }
-    }
-
-    function _readyYieldClaims(address source) private view returns (IUSDCTreasuryYieldClaims claims) {
-        if (source.code.length == 0) revert YieldClaimsUnavailable(source);
-        claims = IUSDCTreasuryYieldClaims(source);
-        bool ready;
-        try claims.yieldClaimsReady() returns (bool value) {
-            ready = value;
-        } catch {
-            revert YieldClaimsUnavailable(source);
-        }
-        if (!ready) revert YieldClaimsNotReady(source);
-    }
-
-    function _readYieldClaim(IUSDCTreasuryYieldClaims claims, address source) private view returns (uint256 claim) {
-        try claims.unfundedYieldClaim(address(this)) returns (uint256 value) {
-            claim = value;
-        } catch {
-            revert YieldClaimsUnavailable(source);
-        }
-    }
-
-    function _readYieldWiring(IUSDCTreasuryYieldClaims claims, address source)
-        private
-        view
-        returns (address centralVault, address registry)
-    {
-        try claims.riskusdVault() returns (address value) {
-            centralVault = value;
-        } catch {
-            revert YieldSourceWiringMismatch(source);
-        }
-        try claims.vaultRegistry() returns (address value) {
-            registry = value;
-        } catch {
-            revert YieldSourceWiringMismatch(source);
-        }
-        if (centralVault.code.length == 0 || registry.code.length == 0) {
-            revert YieldSourceWiringMismatch(source);
-        }
+    function settleWeeklyExit() external onlyDelegateCall {
+        _requireNoLossPending();
+        _requireNotBlocked(msg.sender);
+        _settleWeeklyExitWindow();
     }
 
     function absorbLoss(uint256 riskusdAmount) external onlyDelegateCall {
@@ -662,6 +477,7 @@ contract AtRiskUSDStateModule is
 
     function requestWithdrawal(uint256 atriskusdAmount) external onlyDelegateCall {
         if (atriskusdAmount == 0) revert ZeroAmount();
+        _requireWeeklyExitWindowCurrent();
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[msg.sender]) {
             revert LockupNotExpired(_lockExpiry[msg.sender]);
         }
@@ -669,7 +485,11 @@ contract AtRiskUSDStateModule is
         _requireNotBlocked(msg.sender);
         _requireWithdrawalApprovalDuration();
         _requireNoLossPending();
+        if (_cooldownPeriod > type(uint256).max - block.timestamp) revert WeeklyExitArithmeticOverflow();
+        uint256 cooldownEnd = block.timestamp + _cooldownPeriod;
+        uint256 cohortStart = _weeklyCohortStart(cooldownEnd);
         uint256 backingPerShareBefore = _backingPerShareRay();
+        if (_weeklyWithdrawalWindowStartAssets == 0) _weeklyWithdrawalWindowStartAssets = totalAssets();
         uint256 riskusdAmount = convertToAssets(atriskusdAmount);
         if (riskusdAmount == 0) revert ZeroRedemptionOutput();
 
@@ -681,34 +501,35 @@ contract AtRiskUSDStateModule is
             requestTimestamp: block.timestamp,
             active: true,
             cooldownPeriod: _cooldownPeriod,
-            weeklyCapWindowStart: 0,
+            weeklyCapWindowStart: cohortStart,
             weeklyCapReservedAssets: 0
         });
+        _recordWeeklyExitRequest(cohortStart, atriskusdAmount);
         _syncAutoRenewDisabledTracking(msg.sender);
 
-        emit WithdrawalRequested(msg.sender, atriskusdAmount, riskusdAmount, block.timestamp + _cooldownPeriod);
+        emit WithdrawalRequested(msg.sender, atriskusdAmount, riskusdAmount, cooldownEnd);
         _assertBackingPerShareNotDecreased(backingPerShareBefore);
     }
 
     function _finishWithdrawal(WithdrawalExecution memory execution) private {
         _checkpointProfitAccount(msg.sender);
         PendingWithdrawal storage pending = _pendingWithdrawals[msg.sender];
-        uint256 remainingShares = pending.atriskusdAmount - execution.sharesToBurn;
-        uint256 remainingCap = pending.riskusdAmount - execution.riskusdToTransfer;
-        if (remainingShares == 0) {
-            _refundWeeklyWithdrawalCap(pending.weeklyCapWindowStart, pending.weeklyCapReservedAssets);
-            delete _pendingWithdrawals[msg.sender];
-        } else {
-            pending.atriskusdAmount = remainingShares;
-            pending.riskusdAmount = remainingCap;
-        }
-
+        uint256 requestedShares = pending.atriskusdAmount;
+        uint256 remainingShares = requestedShares - execution.sharesToBurn;
+        _clearWeeklyExitRequest(pending.weeklyCapWindowStart, requestedShares);
+        delete _pendingWithdrawals[msg.sender];
         _burn(address(this), execution.sharesToBurn);
+        if (remainingShares != 0) {
+            _updateWithLossCheck(address(this), msg.sender, remainingShares, true);
+        }
         _syncAutoRenewDisabledTracking(msg.sender);
-        _decreaseLegitimateAssets(execution.riskusdToTransfer);
+        if (execution.riskusdToTransfer != 0) _decreaseLegitimateAssets(execution.riskusdToTransfer);
         _assertBackingPerShareNotDecreased(execution.backingPerShareBefore);
-        IERC20(asset()).safeTransfer(msg.sender, execution.riskusdToTransfer);
-        emit WithdrawalExecuted(msg.sender, execution.riskusdToTransfer);
+        if (execution.riskusdToTransfer != 0) {
+            IERC20(asset()).safeTransfer(msg.sender, execution.riskusdToTransfer);
+            emit WithdrawalExecuted(msg.sender, execution.riskusdToTransfer);
+        }
+        if (remainingShares != 0) emit WeeklyExitSharesReleased(msg.sender, remainingShares);
     }
 
     function cancelWithdrawal() external onlyDelegateCall {
@@ -737,8 +558,8 @@ contract AtRiskUSDStateModule is
         private
     {
         _checkpointProfitAccount(cancellation.beneficiary);
-        PendingWithdrawal storage pending = _pendingWithdrawals[cancellation.beneficiary];
-        _refundWeeklyWithdrawalCap(pending.weeklyCapWindowStart, pending.weeklyCapReservedAssets);
+        uint256 cohortStart = _pendingWithdrawals[cancellation.beneficiary].weeklyCapWindowStart;
+        _clearWeeklyExitRequest(cohortStart, cancellation.shares);
         delete _pendingWithdrawals[cancellation.beneficiary];
         _updateWithLossCheck(address(this), cancellation.beneficiary, cancellation.shares, checkLossPending);
         emit WithdrawalCancelled(cancellation.beneficiary, cancellation.shares);
@@ -772,41 +593,19 @@ contract AtRiskUSDStateModule is
         _decreaseLegitimateAssets(assets);
     }
 
-    function _sharesWithinWithdrawalCap(uint256 cap, uint256 shareLimit) private view returns (uint256 shares) {
-        uint256 assets = totalAssets();
-        if (cap >= assets) return shareLimit;
-        uint256 numerator = totalSupply() + SHARE_SCALE;
-        uint256 denominator = assets + 1;
-        shares = Math.mulDiv(cap + 1, numerator, denominator, Math.Rounding.Ceil) - 1;
-        if (shares > shareLimit) shares = shareLimit;
-    }
-
-    function _fundedWithdrawalSlice(PendingWithdrawal storage pending)
+    function _fundedWithdrawalSlice(PendingWithdrawal storage pending, uint256 shareLimit, uint256 payoutCap)
         private
         view
         returns (uint256 shares, uint256 amountOut)
     {
-        uint256 payoutCap = pending.riskusdAmount;
-        uint256 funded = _legitimateAssets;
-        if (funded < payoutCap) payoutCap = funded;
         shares = pending.atriskusdAmount;
+        if (shares > shareLimit) shares = shareLimit;
         amountOut = previewRedeem(shares);
-        if (amountOut > payoutCap) {
-            shares = _sharesWithinWithdrawalCap(payoutCap, shares);
-            amountOut = previewRedeem(shares);
-        }
-        if (shares == 0 || amountOut == 0 || amountOut > payoutCap) {
-            revert NoPositiveWithdrawalSlice(payoutCap);
-        }
-        _requireFundedPayout(amountOut);
+        if (amountOut > payoutCap) revert NoPositiveWithdrawalSlice(payoutCap);
     }
 
     function _requireNoPendingWithdrawal(address requester) private view {
         if (_pendingWithdrawals[requester].active) revert PendingWithdrawalExists();
-    }
-
-    function _requireNoZeroAssetLegacySupply() private view {
-        if (totalSupply() != 0 && totalAssets() == 0) revert ZeroAssetLegacySupply();
     }
 
     function _requireAllowedBeneficiary(address account) private view {
@@ -888,66 +687,132 @@ contract AtRiskUSDStateModule is
         return _weeklyWithdrawalCapBps == 0 ? DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS : _weeklyWithdrawalCapBps;
     }
 
-    function _enforceWeeklyWithdrawalCap(uint256 assets) private {
-        _ensureWeeklyWithdrawalCapacity(assets);
-        _weeklyWithdrawalUsed += assets;
-    }
-
-    function _accountPendingWithdrawalCap(PendingWithdrawal storage pending, uint256 assets) private {
-        uint256 windowStart = pending.weeklyCapWindowStart;
-        uint256 reserved = pending.weeklyCapReservedAssets;
-        bool hasReservation = windowStart != 0 && reserved != 0;
-        if (hasReservation) _resetWeeklyWithdrawalWindowIfExpired();
-        if (!hasReservation || windowStart != _weeklyWithdrawalWindowStart) {
-            pending.weeklyCapWindowStart = 0;
-            pending.weeklyCapReservedAssets = 0;
-            _enforceWeeklyWithdrawalCap(assets);
-            return;
-        }
-        _consumePendingWithdrawalReservation(pending, assets, reserved);
-    }
-
-    function _consumePendingWithdrawalReservation(PendingWithdrawal storage pending, uint256 assets, uint256 reserved)
-        private
-    {
-        if (assets > reserved) {
-            _enforceWeeklyWithdrawalCap(assets - reserved);
-            reserved = 0;
-        } else {
-            reserved -= assets;
-        }
-        pending.weeklyCapReservedAssets = reserved;
-        if (reserved == 0) pending.weeklyCapWindowStart = 0;
-    }
-
-    function _refundWeeklyWithdrawalCap(uint256 windowStart, uint256 assets) private {
-        if (windowStart == 0 || assets == 0) return;
-        if (windowStart != _weeklyWithdrawalWindowStart || block.timestamp > windowStart + WEEKLY_WITHDRAWAL_WINDOW) {
-            return;
-        }
-        uint256 used = _weeklyWithdrawalUsed;
-        _weeklyWithdrawalUsed = assets >= used ? 0 : used - assets;
-    }
-
     function _ensureWeeklyWithdrawalCapacity(uint256 assets) private {
-        _resetWeeklyWithdrawalWindowIfExpired();
+        _requireWeeklyExitWindowCurrent();
         if (_weeklyWithdrawalWindowStartAssets == 0) {
             _weeklyWithdrawalWindowStartAssets = totalAssets();
         }
-
-        uint256 used = _weeklyWithdrawalUsed;
-        uint256 cap = _weeklyWithdrawalWindowStartAssets * _effectiveWeeklyWithdrawalCapBps() / 10000;
-        uint256 remaining = used >= cap ? 0 : cap - used;
+        uint256 remaining = _weeklyWithdrawalCapacityView();
         if (assets > remaining) revert WeeklyWithdrawalCapExceeded(assets, remaining);
     }
 
-    function _resetWeeklyWithdrawalWindowIfExpired() private {
-        uint256 start = _weeklyWithdrawalWindowStart;
-        if (start == 0 || block.timestamp > start + WEEKLY_WITHDRAWAL_WINDOW) {
-            _weeklyWithdrawalWindowStart = block.timestamp;
-            _weeklyWithdrawalUsed = 0;
-            _weeklyWithdrawalWindowStartAssets = 0;
+    function _ensureDirectWeeklyWithdrawalCapacity(uint256 assets) private {
+        _ensureWeeklyWithdrawalCapacity(0);
+        uint256 room = _weeklyWithdrawalCapacityView();
+        uint256 directRoom = _directWeeklyWithdrawalRoom(room);
+        if (assets > directRoom) revert WeeklyWithdrawalCapExceeded(assets, directRoom);
+    }
+
+    function _directWeeklyWithdrawalRoom(uint256 weeklyRoom) private view returns (uint256) {
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[_weeklyWithdrawalWindowStart];
+        uint256 queuedReserve = cohort.demandShares == 0 ? 0 : previewRedeem(cohort.demandShares);
+        return AtRiskUSDWeeklyExitModule.directRoom(weeklyRoom, queuedReserve);
+    }
+
+    function _requireWeeklyExitWindowCurrent() private view {
+        if (_weeklyExitWindowExpired()) {
+            revert WeeklyExitSettlementRequired(_weeklyWithdrawalWindowStart + WEEKLY_WITHDRAWAL_WINDOW);
         }
+    }
+
+    function _weeklyExitWindowExpired() private view returns (bool) {
+        return _weeklyWithdrawalWindowStart != 0
+            && block.timestamp >= _weeklyWithdrawalWindowStart + WEEKLY_WITHDRAWAL_WINDOW;
+    }
+
+    function _weeklyWithdrawalCapacityView() private view returns (uint256) {
+        if (_weeklyWithdrawalWindowStart == 0 || _weeklyExitWindowExpired()) return 0;
+        uint256 basis = _weeklyWithdrawalWindowStartAssets;
+        if (basis == 0) basis = totalAssets();
+        uint256 cap = Math.mulDiv(basis, _effectiveWeeklyWithdrawalCapBps(), 10000);
+        uint256 used = _weeklyWithdrawalUsed;
+        return used >= cap ? 0 : cap - used;
+    }
+
+    function _settleWeeklyExitWindow() private {
+        uint256 start = _weeklyWithdrawalWindowStart;
+        uint256 closesAt = _weeklyExitWindowEnd(start);
+        if (start == 0 || block.timestamp < closesAt) revert WeeklyExitWindowOpen(closesAt);
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[start];
+        if (cohort.settled) revert WeeklyExitAccountingInvariant(0, 1);
+        uint256 demand = cohort.demandShares;
+        uint256 roomShares;
+        if ((cohort.activeRequests == 0) != (demand == 0)) {
+            revert WeeklyExitAccountingInvariant(cohort.activeRequests, demand);
+        }
+        if (cohort.activeRequests != 0) {
+            uint256 roomAssets = _weeklyWithdrawalRoomAtClose();
+            roomShares = roomAssets == 0 || totalAssets() == 0 ? 0 : _sharesWithinAssetCap(roomAssets, demand);
+            cohort.roomShares = roomShares;
+            cohort.settled = true;
+        }
+        _advanceWeeklyExitWindow(start);
+        emit WeeklyExitSettled(start, demand, roomShares);
+    }
+
+    function _weeklyWithdrawalRoomAtClose() private view returns (uint256) {
+        uint256 basis = _weeklyWithdrawalWindowStartAssets;
+        if (basis == 0) basis = totalAssets();
+        uint256 cap = Math.mulDiv(basis, _effectiveWeeklyWithdrawalCapBps(), 10000);
+        uint256 used = _weeklyWithdrawalUsed;
+        return used >= cap ? 0 : cap - used;
+    }
+
+    function _weeklyExitWindowEnd(uint256 start) private pure returns (uint256) {
+        if (start == 0 || start > type(uint256).max - WEEKLY_WITHDRAWAL_WINDOW) {
+            revert WeeklyExitArithmeticOverflow();
+        }
+        return start + WEEKLY_WITHDRAWAL_WINDOW;
+    }
+
+    function _weeklyCohortStart(uint256 maturity) private view returns (uint256) {
+        uint256 start = _weeklyWithdrawalWindowStart;
+        if (maturity < start) revert WeeklyExitArithmeticOverflow();
+        return start + (maturity - start) / WEEKLY_WITHDRAWAL_WINDOW * WEEKLY_WITHDRAWAL_WINDOW;
+    }
+
+    function _advanceWeeklyExitWindow(uint256 start) private {
+        _weeklyWithdrawalWindowStart = _weeklyExitWindowEnd(start);
+        _weeklyWithdrawalUsed = 0;
+        _weeklyWithdrawalWindowStartAssets = 0;
+    }
+
+    function _sharesWithinAssetCap(uint256 cap, uint256 shareLimit) private view returns (uint256 shares) {
+        uint256 assets = totalAssets();
+        if (cap == 0 || assets == 0 || shareLimit == 0) return 0;
+        if (cap >= assets) return shareLimit;
+        uint256 supply = totalSupply();
+        if (assets == type(uint256).max || supply > type(uint256).max - SHARE_SCALE) {
+            revert WeeklyExitArithmeticOverflow();
+        }
+        shares = Math.mulDiv(cap + 1, supply + SHARE_SCALE, assets + 1, Math.Rounding.Ceil) - 1;
+        if (shares > shareLimit) shares = shareLimit;
+    }
+
+    function _recordWeeklyExitRequest(uint256 cohortStart, uint256 shares) private {
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[cohortStart];
+        if (cohort.settled) revert WeeklyExitAccountingInvariant(0, 1);
+        cohort.demandShares = _checkedWeeklyExitAdd(cohort.demandShares, shares);
+        if (cohort.activeRequests == type(uint256).max) revert WeeklyExitArithmeticOverflow();
+        cohort.activeRequests += 1;
+    }
+
+    function _clearWeeklyExitRequest(uint256 cohortStart, uint256 shares) private {
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[cohortStart];
+        uint256 active = cohort.activeRequests;
+        if (active == 0) revert WeeklyExitAccountingInvariant(1, 0);
+        if (!cohort.settled && block.timestamp < _weeklyExitWindowEnd(cohortStart)) {
+            uint256 demand = cohort.demandShares;
+            if (shares > demand) revert WeeklyExitAccountingInvariant(demand, shares);
+            cohort.demandShares = demand - shares;
+        }
+        cohort.activeRequests = active - 1;
+        if (active == 1) delete _weeklyExitCohorts[cohortStart];
+    }
+
+    function _checkedWeeklyExitAdd(uint256 current, uint256 amount) private pure returns (uint256) {
+        if (amount > type(uint256).max - current) revert WeeklyExitArithmeticOverflow();
+        return current + amount;
     }
 
     function _autoRenewDisabledEffectiveBalance(address account) private view returns (uint256) {
@@ -1134,11 +999,6 @@ contract AtRiskUSDStateModule is
         return abi.decode(data, (bool));
     }
 
-    function _hasExpiredAutoRenewDisabledAccount(address account) private view returns (bool) {
-        uint256 expiry = _autoRenewDisabledTrackedExpiry[account];
-        return _autoRenewDisabledTracked[account] && expiry != 0 && block.timestamp >= expiry;
-    }
-
     function _requireNotBlocked(address account) private view {
         address blocklist_ = _blocklist;
         if (blocklist_ != address(0) && IBlocklist(blocklist_).isBlocked(account)) {
@@ -1154,8 +1014,12 @@ contract AtRiskUSDStateModule is
         if (from != address(0) && to != address(0) && value > 0) {
             if (checkLossPending) _requireNoLossPending();
             if (from != _stakingQueue && from != address(this)) {
-                if (block.timestamp < _lockExpiry[from]) revert LockupNotExpired(_lockExpiry[from]);
-                if (to != address(this) && _hasExpiredAutoRenewDisabledAccount(from)) {
+                uint256 lockExpiry = _lockExpiry[from];
+                if (block.timestamp < lockExpiry) revert LockupNotExpired(lockExpiry);
+                if (
+                    _lockupPeriod > 0 && to != address(this) && _autoRenewDisabled[from]
+                        && block.timestamp >= lockExpiry
+                ) {
                     revert ExpiredAutoRenewDisabledLockup();
                 }
             }
@@ -1164,6 +1028,16 @@ contract AtRiskUSDStateModule is
         if (to != address(0)) _requireNotBlocked(to);
         _delegateProfitModule(abi.encodeCall(AtRiskUSDProfitModule.update, (from, to)));
         super._update(from, to, value);
+        if (
+            value != 0 && from != address(0) && from != address(this) && to != address(0) && to != address(this)
+                && from != to
+        ) {
+            uint256 senderExpiry = _lockExpiry[from];
+            if (senderExpiry > _lockExpiry[to]) {
+                _lockExpiry[to] = senderExpiry;
+                emit LockupTransferred(from, to, senderExpiry);
+            }
+        }
         if (from != address(0)) _syncAutoRenewDisabledTracking(from);
         if (to != address(0) && to != from) _syncAutoRenewDisabledTracking(to);
     }
@@ -1190,5 +1064,32 @@ contract AtRiskUSDStateModule is
         }
         if (data.length != 32) revert DirectCallForbidden();
         result = abi.decode(data, (uint256));
+    }
+
+    function approve(address spender, uint256 value)
+        public
+        override(ERC20Upgradeable, IERC20)
+        onlyDelegateCall
+        returns (bool)
+    {
+        return super.approve(spender, value);
+    }
+
+    function transfer(address to, uint256 value)
+        public
+        override(ERC20Upgradeable, IERC20)
+        onlyDelegateCall
+        returns (bool)
+    {
+        return super.transfer(to, value);
+    }
+
+    function transferFrom(address from, address to, uint256 value)
+        public
+        override(ERC20Upgradeable, IERC20)
+        onlyDelegateCall
+        returns (bool)
+    {
+        return super.transferFrom(from, to, value);
     }
 }

@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import "./AllowlistGatedUpgradeable.sol";
 import "./DelegatingVestingWallet.sol";
+import "./IForageGovernorPause.sol";
 import "./interfaces/IAllowlist.sol";
 import "./interfaces/IAllowlistSystemRegistrar.sol";
 import {ForageTokenRotationStatus} from "./modules/ForageTokenStateModule.sol";
@@ -23,6 +24,127 @@ interface IFORAGETreasuryAllowlistState {
     function allowlist() external view returns (address);
 
     function blocklistRotationStatus() external view returns (ForageTokenRotationStatus memory);
+}
+
+contract FORAGETreasuryModule {
+    error DelegateCallRequired();
+    error Unauthorized();
+    error UnauthorizedDistributor();
+    error CapNotShrunk();
+    error ForageTokenAllowlistStateUnavailable(address forageToken);
+    error AllowlistNotForageTokenProvider(address candidate, address activeAllowlist, address pendingAllowlist);
+    error PartnershipSystemRegistrarNotReady(address allowlist, address treasury);
+
+    event DistributorAccepted(address indexed oldDistributor, address indexed newDistributor);
+    event DistributorDailyCapUpdated(uint256 oldCap, uint256 newCap);
+
+    address private immutable _self;
+
+    constructor() {
+        _self = address(this);
+    }
+
+    modifier onlyDelegateCall() {
+        if (address(this) == _self) revert DelegateCallRequired();
+        _;
+    }
+
+    function verifyClaim(
+        bytes32[] calldata proof,
+        bytes32 root,
+        address treasury,
+        bytes32 lane,
+        uint256 roundId,
+        address account,
+        uint256 amount
+    ) external pure returns (bool) {
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(treasury, lane, roundId, account, amount))));
+        return MerkleProof.verify(proof, root, leaf);
+    }
+
+    function requireTokenAllowlistProvider(address forageToken_, address candidate, bool allowInitialBinding)
+        external
+        view
+    {
+        if (candidate == address(0)) revert IAllowlist.AllowlistUnavailable();
+        (address activeAllowlist, address pendingAllowlist) = _forageTokenAllowlistProviders(forageToken_);
+        if (candidate == activeAllowlist || candidate == pendingAllowlist) return;
+        if (allowInitialBinding && activeAllowlist == address(0) && pendingAllowlist == address(0)) return;
+        revert AllowlistNotForageTokenProvider(candidate, activeAllowlist, pendingAllowlist);
+    }
+
+    function requireSystemRegistrarReady(address allowlist_, address treasury) external view {
+        if (allowlist_.code.length == 0) revert PartnershipSystemRegistrarNotReady(allowlist_, treasury);
+        bool ready;
+        try IAllowlistSystemRegistrar(allowlist_).isSystemRegistrar(treasury) returns (bool registered) {
+            ready = registered;
+        } catch {
+            revert PartnershipSystemRegistrarNotReady(allowlist_, treasury);
+        }
+        if (!ready) revert PartnershipSystemRegistrarNotReady(allowlist_, treasury);
+    }
+
+    function _forageTokenAllowlistProviders(address forageToken_)
+        private
+        view
+        returns (address activeAllowlist, address pendingAllowlist)
+    {
+        if (forageToken_.code.length == 0) revert ForageTokenAllowlistStateUnavailable(forageToken_);
+        IFORAGETreasuryAllowlistState tokenState = IFORAGETreasuryAllowlistState(forageToken_);
+        try tokenState.allowlist() returns (address currentAllowlist) {
+            activeAllowlist = currentAllowlist;
+        } catch {
+            revert ForageTokenAllowlistStateUnavailable(forageToken_);
+        }
+        try tokenState.blocklistRotationStatus() returns (ForageTokenRotationStatus memory status) {
+            if (status.allowlistReindexActive) pendingAllowlist = status.pendingAllowlist;
+        } catch {
+            revert ForageTokenAllowlistStateUnavailable(forageToken_);
+        }
+    }
+
+    function acceptDistributor(address allowlist_, uint256 pendingSlot, uint256 distributorSlot)
+        external
+        onlyDelegateCall
+    {
+        address pending;
+        address oldDistributor;
+        assembly {
+            pending := sload(pendingSlot)
+            oldDistributor := sload(distributorSlot)
+        }
+        if (msg.sender != pending) revert UnauthorizedDistributor();
+        bool isSystem;
+        try IAllowlist(allowlist_).isSystemAccount(msg.sender) returns (bool systemAccount) {
+            isSystem = systemAccount;
+        } catch {
+            revert IAllowlist.AllowlistUnavailable();
+        }
+        if (!isSystem) revert UnauthorizedDistributor();
+        assembly {
+            sstore(distributorSlot, caller())
+            sstore(pendingSlot, 0)
+        }
+        emit DistributorAccepted(oldDistributor, msg.sender);
+    }
+
+    function shrinkDistributorDailyCap(uint256 storageSlot, uint256 newCap, address owner_, address governor_)
+        external
+        onlyDelegateCall
+    {
+        if (msg.sender != owner_ && msg.sender != IForageGovernorPause(governor_).guardianModule()) {
+            revert Unauthorized();
+        }
+        uint256 oldCap;
+        assembly {
+            oldCap := sload(storageSlot)
+        }
+        if (newCap >= oldCap) revert CapNotShrunk();
+        assembly {
+            sstore(storageSlot, newCap)
+        }
+        emit DistributorDailyCapUpdated(oldCap, newCap);
+    }
 }
 
 /// @title FORAGETreasury
@@ -66,7 +188,7 @@ contract FORAGETreasury is
     uint256 public constant AGENT_CLAIM_COOLDOWN = 1 days;
     bytes32 public constant AGENT_REWARD_LANE = keccak256("FORAGE_AGENT_REWARD");
     bytes32 public constant DEPOSITOR_REWARD_LANE = keccak256("FORAGE_DEPOSITOR_REWARD");
-    uint256 private constant FRESH_LAYOUT_VERSION = 1;
+    uint256 private constant FRESH_LAYOUT_VERSION = 2;
 
     struct Round {
         bytes32 root;
@@ -95,8 +217,10 @@ contract FORAGETreasury is
     uint256 private _distributorDayStart;
     uint256 private _freshLayoutVersion;
     mapping(address => bool) public isTreasuryVestingWallet;
+    address private _forageGovernor;
+    FORAGETreasuryModule private immutable _capModule;
 
-    uint256[33] private __gap;
+    uint256[32] private __gap;
 
     event AgentRootPublished(uint256 indexed roundId, bytes32 root, uint256 totalAmount, uint64 deadline);
     event DepositorRootPublished(uint256 indexed roundId, bytes32 root, uint256 totalAmount, uint64 deadline);
@@ -108,9 +232,16 @@ contract FORAGETreasury is
     event VestingWalletAllowlistForwarded(
         address indexed wallet, address indexed previousAllowlist, address indexed nextAllowlist
     );
+    event DistributorDailyCapUpdated(uint256 oldCap, uint256 newCap);
 
     constructor() {
         _disableInitializers();
+        _capModule = new FORAGETreasuryModule();
+    }
+
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0) revert InvalidInitialization();
+        _;
     }
 
     modifier freshOnly() {
@@ -120,14 +251,19 @@ contract FORAGETreasury is
         _;
     }
 
-    function initialize(address forageToken_, address owner_) external initializer {
+    function initialize(address forageToken_, address owner_, address forageGovernor_)
+        external
+        onlyDuringConstructionBeforeInitialization
+        initializer
+    {
         if (_freshLayoutVersion != 0 || address(_forageToken) != address(0)) {
             revert FreshInitializationOnExistingState(_freshLayoutVersion, address(_forageToken));
         }
-        if (forageToken_ == address(0) || owner_ == address(0)) revert ZeroAddress();
+        if (forageToken_ == address(0) || owner_ == address(0) || forageGovernor_ == address(0)) revert ZeroAddress();
         __Ownable_init(owner_);
         __Ownable2Step_init();
         _forageToken = IERC20(forageToken_);
+        _forageGovernor = forageGovernor_;
         _distributorDailyCap = 1_000_000e18;
         _freshLayoutVersion = FRESH_LAYOUT_VERSION;
     }
@@ -217,6 +353,7 @@ contract FORAGETreasury is
         nonReentrant
     {
         if (msg.sender != _distributor) revert Unauthorized();
+        if (_isBlocked(msg.sender)) revert BlockedRecipient();
         if (_isBlocked(account)) revert BlockedRecipient();
         uint256 lastClaimAt = lastAgentClaimAt[account];
         if (lastClaimAt != 0 && block.timestamp < lastClaimAt + AGENT_CLAIM_COOLDOWN) {
@@ -247,7 +384,7 @@ contract FORAGETreasury is
 
         address distributionAllowlist = allowlist();
         _requireTokenAllowlistProvider(distributionAllowlist, false);
-        _requireSystemRegistrarReady(distributionAllowlist);
+        FORAGETreasuryModule(address(_capModule)).requireSystemRegistrarReady(distributionAllowlist, address(this));
         wallet = address(
             new DelegatingVestingWallet(beneficiary, start, duration, cliff, address(this), distributionAllowlist)
         );
@@ -316,14 +453,27 @@ contract FORAGETreasury is
     }
 
     function acceptDistributor() external freshOnly onlyAllowedCaller {
-        if (msg.sender != _pendingDistributor) revert UnauthorizedDistributor();
-        _distributor = msg.sender;
-        _pendingDistributor = address(0);
+        uint256 pendingSlot;
+        uint256 distributorSlot;
+        assembly {
+            pendingSlot := _pendingDistributor.slot
+            distributorSlot := _distributor.slot
+        }
+        _delegateCapModule(
+            abi.encodeCall(FORAGETreasuryModule.acceptDistributor, (allowlist(), pendingSlot, distributorSlot))
+        );
     }
 
-    function shrinkDistributorDailyCap(uint256 newCap) external freshOnly onlyAllowedCaller onlyOwner {
-        if (newCap >= _distributorDailyCap) revert CapNotShrunk();
-        _distributorDailyCap = newCap;
+    function shrinkDistributorDailyCap(uint256 newCap) external freshOnly onlyAllowedCaller {
+        uint256 storageSlot;
+        assembly {
+            storageSlot := _distributorDailyCap.slot
+        }
+        _delegateCapModule(
+            abi.encodeCall(
+                FORAGETreasuryModule.shrinkDistributorDailyCap, (storageSlot, newCap, owner(), _forageGovernor)
+            )
+        );
     }
 
     function distributor() external view returns (address) {
@@ -374,6 +524,15 @@ contract FORAGETreasury is
         _distributorUsedToday += amount;
     }
 
+    function _delegateCapModule(bytes memory data) private {
+        (bool ok, bytes memory result) = address(_capModule).delegatecall(data);
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
+        }
+    }
+
     function _claim(
         Round storage round,
         bool alreadyClaimed,
@@ -386,7 +545,11 @@ contract FORAGETreasury is
         if (alreadyClaimed) revert AlreadyClaimed();
         if (round.root == bytes32(0)) revert InvalidRoot();
         if (block.timestamp > round.deadline) revert RoundExpired();
-        if (!MerkleProof.verify(proof, round.root, _leaf(lane, roundId, account, amount))) revert InvalidProof();
+        if (
+            !FORAGETreasuryModule(address(_capModule)).verifyClaim(
+                proof, round.root, address(this), lane, roundId, account, amount
+            )
+        ) revert InvalidProof();
         if (round.claimedAmount + amount > round.totalAmount) revert ProgramCapExceeded();
         round.claimedAmount += amount;
         _forageToken.safeTransfer(account, amount);
@@ -403,10 +566,6 @@ contract FORAGETreasury is
             _forageToken.safeTransfer(recipient, remaining);
         }
         emit RoundSwept(roundId, recipient, remaining);
-    }
-
-    function _leaf(bytes32 lane, uint256 roundId, address account, uint256 amount) internal view returns (bytes32) {
-        return keccak256(bytes.concat(keccak256(abi.encode(address(this), lane, roundId, account, amount))));
     }
 
     function _isBlocked(address account) internal view returns (bool) {
@@ -432,43 +591,10 @@ contract FORAGETreasury is
         if (_isBlocked(account)) revert BlockedRecipient();
     }
 
-    function _forageTokenAllowlistProviders()
-        private
-        view
-        returns (address activeAllowlist, address pendingAllowlist)
-    {
-        address forageToken_ = address(_forageToken);
-        if (forageToken_.code.length == 0) revert ForageTokenAllowlistStateUnavailable(forageToken_);
-        IFORAGETreasuryAllowlistState tokenState = IFORAGETreasuryAllowlistState(forageToken_);
-        try tokenState.allowlist() returns (address currentAllowlist) {
-            activeAllowlist = currentAllowlist;
-        } catch {
-            revert ForageTokenAllowlistStateUnavailable(forageToken_);
-        }
-        try tokenState.blocklistRotationStatus() returns (ForageTokenRotationStatus memory status) {
-            if (status.allowlistReindexActive) pendingAllowlist = status.pendingAllowlist;
-        } catch {
-            revert ForageTokenAllowlistStateUnavailable(forageToken_);
-        }
-    }
-
     function _requireTokenAllowlistProvider(address candidateAllowlist, bool allowInitialBinding) private view {
-        if (candidateAllowlist == address(0)) revert IAllowlist.AllowlistUnavailable();
-        (address activeAllowlist, address pendingAllowlist) = _forageTokenAllowlistProviders();
-        if (candidateAllowlist == activeAllowlist || candidateAllowlist == pendingAllowlist) return;
-        if (allowInitialBinding && activeAllowlist == address(0) && pendingAllowlist == address(0)) return;
-        revert AllowlistNotForageTokenProvider(candidateAllowlist, activeAllowlist, pendingAllowlist);
-    }
-
-    function _requireSystemRegistrarReady(address allowlist_) private view {
-        if (allowlist_.code.length == 0) revert PartnershipSystemRegistrarNotReady(allowlist_, address(this));
-        bool ready;
-        try IAllowlistSystemRegistrar(allowlist_).isSystemRegistrar(address(this)) returns (bool registered) {
-            ready = registered;
-        } catch {
-            revert PartnershipSystemRegistrarNotReady(allowlist_, address(this));
-        }
-        if (!ready) revert PartnershipSystemRegistrarNotReady(allowlist_, address(this));
+        FORAGETreasuryModule(address(_capModule)).requireTokenAllowlistProvider(
+            address(_forageToken), candidateAllowlist, allowInitialBinding
+        );
     }
 
     function _authorizeUpgrade(address) internal override freshOnly onlyOwner {}

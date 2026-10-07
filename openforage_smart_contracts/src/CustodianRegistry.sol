@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
+import "./modules/CustodianRegistryCapitalModule.sol";
 
 interface IForageGovernorGuardianSource {
     function guardianModule() external view returns (address);
@@ -135,6 +136,7 @@ contract CustodianRegistry is
         uint256 navCapReference;
         bool navCapReferenceInitialized;
         CustodianNAVBaselineStatus navBaselineStatus;
+        uint256 returnDayBasis;
     }
 
     struct PendingCustodianConfig {
@@ -166,9 +168,8 @@ contract CustodianRegistry is
     error UnauthorizedPauseControl(address caller);
     error UnauthorizedCustodianRole(bytes32 id, bytes32 role, address caller);
     error CustodianDeployCapExceeded(bytes32 id, uint256 provided, uint256 available);
-    error CustodianPerBlockCapExceeded(bytes32 id, uint256 provided, uint256 available);
+    error CustodianPerBlockDeployCapRetired(uint256 provided);
     error CustodianPerDayCapExceeded(bytes32 id, uint256 provided, uint256 available);
-    error CustodianReturnPerCallCapExceeded(bytes32 id, uint256 provided, uint256 available);
     error CustodianReturnPerDayCapExceeded(bytes32 id, uint256 provided, uint256 available);
     error ExcessiveCustodianReturn(bytes32 id, uint256 provided, uint256 deployed);
     error ExcessiveCustodianLoss(bytes32 id, uint256 amount, uint256 custodianDeployed, uint256 totalDeployed);
@@ -196,6 +197,13 @@ contract CustodianRegistry is
     error GuardianGovernorUnavailable(address governor);
     error GuardianModuleLookupFailed(address governor);
     error InvalidGuardianModule(address module);
+    error InvalidEmergencyPrincipalLane(address lane);
+    error CustodianRoleCollision(address account, address conflictingAccount);
+    error RoleSourceUnavailable(address source);
+    error CustodianRegistryVaultUnavailable(address target);
+    error CustodianRegistryDayStartSupplyUnavailable(address vault);
+    error CustodianRegistryVaultMismatch(address canonicalVault, address providedVault);
+    error EmergencyPrincipalLaneUnavailable(address lane);
 
     bytes32 public constant HYPERLIQUID_CUSTODIAN_ID = keccak256("HYPERLIQUID");
     bytes32 public constant LIGHTER_CUSTODIAN_ID = keccak256("LIGHTER");
@@ -240,6 +248,9 @@ contract CustodianRegistry is
     event ForageGovernorUpdated(address indexed oldGovernor, address indexed newGovernor);
     event GuardianModuleProposed(address indexed current, address indexed pending);
     event GuardianModuleUpdated(address indexed oldGuardian, address indexed newGuardian);
+    event EmergencyPrincipalLaneSet(address indexed previousLane, address indexed lane);
+    event CustodianRegistryVaultBound(address indexed vault);
+    event CustodianDeployDayStartSupplySnapshotted(uint256 indexed utcDay, uint256 supply);
 
     mapping(bytes32 => CustodianState) private _custodians;
     mapping(bytes32 => PendingCustodianConfig) private _pendingCustodianConfigs;
@@ -262,10 +273,12 @@ contract CustodianRegistry is
     uint8 private _freshLayoutVersion;
     mapping(bytes32 => CustodianLossRelation) private _custodianLossRelations;
     uint256[34] private __gap;
-    uint8 private constant _FRESH_LAYOUT_VERSION = 1;
+    uint8 private constant _FRESH_LAYOUT_VERSION = 6;
+    address private immutable _capitalModule;
 
     constructor() {
         _disableInitializers();
+        _capitalModule = address(new CustodianRegistryCapitalModule());
     }
 
     modifier freshOnly() {
@@ -291,6 +304,18 @@ contract CustodianRegistry is
         _transitionAllowlist(allowlist_);
     }
 
+    function setEmergencyPrincipalLane(address lane) external freshOnly onlyAllowedCaller onlyOwner {
+        if (lane == address(0) || lane.code.length == 0) revert InvalidEmergencyPrincipalLane(lane);
+        CustodianRegistryCapitalStorage.Layout storage capital = CustodianRegistryCapitalStorage.layout();
+        address previousLane = capital.emergencyPrincipalLane;
+        capital.emergencyPrincipalLane = lane;
+        emit EmergencyPrincipalLaneSet(previousLane, lane);
+    }
+
+    function emergencyPrincipalLane() external view freshOnly returns (address) {
+        return CustodianRegistryCapitalStorage.layout().emergencyPrincipalLane;
+    }
+
     function _requireFreshInitializationState() private view {
         address currentOwner = owner();
         if (
@@ -299,6 +324,12 @@ contract CustodianRegistry is
                 || _pendingForageGovernor != address(0) || _pendingGuardianModule != address(0)
                 || _pendingForageGovernorProposedAt != 0 || _pendingGuardianModuleProposedAt != 0
                 || allowlist() != address(0) || paused() || currentOwner != address(0)
+                || CustodianRegistryCapitalStorage.layout().emergencyPrincipalLane != address(0)
+                || CustodianRegistryCapitalStorage.layout().deployUsedThisDay != 0
+                || CustodianRegistryCapitalStorage.layout().deployUsedDayStart != 0
+                || CustodianRegistryCapitalStorage.layout().canonicalVault != address(0)
+                || CustodianRegistryCapitalStorage.layout().deployDayStartSupply != 0
+                || CustodianRegistryCapitalStorage.layout().vaultRegistry != address(0)
         ) {
             revert FreshInitializationOnExistingState(
                 _freshLayoutVersion, _custodianIds.length, _totalDeployed, currentOwner
@@ -309,6 +340,18 @@ contract CustodianRegistry is
     function _requireFreshLayout() private view {
         if (_freshLayoutVersion != _FRESH_LAYOUT_VERSION) {
             revert CustodianRegistryFreshDeploymentRequired(_freshLayoutVersion);
+        }
+    }
+
+    function _delegateToCapitalModule() private {
+        address module = _capitalModule;
+        assembly ("memory-safe") {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), module, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
         }
     }
 
@@ -336,52 +379,7 @@ contract CustodianRegistry is
     }
 
     function finalizeCustodianConfig(bytes32 id) external freshOnly onlyAllowedCaller onlyOwner {
-        PendingCustodianConfig storage pending = _pendingCustodianConfigs[id];
-        if (!pending.exists) revert NoPendingCustodianConfig(id);
-        if (block.timestamp < pending.proposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
-        if (block.timestamp > pending.proposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
-
-        CustodianConfig memory config = pending.config;
-        CustodianState storage state = _custodians[id];
-        if (state.exists) {
-            _requireNAVBaselineConsistency(id, state, state.navBaselineStatus);
-            _setCoreRoles(id, state.bridge, state.executor, false);
-        } else {
-            state.exists = true;
-            _custodianIds.push(id);
-        }
-        if (!state.navCapReferenceInitialized) {
-            state.navCapReference = pending.navCapReference;
-            state.navCapReferenceInitialized = true;
-            state.navBaselineStatus = CustodianNAVBaselineStatus.Ready;
-        }
-        _custodianConfigEpoch[id] += 1;
-
-        state.kind = config.kind;
-        state.bridge = config.bridge;
-        state.executor = config.executor;
-        state.remoteEid = config.remoteEid;
-        state.peer = config.peer;
-        state.maxDeployed = config.maxDeployed;
-        state.perBlockDeployCap = config.perBlockDeployCap;
-        state.perDayDeployCap = config.perDayDeployCap;
-        state.navDeltaCapBps = config.navDeltaCapBps;
-        state.returnPerCallBps = config.returnPerCallBps;
-        state.returnPerDayBps = config.returnPerDayBps;
-        if (state.deployUsedDayStart == 0) {
-            state.deployUsedDayStart = block.timestamp;
-        }
-        if (state.returnUsedDayStart == 0) {
-            state.returnUsedDayStart = block.timestamp;
-        }
-
-        _allowedPeers[id][config.peer] = true;
-        _setCoreRoles(id, config.bridge, config.executor, true);
-
-        delete _pendingCustodianConfigs[id];
-        emit CustodianPeerAllowed(id, config.peer, true);
-        emit CustodianConfigFinalized(id, config.kind, config.bridge, config.executor);
-        _emitNAVBaselineUpdated(id, state);
+        _delegateToCapitalModule();
     }
 
     function cancelPendingCustodianConfig(bytes32 id) external freshOnly onlyAllowedCaller onlyOwner {
@@ -440,15 +438,7 @@ contract CustodianRegistry is
         onlyAllowedCaller
         onlyOwner
     {
-        _requireCustodian(id);
-        if (role == bytes32(0)) revert ZeroBytes32();
-        if (account == address(0)) revert ZeroAddress();
-        if (!allowed) {
-            delete _pendingAllowedRoles[id][role][account];
-            _setRole(id, role, account, false);
-            return;
-        }
-        _proposeCustodianRole(id, role, account);
+        _delegateToCapitalModule();
     }
 
     function proposeCustodianRole(bytes32 id, bytes32 role, address account)
@@ -457,10 +447,7 @@ contract CustodianRegistry is
         onlyAllowedCaller
         onlyOwner
     {
-        _requireCustodian(id);
-        if (role == bytes32(0)) revert ZeroBytes32();
-        if (account == address(0)) revert ZeroAddress();
-        _proposeCustodianRole(id, role, account);
+        _delegateToCapitalModule();
     }
 
     function finalizeCustodianRole(bytes32 id, bytes32 role, address account)
@@ -469,16 +456,10 @@ contract CustodianRegistry is
         onlyAllowedCaller
         onlyOwner
     {
-        _requireCustodian(id);
-        if (role == bytes32(0)) revert ZeroBytes32();
-        if (account == address(0)) revert ZeroAddress();
         PendingCustodianRole storage pending = _pendingAllowedRoles[id][role][account];
         if (!pending.exists) revert NoPendingCustodianRole(id, role, account);
         _validatePendingDelay(pending.proposedAt);
-        _validateConfigEpoch(id, _pendingAllowedRoleConfigEpoch[id][role][account]);
-        delete _pendingAllowedRoles[id][role][account];
-        delete _pendingAllowedRoleConfigEpoch[id][role][account];
-        _setRole(id, role, account, true);
+        _delegateToCapitalModule();
     }
 
     function cancelPendingCustodianRole(bytes32 id, bytes32 role, address account)
@@ -501,16 +482,7 @@ contract CustodianRegistry is
         whenNotPaused
         onlyCustodianRole(id, ROLE_ACCOUNTANT)
     {
-        CustodianState storage state = _requireCustodian(id);
-        _requireNAVBaselineConsistency(id, state, state.navBaselineStatus);
-        if (state.paused) revert CustodianPaused(id);
-        if (amount == 0) revert ZeroAmount();
-        _enforceDeploymentCaps(id, state, amount);
-        state.deployed += amount;
-        _totalDeployed += amount;
-        if (state.navCapReferenceInitialized) state.navCapReference += amount;
-        emit CustodianDeploymentRecorded(id, amount, state.deployed);
-        _emitNAVBaselineUpdated(id, state);
+        _delegateToCapitalModule();
     }
 
     function recordReturnWithNAVBasis(bytes32 id, uint256 amount, bool navAlreadyReduced)
@@ -519,9 +491,7 @@ contract CustodianRegistry is
         onlyAllowedCaller
         onlyCustodianRole(id, ROLE_ACCOUNTANT)
     {
-        uint256 deployed = _applyReturnAccounting(id, amount, navAlreadyReduced);
-        if (paused()) emit CustodianEmergencyReturnRecorded(id, msg.sender, amount, deployed);
-        emit CustodianReturnRecorded(id, amount, deployed);
+        _delegateToCapitalModule();
     }
 
     function recordLoss(bytes32 id, uint256 amount)
@@ -731,7 +701,7 @@ contract CustodianRegistry is
             remoteEid: remoteEid,
             peer: peer,
             maxDeployed: maxDeployed,
-            perBlockDeployCap: 1_000_000e6,
+            perBlockDeployCap: 0,
             perDayDeployCap: 5_000_000e6,
             navDeltaCapBps: 1000,
             returnPerCallBps: 1000,
@@ -752,11 +722,11 @@ contract CustodianRegistry is
             remoteEid: remoteEid,
             peer: peer,
             maxDeployed: maxDeployed,
-            perBlockDeployCap: 500_000e6,
+            perBlockDeployCap: 0,
             perDayDeployCap: 2_500_000e6,
             navDeltaCapBps: 1000,
             returnPerCallBps: 2500,
-            returnPerDayBps: 5000
+            returnPerDayBps: 1000
         });
     }
 
@@ -823,6 +793,10 @@ contract CustodianRegistry is
         return _allowedRoles[id][role][account];
     }
 
+    function hasActiveExecutor(address account) external view freshOnly returns (bool) {
+        return CustodianRegistryCapitalStorage.layout().activeExecutorGrants[account] != 0;
+    }
+
     function pendingAllowedPeer(bytes32 id, bytes32 peer)
         external
         view
@@ -868,30 +842,18 @@ contract CustodianRegistry is
         if (config.bridge == address(0) || config.executor == address(0)) revert ZeroAddress();
         if (config.peer == bytes32(0)) revert ZeroBytes32();
         if (config.remoteEid == 0) revert InvalidCustodianId();
-        if (config.maxDeployed == 0 || config.perBlockDeployCap == 0 || config.perDayDeployCap == 0) {
+        if (config.maxDeployed == 0 || config.perDayDeployCap == 0) {
             revert InvalidCap();
         }
-        if (config.perBlockDeployCap > config.perDayDeployCap || config.perDayDeployCap > config.maxDeployed) {
+        if (config.perBlockDeployCap != 0) revert CustodianPerBlockDeployCapRetired(config.perBlockDeployCap);
+        if (config.perDayDeployCap > config.maxDeployed) {
             revert InvalidCap();
         }
+        if (config.returnPerDayBps == 0 || config.returnPerDayBps > 1000) revert InvalidBps();
         if (
             config.navDeltaCapBps == 0 || config.navDeltaCapBps > 10000 || config.returnPerCallBps == 0
-                || config.returnPerCallBps > 10000 || config.returnPerDayBps == 0 || config.returnPerDayBps > 10000
+                || config.returnPerCallBps > 10000
         ) revert InvalidBps();
-    }
-
-    function _applyReturnAccounting(bytes32 id, uint256 amount, bool navAlreadyReduced)
-        internal
-        returns (uint256 deployed)
-    {
-        CustodianState storage state = _requireCustodian(id);
-        if (amount == 0) revert ZeroAmount();
-        if (amount > state.deployed) revert ExcessiveCustodianReturn(id, amount, state.deployed);
-        _enforceReturnCaps(id, state, amount);
-        deployed = state.deployed - amount;
-        state.deployed = deployed;
-        _totalDeployed -= amount;
-        _reduceNAVCapReference(id, state, navAlreadyReduced ? 0 : amount);
     }
 
     function _requireCustodian(bytes32 id) private view returns (CustodianState storage state) {
@@ -915,12 +877,6 @@ contract CustodianRegistry is
         _pendingAllowedPeers[id][peer] = PendingAllowedPeer({proposedAt: block.timestamp, exists: true});
         _pendingAllowedPeerConfigEpoch[id][peer] = _custodianConfigEpoch[id];
         emit CustodianPeerProposed(id, peer);
-    }
-
-    function _proposeCustodianRole(bytes32 id, bytes32 role, address account) internal {
-        _pendingAllowedRoles[id][role][account] = PendingCustodianRole({proposedAt: block.timestamp, exists: true});
-        _pendingAllowedRoleConfigEpoch[id][role][account] = _custodianConfigEpoch[id];
-        emit CustodianRoleProposed(id, role, account);
     }
 
     function _validateConfigEpoch(bytes32 id, uint64 proposedEpoch) internal view {
@@ -1048,6 +1004,7 @@ contract CustodianRegistry is
         if (amount > deployed || amount > totalDeployed_) {
             revert ExcessiveCustodianLoss(id, amount, deployed, totalDeployed_);
         }
+        _syncReturnDayBasis(state);
         unchecked {
             state.deployed = deployed - amount;
             _totalDeployed = totalDeployed_ - amount;
@@ -1147,49 +1104,15 @@ contract CustodianRegistry is
         _emitNAVBaselineUpdated(id, state);
     }
 
-    function _enforceDeploymentCaps(bytes32 id, CustodianState storage state, uint256 amount) internal {
-        uint256 maxRemaining = state.maxDeployed > state.deployed ? state.maxDeployed - state.deployed : 0;
-        if (amount > maxRemaining) revert CustodianDeployCapExceeded(id, amount, maxRemaining);
-
-        if (block.number != state.deployUsedBlockNumber) {
-            state.deployUsedBlockNumber = block.number;
-            state.deployUsedThisBlock = 0;
-        }
-        uint256 blockRemaining = state.perBlockDeployCap > state.deployUsedThisBlock
-            ? state.perBlockDeployCap - state.deployUsedThisBlock
-            : 0;
-        if (amount > blockRemaining) revert CustodianPerBlockCapExceeded(id, amount, blockRemaining);
-        state.deployUsedThisBlock += amount;
-
-        if (block.timestamp >= state.deployUsedDayStart + DAY_SECONDS) {
-            state.deployUsedDayStart = block.timestamp;
-            state.deployUsedThisDay = 0;
-        }
-        uint256 dayRemaining =
-            state.perDayDeployCap > state.deployUsedThisDay ? state.perDayDeployCap - state.deployUsedThisDay : 0;
-        if (amount > dayRemaining) revert CustodianPerDayCapExceeded(id, amount, dayRemaining);
-        state.deployUsedThisDay += amount;
-    }
-
-    function _enforceReturnCaps(bytes32 id, CustodianState storage state, uint256 amount) internal {
-        uint256 callCap = _bpsCap(state.deployed, state.returnPerCallBps);
-        if (amount > callCap) revert CustodianReturnPerCallCapExceeded(id, amount, callCap);
-
-        if (state.returnUsedDayStart == 0 || block.timestamp >= state.returnUsedDayStart + DAY_SECONDS) {
+    function _syncReturnDayBasis(CustodianState storage state) private {
+        uint256 dayStart = state.returnUsedDayStart;
+        if (dayStart == 0 || block.timestamp >= dayStart + DAY_SECONDS) {
             state.returnUsedDayStart = block.timestamp;
             state.returnUsedThisDay = 0;
+            state.returnDayBasis = state.deployed;
+        } else if (state.returnDayBasis == 0 && state.returnUsedThisDay == 0 && state.deployed != 0) {
+            state.returnDayBasis = state.deployed;
         }
-
-        uint256 used = state.returnUsedThisDay;
-        uint256 dayBasis = state.deployed + used;
-        uint256 dayCap = _bpsCap(dayBasis, state.returnPerDayBps);
-        uint256 dayRemaining = dayCap > used ? dayCap - used : 0;
-        if (amount > dayRemaining) revert CustodianReturnPerDayCapExceeded(id, amount, dayRemaining);
-        state.returnUsedThisDay = used + amount;
-    }
-
-    function _bpsCap(uint256 amount, uint16 bps) internal pure returns (uint256) {
-        return (amount * uint256(bps) + 9999) / 10000;
     }
 
     function _enforceNAVDeltaCap(bytes32 id, CustodianState storage state, uint256 nav) internal view {

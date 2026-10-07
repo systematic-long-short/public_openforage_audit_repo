@@ -14,6 +14,7 @@ import "../interfaces/IVaultRegistry.sol";
 import "../IForageGovernorPause.sol";
 import "../FinalizeDelayProfile.sol";
 import "../interfaces/IBlocklist.sol";
+import {IEmergencyPrincipalLane} from "../interfaces/IEmergencyPrincipalLane.sol";
 import "../interfaces/IAllowlist.sol";
 import "../AllowlistGatedUpgradeable.sol";
 import "../RISKUSDVault.sol";
@@ -166,6 +167,7 @@ contract RISKUSDVaultModule is
     uint256 public constant WEEKLY_WINDOW = 7 days;
     uint256 public constant DAILY_WINDOW = 1 days;
     uint256 public constant TOKEN_RESCUE_DELAY = 1 days;
+    uint256 private constant MAX_TOTAL_DEPLOYED = 10_000_000e6;
 
     // State — immutable post-initialization
     IERC20 internal _usdc;
@@ -264,9 +266,9 @@ contract RISKUSDVaultModule is
     /// @dev KYC-03: basis-keyed minimum first deposit and the per-wallet first-deposit flag (two appended slots).
     mapping(uint8 => uint256) private _minimumFirstDeposit;
     mapping(address => bool) private _depositedOnce;
+    uint256 internal _mintBlockStartSupplyPlusOne;
 
-    /// @dev Reserved storage gap (39 - 32 appended slots - 1 rescue mapping - 1 blocklist - 1 freeze slot - 2 KYC slots = 2)
-    uint256[2] private __gap;
+    bool internal _weeklyMintWindowStartSupplyInitialized;
 
     address private immutable _SELF;
 
@@ -302,6 +304,9 @@ contract RISKUSDVaultModule is
         if (usdcAmount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
         if (_lossPendingActive()) revert LossPending();
+        if (_totalDeployed > MAX_TOTAL_DEPLOYED || usdcAmount > MAX_TOTAL_DEPLOYED - _totalDeployed) {
+            revert DeploymentRatioExceeded();
+        }
 
         // OF-002: Use safe helper for consistent underflow protection
         uint256 depositorUsdc = _safeDepositorUsdc();
@@ -852,6 +857,7 @@ contract RISKUSDVaultModule is
         uint256 totalLossAmount = riskusdAmount + coverUsdcAmount;
         if (totalLossAmount == 0) revert ZeroAmount();
         _requireNotBlocked(msg.sender);
+        if (riskusdAmount > 0) _syncWeeklyMintWindow(_riskusd.totalSupply());
         bool hadUnresolvedAttestedLoss = _hasUnresolvedAttestedLoss();
         uint256 attestedVaultId = _latestLossVaultId;
         uint256 attestedLossNonce = _latestLossNonce;
@@ -1101,6 +1107,19 @@ contract RISKUSDVaultModule is
         return inflows > outflows ? inflows - outflows : 0;
     }
 
+    function _syncWeeklyMintWindow(uint256 supply) internal {
+        if (block.timestamp >= _weeklyMintWindowStart + WEEKLY_WINDOW) {
+            _weeklyMintUsed = 0;
+            uint256 elapsed = (block.timestamp - _weeklyMintWindowStart) / WEEKLY_WINDOW;
+            _weeklyMintWindowStart += elapsed * WEEKLY_WINDOW;
+            _weeklyMintWindowStartSupply = supply;
+            _weeklyMintWindowStartSupplyInitialized = true;
+        } else if (!_weeklyMintWindowStartSupplyInitialized) {
+            _weeklyMintWindowStartSupply = supply;
+            _weeklyMintWindowStartSupplyInitialized = true;
+        }
+    }
+
     function _reduceMintActiveSupply(uint256 riskusdAmount) internal {
         if (block.timestamp < _weeklyMintWindowStart + WEEKLY_WINDOW) {
             _weeklyMintUsed = riskusdAmount >= _weeklyMintUsed ? 0 : _weeklyMintUsed - riskusdAmount;
@@ -1231,5 +1250,125 @@ contract RISKUSDVaultModule is
         (bool ok, bytes memory data) =
             blocklist_.staticcall(abi.encodeWithSelector(IBlocklist.isBlocked.selector, address(0)));
         if (!ok || data.length < 32) revert InvalidBlocklist(blocklist_);
+    }
+}
+
+library HLTradingBridgeReturnCapsModuleStorage {
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.HLTradingBridge.ReturnCaps")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    struct Layout {
+        address module;
+        uint256 returnDayBasis;
+        uint256 returnUsedThisDay;
+        uint256 returnUsedDayStart;
+        uint256 withdrawalIntentDayBasis;
+        uint256 withdrawalIntentUsedThisDay;
+        uint256 withdrawalIntentUsedDayStart;
+    }
+
+    function layout() internal pure returns (Layout storage state) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly {
+            state.slot := slot
+        }
+    }
+}
+
+interface IHLTradingBridgeCapitalLaneState {
+    function emergencyPrincipalLane() external view returns (address);
+}
+
+contract HLTradingBridgeReturnCapsModule {
+    uint256 private constant BPS_DENOMINATOR = 10_000;
+    uint256 private constant DAY_SECONDS = 1 days;
+
+    error DirectCallForbidden();
+    error ReturnPerCallCapExceeded(uint256 provided, uint256 cap);
+    error ReturnPerDayCapExceeded(uint256 provided, uint256 cap);
+    error WithdrawalIntentAmountExceeded(uint256 provided, uint256 cap);
+
+    address private immutable _SELF;
+
+    constructor() {
+        _SELF = address(this);
+    }
+
+    modifier onlyDelegateCall() {
+        if (address(this) == _SELF) revert DirectCallForbidden();
+        _;
+    }
+
+    function enforceCaps(
+        uint256 amount,
+        uint256 principal,
+        uint16 perCallBps,
+        uint16 perDayBps,
+        bool intent,
+        bool principalReturn
+    ) external onlyDelegateCall {
+        _syncReturnDayBasis(principal);
+        _syncIntentDayBasis(principal);
+        if (!intent && !principalReturn) {
+            uint256 perCallCap = principal * uint256(perCallBps) / BPS_DENOMINATOR;
+            if (amount > perCallCap) revert ReturnPerCallCapExceeded(amount, perCallCap);
+        }
+        if ((intent || principalReturn) && _principalLaneOpen()) return;
+        if (intent) {
+            _enforceIntentDayCap(amount, perDayBps);
+            return;
+        }
+        _enforceReturnDayCap(amount, perDayBps);
+    }
+
+    function _principalLaneOpen() private view returns (bool) {
+        address lane = IHLTradingBridgeCapitalLaneState(address(this)).emergencyPrincipalLane();
+        if (lane.code.length == 0) return false;
+        return IEmergencyPrincipalLane(lane).principalLaneOpen();
+    }
+
+    function _syncReturnDayBasis(uint256 principal) private {
+        HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
+        uint256 used = state.returnUsedThisDay;
+        if (block.timestamp >= state.returnUsedDayStart + DAY_SECONDS) {
+            state.returnUsedDayStart = block.timestamp;
+            state.returnUsedThisDay = 0;
+            state.returnDayBasis = principal;
+        } else if (state.returnDayBasis == 0 && used == 0 && principal != 0) {
+            state.returnDayBasis = principal;
+        }
+    }
+
+    function _syncIntentDayBasis(uint256 principal) private {
+        HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
+        uint256 used = state.withdrawalIntentUsedThisDay;
+        if (block.timestamp >= state.withdrawalIntentUsedDayStart + DAY_SECONDS) {
+            state.withdrawalIntentUsedDayStart = block.timestamp;
+            state.withdrawalIntentUsedThisDay = 0;
+            state.withdrawalIntentDayBasis = principal;
+        } else if (state.withdrawalIntentDayBasis == 0 && used == 0 && principal != 0) {
+            state.withdrawalIntentDayBasis = principal;
+        }
+    }
+
+    function _enforceReturnDayCap(uint256 amount, uint16 perDayBps) private {
+        HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
+        uint256 used = state.returnUsedThisDay;
+        uint256 basis = state.returnDayBasis;
+        uint256 dayCap = basis * uint256(perDayBps) / BPS_DENOMINATOR;
+        uint256 remaining = dayCap > used ? dayCap - used : 0;
+        if (amount > remaining) revert ReturnPerDayCapExceeded(amount, remaining);
+        state.returnUsedThisDay = used + amount;
+    }
+
+    function _enforceIntentDayCap(uint256 amount, uint16 perDayBps) private {
+        HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
+        uint256 used = state.withdrawalIntentUsedThisDay;
+        uint256 basis = state.withdrawalIntentDayBasis;
+        uint256 dayCap = basis * uint256(perDayBps) / BPS_DENOMINATOR;
+        uint256 remaining = dayCap > used ? dayCap - used : 0;
+        if (amount > remaining) revert WithdrawalIntentAmountExceeded(amount, remaining);
+        state.withdrawalIntentUsedThisDay = used + amount;
     }
 }

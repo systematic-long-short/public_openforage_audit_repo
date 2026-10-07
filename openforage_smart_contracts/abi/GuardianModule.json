@@ -653,29 +653,41 @@
     "name": "initializeWithCustodianRegistry",
     "inputs": [
       {
-        "name": "governor_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "timelock_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "custodianRegistry_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "initialGuardians_",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "initialGuardianPermissions_",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
+        "name": "config",
+        "type": "tuple",
+        "internalType": "struct GuardianAuthorityClassifier.InitializationConfig",
+        "components": [
+          {
+            "name": "governor",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "timelock",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "custodianRegistry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "candidateAllowlist",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "guardians",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "permissions",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ]
       }
     ],
     "outputs": [],

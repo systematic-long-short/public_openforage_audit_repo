@@ -20,6 +20,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import {AtRiskUSDStateModule} from "./modules/AtRiskUSDStateModule.sol";
 import {AtRiskUSDProfitModule} from "./modules/AtRiskUSDProfitModule.sol";
+import {AtRiskUSDWeeklyExitModule} from "./modules/AtRiskUSDWeeklyExitModule.sol";
 
 /// @title atRISKUSD — Tier-specific ERC-4626 vault backed by RISKUSD
 contract atRISKUSD is
@@ -107,6 +108,11 @@ contract atRISKUSD is
     error ProfitIndexPrecisionExhausted(uint256 outstanding, uint256 scale);
     error ProfitClaimInvariant(uint256 expected, uint256 actual);
     error ProfitEpochCatchUpRequired(address account, uint64 nextEpoch, uint64 currentEpoch);
+    error WeeklyExitWindowOpen(uint256 closesAt);
+    error WeeklyExitSettlementRequired(uint256 closesAt);
+    error WeeklyExitAccountingInvariant(uint256 expected, uint256 actual);
+    error WeeklyExitArithmeticOverflow();
+    error NoWeeklyExitAllocation();
 
     // ============================================================
     // Events
@@ -140,6 +146,8 @@ contract atRISKUSD is
     event UnpaidProfitWrittenDown(uint256 amount, uint256 remaining);
     event UnpaidProfitClaimed(address indexed holder, uint256 amount);
     event UnpaidProfitCatchUpProgress(address indexed account, uint64 nextEpoch, uint64 currentEpoch);
+    event WeeklyExitSettled(uint256 indexed windowStart, uint256 demandShares, uint256 roomShares);
+    event WeeklyExitSharesReleased(address indexed holder, uint256 shares);
 
     // ============================================================
     // Structs
@@ -152,6 +160,14 @@ contract atRISKUSD is
         uint256 cooldownPeriod; // OF-M03: snapshot at request time
         uint256 weeklyCapWindowStart;
         uint256 weeklyCapReservedAssets;
+    }
+
+    struct WeeklyExitCohort {
+        uint256 demandShares;
+        uint256 roomShares;
+        uint256 fractionRay;
+        uint256 activeRequests;
+        bool settled;
     }
 
     enum PendingWithdrawalMigrationState {
@@ -203,7 +219,18 @@ contract atRISKUSD is
     mapping(uint256 => uint256) private _autoRenewDisabledExpiryHeapIndexPlusOne;
     uint64 private _freshDeploymentVersion;
     uint64 private _profitEntitlementVersion;
-    uint256[28] private __gap;
+    uint256 private _weeklyExitDemandScaled;
+    uint256 private _weeklyExitAllocatedScaled;
+    uint256 private _weeklyExitRoomCarryScaled;
+    uint256 private _weeklyExitSurvivalIndex;
+    uint256 private _weeklyExitGeneration;
+    mapping(address => uint256) private _weeklyExitRequestBasis;
+    mapping(address => uint256) private _weeklyExitRequestStartIndex;
+    mapping(address => uint256) private _weeklyExitRequestGeneration;
+    mapping(address => uint256) private _weeklyExitClaimedScaled;
+    uint256 private _weeklyExitOpenRequests;
+    mapping(uint256 => WeeklyExitCohort) private _weeklyExitCohorts;
+    uint256[17] private __gap;
 
     // Constants
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-002 (11th audit)
@@ -212,8 +239,8 @@ contract atRISKUSD is
     uint64 internal constant EMERGENCY_RECOVERY_WINDOW = 7 days;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 2;
-    uint64 private constant PROFIT_ENTITLEMENT_VERSION = 2;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 5;
+    uint64 private constant PROFIT_ENTITLEMENT_VERSION = 3;
 
     // ============================================================
     // Constructor
@@ -283,12 +310,6 @@ contract atRISKUSD is
         _;
     }
 
-    modifier onlyFreshAllowedExit(address owner_, address receiver) {
-        _requireFreshDeployment();
-        if (msg.sender != owner_ || receiver != owner_) _checkAllowedCaller();
-        _;
-    }
-
     function _requireFreshDeployment() private view {
         uint64 version = _freshDeploymentVersion;
         if (version != FRESH_DEPLOYMENT_VERSION) revert FreshDeploymentRequired(version);
@@ -345,7 +366,7 @@ contract atRISKUSD is
     function withdraw(uint256 assets, address receiver, address _owner)
         public
         override
-        onlyFreshAllowedExit(_owner, receiver)
+        onlyFreshAllowedCaller
         whenNotPaused
         nonReentrant
         returns (uint256)
@@ -357,7 +378,7 @@ contract atRISKUSD is
     function redeem(uint256 shares, address receiver, address _owner)
         public
         override
-        onlyFreshAllowedExit(_owner, receiver)
+        onlyFreshAllowedCaller
         whenNotPaused
         nonReentrant
         returns (uint256)
@@ -373,7 +394,7 @@ contract atRISKUSD is
         if (
             paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
                 || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
-                || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_underlyingTransferAvailableInView(msg.sender)
+                || !_isLossClearForView() || !_underlyingTransferAvailableInView(msg.sender)
         ) return 0;
         return super.maxDeposit(receiver);
     }
@@ -383,28 +404,34 @@ contract atRISKUSD is
         if (
             paused() || msg.sender != _stakingQueue || receiver == address(0) || !_isAllowedAccount(msg.sender)
                 || !_isAllowedAccount(receiver) || _isBlockedForView(msg.sender) || _isBlockedForView(receiver)
-                || !_isLossClearForView() || _hasZeroAssetLegacySupply() || !_underlyingTransferAvailableInView(msg.sender)
+                || !_isLossClearForView() || !_underlyingTransferAvailableInView(msg.sender)
         ) return 0;
         return super.maxMint(receiver);
     }
 
     function maxWithdraw(address owner_) public view override returns (uint256) {
         _requireFreshDeployment();
+        uint256 directRoom = _directWeeklyWithdrawalRoom(weeklyWithdrawalRemaining());
         if (!_canWithdrawInView(owner_)) return 0;
         uint256 shares = _sharesRedeemableWithFunds(owner_);
         uint256 assets = previewRedeem(shares);
-        uint256 capRemaining = weeklyWithdrawalRemaining();
-        return assets < capRemaining ? assets : capRemaining;
+        return assets < directRoom ? assets : directRoom;
     }
 
     function maxRedeem(address owner_) public view override returns (uint256) {
         _requireFreshDeployment();
+        uint256 directRoom = _directWeeklyWithdrawalRoom(weeklyWithdrawalRemaining());
         if (!_canWithdrawInView(owner_)) return 0;
         uint256 shares = _sharesRedeemableWithFunds(owner_);
-        uint256 capRemaining = weeklyWithdrawalRemaining();
-        if (previewRedeem(shares) > capRemaining) shares = _sharesWithinAssetCap(capRemaining, shares);
+        if (previewRedeem(shares) > directRoom) shares = _sharesWithinAssetCap(directRoom, shares);
         if (shares == 0 || previewRedeem(shares) == 0) return 0;
         return shares;
+    }
+
+    function _directWeeklyWithdrawalRoom(uint256 weeklyRoom) private view returns (uint256) {
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[_weeklyWithdrawalWindowStart];
+        uint256 queuedReserve = cohort.demandShares == 0 ? 0 : previewRedeem(cohort.demandShares);
+        return AtRiskUSDWeeklyExitModule.directRoom(weeklyRoom, queuedReserve);
     }
 
     // ============================================================
@@ -426,7 +453,7 @@ contract atRISKUSD is
         return _delegateProfitModuleUint(abi.encodeCall(AtRiskUSDProfitModule.claimUnpaidProfit, ()));
     }
 
-    function catchUpUnpaidProfitEpochs(address account) external onlyFreshDeployment nonReentrant returns (bool) {
+    function catchUpUnpaidProfitEpochs(address account) external onlyFreshAllowedCaller nonReentrant returns (bool) {
         return
             _delegateProfitModuleUint(abi.encodeCall(AtRiskUSDProfitModule.catchUpUnpaidProfitEpochs, (account))) == 1;
     }
@@ -445,26 +472,34 @@ contract atRISKUSD is
 
     /// @param minAmountOut OF-M11: minimum RISKUSD payout, reverts if below. Pass 0 to accept any amount.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal(uint256 minAmountOut) external onlyFreshDeployment nonReentrant {
-        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.executeWithdrawal, (minAmountOut)));
+    function executeWithdrawal(uint256 minAmountOut) external onlyFreshAllowedCaller nonReentrant {
+        _executeWithdrawal(minAmountOut);
     }
 
     /// @notice Backward-compatible overload with no slippage protection.
     /// @custom:deprecated OF-L09: Use executeWithdrawal(uint256 minAmountOut) instead for slippage protection.
     /// This overload passes minAmountOut=0, accepting any payout amount — vulnerable to sandwich attacks.
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
-    function executeWithdrawal() external onlyFreshDeployment nonReentrant {
+    function executeWithdrawal() external onlyFreshAllowedCaller nonReentrant {
         emit DeprecatedWithdrawalUsed(msg.sender, _pendingWithdrawals[msg.sender].riskusdAmount);
-        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.executeWithdrawal, (0)));
+        _executeWithdrawal(0);
+    }
+
+    function _executeWithdrawal(uint256 minAmountOut) private {
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.executeWithdrawal, (minAmountOut)));
+    }
+
+    function settleWeeklyExit() external onlyFreshAllowedCaller nonReentrant {
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.settleWeeklyExit, ()));
     }
 
     /// @notice OF-L11: Intentional design — withdrawal/cancellation paths remain open during pause to allow depositor exit.
     /// @dev OF-NEW-11 (12th audit): Gated by lossPending to prevent cancel→re-deposit optionality during loss window.
-    function cancelWithdrawal() external onlyFreshDeployment nonReentrant {
+    function cancelWithdrawal() external onlyFreshAllowedCaller nonReentrant {
         _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.cancelWithdrawal, ()));
     }
 
-    function recoverPendingWithdrawal() external onlyFreshDeployment nonReentrant {
+    function recoverPendingWithdrawal() external onlyFreshAllowedCaller nonReentrant {
         _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.recoverPendingWithdrawal, ()));
     }
 
@@ -974,10 +1009,6 @@ contract atRISKUSD is
         return abi.decode(data, (bool));
     }
 
-    function _hasZeroAssetLegacySupply() private view returns (bool) {
-        return totalSupply() != 0 && totalAssets() == 0;
-    }
-
     function _delegateStateModule(bytes memory callData) private {
         _requireFreshDeployment();
         address module = address(_stateModule);
@@ -1078,8 +1109,8 @@ contract atRISKUSD is
 
     function _weeklyWithdrawalWindowView() private view returns (uint256 used, uint256 baseAssets) {
         uint256 start = _weeklyWithdrawalWindowStart;
-        if (start == 0 || block.timestamp > start + WEEKLY_WITHDRAWAL_WINDOW) {
-            return (0, totalAssets());
+        if (start == 0 || block.timestamp >= start + WEEKLY_WITHDRAWAL_WINDOW) {
+            return (0, 0);
         }
         baseAssets = _weeklyWithdrawalWindowStartAssets;
         if (baseAssets == 0) baseAssets = totalAssets();
@@ -1105,7 +1136,7 @@ contract atRISKUSD is
 
     function _resetWeeklyWithdrawalWindowIfExpired() private {
         uint256 start = _weeklyWithdrawalWindowStart;
-        if (start == 0 || block.timestamp > start + WEEKLY_WITHDRAWAL_WINDOW) {
+        if (start == 0 || block.timestamp >= start + WEEKLY_WITHDRAWAL_WINDOW) {
             _weeklyWithdrawalWindowStart = block.timestamp;
             _weeklyWithdrawalUsed = 0;
             _weeklyWithdrawalWindowStartAssets = 0;
@@ -1203,11 +1234,9 @@ contract atRISKUSD is
     }
 
     function _canWithdrawInView(address owner_) private view returns (bool) {
-        bool selfExit = owner_ == msg.sender;
         return owner_ != address(0) && !paused() && _cooldownPeriod == 0 && block.timestamp >= _lockExpiry[owner_]
-            && (selfExit || _isAllowedAccount(msg.sender)) && (selfExit || _isAllowedAccount(owner_))
-            && !_isBlockedForView(msg.sender) && !_isBlockedForView(owner_) && _isLossClearForView()
-            && !_hasZeroAssetLegacySupply() && _underlyingTransferAvailableInView(address(this));
+            && _isAllowedAccount(msg.sender) && _isAllowedAccount(owner_) && !_isBlockedForView(msg.sender)
+            && !_isBlockedForView(owner_) && _isLossClearForView() && _underlyingTransferAvailableInView(address(this));
     }
 
     function _sharesWithdrawableInView(address owner_) private view returns (uint256 shares) {
