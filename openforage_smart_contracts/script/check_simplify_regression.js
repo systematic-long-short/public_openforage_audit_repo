@@ -12,7 +12,7 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
-const BASELINE_PATH = path.join(ROOT, "test", "audit", "simplify_baseline.json");
+const BASELINE_PATH = path.join(ROOT, "simplify_baseline.json");
 const WAIVER_PATH = path.join(ROOT, "simplify_waivers.json");
 
 function readJson(filePath) {

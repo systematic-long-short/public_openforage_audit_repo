@@ -1,0 +1,405 @@
+{
+  "schema": "openforage.public-semgrep-exceptions.v1",
+  "allowlistFunctionNames": [
+    "transfer",
+    "approve",
+    "transferFrom",
+    "initialize",
+    "initializeTarget",
+    "setAllowlist",
+    "setVaultModule",
+    "setQueueModule",
+    "approveOperator",
+    "revoke",
+    "shrinkApprovalsPerDayCap",
+    "setSystemAccount",
+    "proposeRegistrar",
+    "finalizeRegistrar",
+    "cancelRegistrar",
+    "proposeGuardian",
+    "finalizeGuardian",
+    "cancelGuardian",
+    "proposeSystemRegistrar",
+    "finalizeSystemRegistrar",
+    "cancelSystemRegistrar"
+  ],
+  "allowlistPathExclusions": [
+    "**/src/interfaces/**"
+  ],
+  "solvencyForwarder": {
+    "ruleId": "openforage-no-skip-of-assert-solvency",
+    "path": "src/RISKUSDVault.sol",
+    "hostSignature": "deployCapital(uint256)",
+    "modulePath": "src/modules/RISKUSDVaultModule.sol",
+    "moduleSignature": "deployCapital(uint256)",
+    "requiredOrder": [
+      "_usdc.safeTransfer(_custodian, usdcAmount);",
+      "_assertSolvency();"
+    ],
+    "rationale": "The public host forwards to its delegate-only module; the module must assert solvency after transferring USDC."
+  },
+  "disjointnessGuard": {
+    "ruleId": "disjointness-no-proposer-role-to-guardian",
+    "path": "script/Deploy.s.sol",
+    "signature": "_wireTargetStack(DeployConfig)",
+    "grantCall": "TimelockController(payable(deployedTimelock)).grantRole(PROPOSER_ROLE, deployedForageGovernor);",
+    "grantAddress": "deployedForageGovernor",
+    "guardianModule": "deployedGuardianModule",
+    "guardianMethod": "isGuardian(address)",
+    "guardianInitializer": "_deployGovernanceAndRegistry(DeployConfig,PredictedAddresses)",
+    "guardianSource": "_guardianAddresses(cfg.deployer)",
+    "configuredGuardianCount": 7,
+    "guardError": "GovernanceProposerIsGuardian(address proposer)",
+    "broadcastEntryPoint": "Deploy.run()",
+    "constructorAdmin": "deployer",
+    "deployerCleanupFunction": "_revokeDeployerOperationalRoles(address)",
+    "deployerRoleRevokeOrder": [
+      "PROPOSER_ROLE",
+      "CANCELLER_ROLE",
+      "EXECUTOR_ROLE",
+      "DEFAULT_ADMIN_ROLE"
+    ],
+    "adminRoleExpression": "bytes32(0)",
+    "stopAfterCleanup": "vm.stopBroadcast()",
+    "noBroadcastEntryPoint": "DeployMainnet",
+    "noBroadcastCleanupFunction": "_revokeDeployerTimelockRoles()",
+    "selfAdminDependencyPin": "7bf4727aacdbfaa0f36cbd664654d0c9e1dc52bf",
+    "selfAdminSourceStatus": "pinned-but-not-materialized",
+    "sourceBindings": {
+      "deploy": {
+        "path": "script/Deploy.s.sol",
+        "sha256": "9139f9d2e39085394bb5126e61b18bbbe28c6461fbf246083ca1b8b77b297bcc"
+      },
+      "mainnet": {
+        "path": "script/DeployMainnet.s.sol",
+        "sha256": "0b9386ffd842ec8c587573e30b3a937bb6ed3d34eaa12646a7855fd566599477"
+      },
+      "guardianModule": {
+        "path": "src/GuardianModule.sol",
+        "sha256": "8b772dc5a6653839ad1c99506acb72a7f04786fafe8411cc603ecc4f4f5cdd5a"
+      },
+      "guardianAbi": {
+        "path": "abi/GuardianModule.json",
+        "sha256": "78fb218652d1d46dbba70f63b23611b44faaf49bba5337b87addfa01130474a3"
+      }
+    },
+    "rationale": "Before the Timelock grant, the deployed GuardianModule rejects the exact deployed Governor if it is any of the seven configured guardian accounts initialized by this deployment."
+  },
+  "protectedAtRiskExitGates": [
+    {
+      "path": "src/atRISKUSD.sol",
+      "signature": "executeWithdrawal()"
+    },
+    {
+      "path": "src/atRISKUSD.sol",
+      "signature": "executeWithdrawal(uint256)"
+    },
+    {
+      "path": "src/atRISKUSD.sol",
+      "signature": "cancelWithdrawal()"
+    },
+    {
+      "path": "src/atRISKUSD.sol",
+      "signature": "recoverPendingWithdrawal()"
+    },
+    {
+      "path": "src/atRISKUSD.sol",
+      "signature": "burnWorthlessShares(uint256)"
+    }
+  ],
+  "exceptions": [
+    {
+      "id": "vault-solvency-module-forwarder",
+      "ruleId": "openforage-no-skip-of-assert-solvency",
+      "path": "src/RISKUSDVault.sol",
+      "signature": "deployCapital(uint256)",
+      "rationale": "The host delegates only after its caller guards; the public module owns the post-transfer assertion."
+    },
+    {
+      "id": "disjointness-public-proposer-guardian-separation",
+      "ruleId": "disjointness-no-proposer-role-to-guardian",
+      "path": "script/Deploy.s.sol",
+      "signature": "_wireTargetStack(DeployConfig)",
+      "rationale": "The deployment flow checks the actual Governor grant address against GuardianModule membership before granting Timelock PROPOSER_ROLE."
+    }
+  ],
+  "reviewedSourcePredicates": [
+    {
+      "rationale": "The caller must be a code-bearing system account and the single observer slot cannot be replaced by another address.",
+      "id": "allowlist-register-observer",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/Allowlist.sol",
+      "signature": "registerVoteEligibilityObserver()",
+      "predicate": "code-bearing-system-account-and-single-observer-slot",
+      "sourceSha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+      "bodySha256": "45207eaff28b07665751d876a1e40c359e9a367eba0458e3e500c115f6f4c603",
+      "declarationSha256": "fe459cbd738f11fdc028104d438adeecce8a3fa7e235b5d6b7d0b0cac23a5f4d",
+      "helperBindings": [
+        {
+          "path": "src/ForageToken.sol",
+          "signature": "_registerAllowlistObserver(address)",
+          "sha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+          "bodySha256": "d648f0b7424987f76179775f548991768f73d6ab1f6e2de7274c1d2737a64e3c",
+          "declarationSha256": "201cfec9542639dd58b97db5a0081d2bfad32798bc428cdf07ec5a83513a196c"
+        },
+        {
+          "path": "src/ForageToken.sol",
+          "signature": "setAllowlist(address)",
+          "sha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+          "bodySha256": "d4efd92dae1e7590ee1faa9ab313abdd33e1d23f776cd83a4585fc6d8132a570",
+          "declarationSha256": "c79c3163c506c4713a2b5c0a6db0f62376cf696e4ec4a48733a9fd9167cdf305"
+        },
+        {
+          "path": "script/Deploy.s.sol",
+          "signature": "_wireSharedAllowlist(DeployConfig)",
+          "sha256": "9139f9d2e39085394bb5126e61b18bbbe28c6461fbf246083ca1b8b77b297bcc",
+          "bodySha256": "9b94cfff674feebc0f352878fb4816265d1946fe2095ecdbe3b974d55b672d53",
+          "declarationSha256": "1bf62c66949ebada85f5e08e00d2fb45d428c2060d1cfd9adbd1d2cc4c32e383"
+        },
+        {
+          "path": "script/Deploy.s.sol",
+          "signature": "_allowlistTargets()",
+          "sha256": "9139f9d2e39085394bb5126e61b18bbbe28c6461fbf246083ca1b8b77b297bcc",
+          "bodySha256": "a9edb5d5cb8aed148e458146ab087f3354fc65a197ac90eac33fca0e55211162",
+          "declarationSha256": "5ccd0954034c507ce71d673e0bc430078e7b141e00e0b12042a0cf906e91a3e4"
+        }
+      ]
+    },
+    {
+      "rationale": "Only the recorded observer can clear the pointer; the empty-slot cleanup remains a no-op for registry transitions.",
+      "id": "allowlist-unregister-observer",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/Allowlist.sol",
+      "signature": "unregisterVoteEligibilityObserver()",
+      "predicate": "registered-observer-only-pointer-cleanup",
+      "sourceSha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+      "bodySha256": "1a73e0b22200a9f69c9584f47ebbd686fc6ac12cab7024221f1288f9310549d9",
+      "declarationSha256": "b8b235e773d858368de1179c0bcf24dd3c2ce2fc796f6438da8770399f003a0f",
+      "helperBindings": [
+        {
+          "path": "src/ForageToken.sol",
+          "signature": "_unregisterAllowlistObserver(address)",
+          "sha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+          "bodySha256": "c0d4c6777cb7b8e8e6263aec6e14bc3850561cfd1d917bd042eccdc141c1449c",
+          "declarationSha256": "c24f234c2f5960b135cc2f2df3b844399ef1fffedfe9558f18ea7ce99b77343a"
+        },
+        {
+          "path": "src/ForageToken.sol",
+          "signature": "setAllowlist(address)",
+          "sha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+          "bodySha256": "d4efd92dae1e7590ee1faa9ab313abdd33e1d23f776cd83a4585fc6d8132a570",
+          "declarationSha256": "c79c3163c506c4713a2b5c0a6db0f62376cf696e4ec4a48733a9fd9167cdf305"
+        }
+      ]
+    },
+    {
+      "rationale": "The existing owner must also be currently eligible before the two-step transfer is started.",
+      "id": "allowlist-transfer-ownership",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/Allowlist.sol",
+      "signature": "transferOwnership(address)",
+      "predicate": "current-eligible-owner-two-step-transfer",
+      "sourceSha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+      "bodySha256": "eda011739f3fd1353124d9e88d4a9bca9f25621f277862e756fc66449d60e4eb",
+      "declarationSha256": "cddc9ef3d7dbf054e14130f33434aff27ac790afd343ad0921e4627485370714",
+      "helperBindings": [
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_requireEligibleOwner()",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "6b4aeb6d9554f14507ae6208539b95281fe2bc416bc00ad7ba9eeee7666c9a03",
+          "declarationSha256": "8542dc6dc0a38d7e8ae44c500d24512f8e58cc638e75960a280938f992668c1e"
+        }
+      ]
+    },
+    {
+      "rationale": "The caller must remain eligible and must be the pending owner accepted by the pinned two-step ownership base.",
+      "id": "allowlist-accept-ownership",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/Allowlist.sol",
+      "signature": "acceptOwnership()",
+      "predicate": "eligible-pending-owner-acceptance",
+      "sourceSha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+      "bodySha256": "111721ff27f292fcd13c1e3292ed2cf3a27e352643c81d741ce791030ddcc45a",
+      "declarationSha256": "049150df44a64ae20ba3778e2a204837248d40eb6bd86261e980601ed997d5ff",
+      "helperBindings": [
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_isAllowed(address)",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "fb6c095e1deb17c8bebb2f083360d37ded48e32ab26b1fda9a83ec01c1a9a1f5",
+          "declarationSha256": "f0751fb49831bcb36e6b746186405facf0a2a6a76bc5178bf3ae1eb8158e5ef7"
+        },
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable/contracts/access/Ownable2StepUpgradeable.sol",
+          "signature": "acceptOwnership()",
+          "sha256": "79d72231f264af92799a24d6df08ccf3c044aef38933d285f792cae105421989",
+          "bodySha256": "b53a7160b41345406d322b6583cb172959b03acc2a80e3f7bf9c61e203bc88ad",
+          "declarationSha256": "3e3562b9b9b3357a6da6bce03191059093decf7327df5ee6d9e69eb210bcec68"
+        },
+        {
+          "path": "lib/openzeppelin-contracts-upgradeable/contracts/access/Ownable2StepUpgradeable.sol",
+          "signature": "pendingOwner()",
+          "sha256": "79d72231f264af92799a24d6df08ccf3c044aef38933d285f792cae105421989",
+          "bodySha256": "462fbd0af6f256c4648359e7312b1446022cd9771cc3133ae143a08110e04197",
+          "declarationSha256": "f408c96e6fc9a982f7c66d7a328c915741db0ccca7325bc80da92f605d8fffe9"
+        }
+      ]
+    },
+    {
+      "rationale": "Only the recorded observer can clear the Blocklist callback pointer; this is distinct from registration eligibility.",
+      "id": "blocklist-unregister-observer",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/Blocklist.sol",
+      "signature": "unregisterVoteEligibilityObserver()",
+      "predicate": "registered-observer-only-pointer-cleanup",
+      "sourceSha256": "35ec078b9902287ea45c48ea17eb75fc9c7ca1ded2cc7c357e5742984500ebd9",
+      "bodySha256": "1a73e0b22200a9f69c9584f47ebbd686fc6ac12cab7024221f1288f9310549d9",
+      "declarationSha256": "b8b235e773d858368de1179c0bcf24dd3c2ce2fc796f6438da8770399f003a0f",
+      "helperBindings": [
+        {
+          "path": "src/ForageToken.sol",
+          "signature": "_unregisterBlocklistObserver(address)",
+          "sha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+          "bodySha256": "1e4f629a7817f2209a22a042a1e671457a12764819262de895cdffe767e701a5",
+          "declarationSha256": "75eb875790089010023d20b02c88521f1a278376c725e07307956559078f7fc6"
+        },
+        {
+          "path": "src/ForageToken.sol",
+          "signature": "setBlocklist(address)",
+          "sha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+          "bodySha256": "ecb91f786238268d9d5d05f593511bbbaad160210e41275c22623aac1949bb21",
+          "declarationSha256": "f6838da05169d42cd0f9bd80fc400edf06c8a43a6548fb75f28d7cde4c33141b"
+        }
+      ]
+    },
+    {
+      "rationale": "The callback accepts only the current Allowlist or Blocklist pointer and then synchronizes both vote-source paths.",
+      "id": "forage-token-sync-observer",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/ForageToken.sol",
+      "signature": "syncVoteEligibility(address)",
+      "predicate": "current-allowlist-or-blocklist-observer",
+      "sourceSha256": "876d1a3291a9c0783ae3b66706674f55808185bf86bb09257a053b27883aeee3",
+      "bodySha256": "c01711beac43171fbc4305de0b7a28f1d696c98bacaeaf921d4eecf8fddc3cc6",
+      "declarationSha256": "b72fb11217dcccf6673b65a602d93201081b8bd036bd2163f0b4233d88751173",
+      "helperBindings": [
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_recordEligibilityChange(address)",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "76b2b9b213a5f9275cab9a0337abed395176e62a6aada715c2f9790da90cc001",
+          "declarationSha256": "80f7cbfa4bc900398a64b1b6741be910bd9483ff12d90bff6aa6c78bda719bb8"
+        },
+        {
+          "path": "src/Blocklist.sol",
+          "signature": "_notifyVoteEligibilityObserver(address)",
+          "sha256": "35ec078b9902287ea45c48ea17eb75fc9c7ca1ded2cc7c357e5742984500ebd9",
+          "bodySha256": "8bc1bf44aa8ff7e8e74cef77a7ac8017130985c48e5278890a459c83cf02c0dc",
+          "declarationSha256": "096d31a6be777a81bb7fcbb7cf6a55cccfdba21ce9995d23ecbd7cd1c2c9c16b"
+        }
+      ]
+    },
+    {
+      "rationale": "The owner-authorized external beneficiary approval has a 400-day expiry, records eligibility history, and remains separate from vesting-wallet registration; daily-cap behavior is not established.",
+      "id": "allowlist-renewable-beneficiary",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/Allowlist.sol",
+      "signature": "approveVestingBeneficiary(address)",
+      "predicate": "finite-renewable-external-beneficiary-approval",
+      "sourceSha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+      "bodySha256": "2e3cf7bc1096e868aa6c6ec94ed9f7d5bf4df0544daa9245fb0b30c93b95d675",
+      "declarationSha256": "3eb84f5d843b826965efbdef3eeb71ba0778652c5edef9b1fba1d9afec0f24cb",
+      "helperBindings": [
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_requireEligibleOwner()",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "6b4aeb6d9554f14507ae6208539b95281fe2bc416bc00ad7ba9eeee7666c9a03",
+          "declarationSha256": "8542dc6dc0a38d7e8ae44c500d24512f8e58cc638e75960a280938f992668c1e"
+        },
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_countApproval()",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "f47612717084f705745df32842799f088a3113d123aa5d063d99b700582d661d",
+          "declarationSha256": "249821fc1be2690f319c360529d3ad74e8fd3f7e4e1fb7f59630386cb36540e1"
+        },
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_captureEligibilityBaseline(address)",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "dac9348d01b66805615b61dd722edda39e84e54648bb5fd326251e02bd5ace41",
+          "declarationSha256": "1049cad652965c18103ebb75b48aad3c4984bfa71e8e8e3eecdb35af9a9268d4"
+        },
+        {
+          "path": "src/Allowlist.sol",
+          "signature": "_recordEligibilityChange(address)",
+          "sha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+          "bodySha256": "76b2b9b213a5f9275cab9a0337abed395176e62a6aada715c2f9790da90cc001",
+          "declarationSha256": "80f7cbfa4bc900398a64b1b6741be910bd9483ff12d90bff6aa6c78bda719bb8"
+        },
+        {
+          "path": "script/Deploy.s.sol",
+          "signature": "_deployAllowlist(DeployConfig)",
+          "sha256": "9139f9d2e39085394bb5126e61b18bbbe28c6461fbf246083ca1b8b77b297bcc",
+          "bodySha256": "4b089a5c4a4c450b286e488d29af14e9b6841d802f3af0431c2cc364997f34f6",
+          "declarationSha256": "86abc12f978e78347774408ac4925095f821db83ab5e11f383e4ca5c60520189"
+        },
+        {
+          "path": "script/Deploy.s.sol",
+          "signature": "_allowlistTargets()",
+          "sha256": "9139f9d2e39085394bb5126e61b18bbbe28c6461fbf246083ca1b8b77b297bcc",
+          "bodySha256": "a9edb5d5cb8aed148e458146ab087f3354fc65a197ac90eac33fca0e55211162",
+          "declarationSha256": "5ccd0954034c507ce71d673e0bc430078e7b141e00e0b12042a0cf906e91a3e4"
+        }
+      ]
+    }
+  ],
+  "sourcePolicyReview": {
+    "id": "allowlist-zero-daily-cap-rollover",
+    "path": "src/Allowlist.sol",
+    "signature": "_countApproval()",
+    "status": "REVIEW_REQUIRED",
+    "sourceSha256": "d3ac445b7bb123570f4f9429eaf276b615d889268f4fdf075986bf6b9e094cf6",
+    "bodySha256": "f47612717084f705745df32842799f088a3113d123aa5d063d99b700582d661d",
+    "declarationSha256": "249821fc1be2690f319c360529d3ad74e8fd3f7e4e1fb7f59630386cb36540e1",
+    "rationale": "The source rejects a zero approval cap before UTC-day rollover. Positive-cap daily limits and final candidate verification remain subject to review."
+  },
+  "reviewedSourcePolicies": [
+    {
+      "rationale": "Replacement keeps installed-registry owner authorization and requires canonical candidate caller and tier-system membership.",
+      "id": "atrisk-allowlist-transition",
+      "ruleId": "openforage-allowlist-gate-missing-modifier",
+      "path": "src/atRISKUSD.sol",
+      "signature": "setAllowlist(address)",
+      "predicate": "installed-owner-and-canonical-candidate-system-membership",
+      "sourceSha256": "57ffa4bfbc363849a9d9a6ce2c8580360575c9170caddd833a1716807aea7f70",
+      "bodySha256": "a648ebc2a6808d975da81b9616d81b867ff59641dd8fb5e551d5842442af3e77",
+      "declarationSha256": "da115510088042f26d4f0c1e04b361b7d7425797b272f7066ec26596a94ba1f5",
+      "helperBindings": [
+        {
+          "path": "src/AllowlistGatedUpgradeable.sol",
+          "signature": "_validateAllowlistTransition(address)",
+          "sha256": "4e61bf1951ae9d5e1899d8226f8217987cc1cd655a25cd34171ce541928ae819",
+          "bodySha256": "a875e7ee32e4ed9d0c3d544f138fdf50d5a22fdea8a7f87f4f3c8ac003bafe01",
+          "declarationSha256": "7d7ca54d350b20602980c72ee49b7bf02387be92b3e32dbd9193430bdef5185e"
+        },
+        {
+          "path": "src/AllowlistGatedUpgradeable.sol",
+          "signature": "_requireTransitionCandidate(address,address)",
+          "sha256": "4e61bf1951ae9d5e1899d8226f8217987cc1cd655a25cd34171ce541928ae819",
+          "bodySha256": "0a21f84f1a69faa13bf70c63df75dcb8fffe693480adc2a5666d5dcb56421555",
+          "declarationSha256": "64e36ae4d75762381111bd9092e3a638105c61236d31e16b8e22582693c19dba"
+        },
+        {
+          "path": "src/AllowlistGatedUpgradeable.sol",
+          "signature": "_readCanonicalBoolean(address,bytes)",
+          "sha256": "4e61bf1951ae9d5e1899d8226f8217987cc1cd655a25cd34171ce541928ae819",
+          "bodySha256": "11595fc7adaaa84e25f905ab6077bb1a659343c284e05c94079543efc3c52256",
+          "declarationSha256": "943694b1f08e0a761af2d0f448f645365c00797a0fb674507151290e091d971f"
+        }
+      ]
+    }
+  ]
+}

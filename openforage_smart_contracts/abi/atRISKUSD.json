@@ -1,7 +1,13 @@
 [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "profitModule_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -142,6 +148,19 @@
   },
   {
     "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "approve",
     "inputs": [
       {
@@ -230,9 +249,54 @@
   },
   {
     "type": "function",
+    "name": "burnWorthlessShares",
+    "inputs": [
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "cancelWithdrawal",
     "inputs": [],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "catchUpUnpaidProfitEpochs",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimUnpaidProfit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -473,26 +537,6 @@
         "name": "initialOwner_",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV2",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializeV3",
-    "inputs": [
-      {
-        "name": "abbreviation_",
-        "type": "string",
-        "internalType": "string"
       }
     ],
     "outputs": [],
@@ -1025,6 +1069,26 @@
   },
   {
     "type": "function",
+    "name": "recognizeUnpaidProfit",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recoverPendingWithdrawal",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "redeem",
     "inputs": [
       {
@@ -1141,6 +1205,32 @@
   },
   {
     "type": "function",
+    "name": "selfCatchUpUnpaidProfitEpochs",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setAutoRenew",
     "inputs": [
       {
@@ -1240,6 +1330,13 @@
         "internalType": "address"
       }
     ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleWeeklyExit",
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -1495,6 +1592,19 @@
   },
   {
     "type": "function",
+    "name": "writeDownUnpaidProfit",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "yieldSource",
     "inputs": [],
     "outputs": [
@@ -1505,6 +1615,25 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1647,6 +1776,19 @@
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EmergencyOverrideWindowOpened",
+    "inputs": [
+      {
+        "name": "expiresAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -1894,6 +2036,88 @@
   },
   {
     "type": "event",
+    "name": "UnpaidProfitCatchUpProgress",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "nextEpoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "currentEpoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnpaidProfitClaimed",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnpaidProfitRecognized",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnpaidProfitWrittenDown",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remaining",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Unpaused",
     "inputs": [
       {
@@ -1907,6 +2131,25 @@
   },
   {
     "type": "event",
+    "name": "UnreachableWithdrawalRecovered",
+    "inputs": [
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Upgraded",
     "inputs": [
       {
@@ -1914,6 +2157,50 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeeklyExitSettled",
+    "inputs": [
+      {
+        "name": "windowStart",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "demandShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "roomShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeeklyExitSharesReleased",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -2045,6 +2332,25 @@
   },
   {
     "type": "event",
+    "name": "WorthlessSharesBurned",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "YieldAccrued",
     "inputs": [
       {
@@ -2107,6 +2413,37 @@
   },
   {
     "type": "error",
+    "name": "AllowanceChangeRequiresZero",
+    "inputs": [
+      {
+        "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "currentAllowance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "requestedAllowance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AllowlistHorizonOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "AutoRenewDisabled",
     "inputs": []
   },
@@ -2117,10 +2454,32 @@
   },
   {
     "type": "error",
+    "name": "BeneficiaryNotAllowed",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BlockedAddress",
     "inputs": [
       {
         "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
         "type": "address",
         "internalType": "address"
       }
@@ -2149,6 +2508,17 @@
         "name": "unlockTime",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CustodianGetterUnavailable",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -2367,6 +2737,11 @@
   },
   {
     "type": "error",
+    "name": "EmergencyRecoveryWindowClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "EmptyAbbreviation",
     "inputs": []
   },
@@ -2403,13 +2778,78 @@
   },
   {
     "type": "error",
+    "name": "ExpiryHeapInvariant",
+    "inputs": [
+      {
+        "name": "expiry",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "FailedCall",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "FinalClaimBurn",
+    "inputs": [
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "FinalizeDelayNotElapsed",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "observedVersion",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientAllowlistDuration",
+    "inputs": [
+      {
+        "name": "requiredUntil",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "allowedUntil",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientFundedAssets",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2439,12 +2879,54 @@
   },
   {
     "type": "error",
+    "name": "MalformedLossPendingReturn",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ModuleReturnDataInvalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoFundedProfit",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoPendingForageGovernor",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NoPendingWithdrawal",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoPositiveWithdrawalSlice",
+    "inputs": [
+      {
+        "name": "remainingCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NoWeeklyExitAllocation",
     "inputs": []
   },
   {
@@ -2460,6 +2942,11 @@
   {
     "type": "error",
     "name": "NotPendingYieldSource",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotTotalLossState",
     "inputs": []
   },
   {
@@ -2488,6 +2975,70 @@
     "type": "error",
     "name": "PendingWithdrawalExists",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ProfitClaimInvariant",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProfitEpochCatchUpRequired",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "nextEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "currentEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProfitIndexPrecisionExhausted",
+    "inputs": [
+      {
+        "name": "outstanding",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "scale",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProfitModuleUnavailable",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2559,6 +3110,76 @@
   },
   {
     "type": "error",
+    "name": "UnfundedZeroSupplyClaim",
+    "inputs": [
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnpaidProfitUnavailable",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "outstanding",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitAccountingInvariant",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitArithmeticOverflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitSettlementRequired",
+    "inputs": [
+      {
+        "name": "closesAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WeeklyExitWindowOpen",
+    "inputs": [
+      {
+        "name": "closesAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "WeeklyWithdrawalCapExceeded",
     "inputs": [
       {
@@ -2575,8 +3196,152 @@
   },
   {
     "type": "error",
+    "name": "YieldAssetValueOverflow",
+    "inputs": [
+      {
+        "name": "funded",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldClaimsNotReady",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldClaimsUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceAttestorUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "attestor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceBridgeRouteMismatch",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "bridge",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedTreasury",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualTreasury",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceBridgeUnavailable",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "bridge",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceCallerNotEligible",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceClaimOutstanding",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "claim",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceReachable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "YieldSourceUnreachable",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "YieldSourceWiringMismatch",
+    "inputs": [
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2596,6 +3361,11 @@
   {
     "type": "error",
     "name": "ZeroRedemptionOutput",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroSupplyYield",
     "inputs": []
   }
 ]

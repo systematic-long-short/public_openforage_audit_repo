@@ -3,13 +3,14 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 contract_root="$(cd -- "${script_dir}/.." && pwd)"
+source "${contract_root}/../scripts/lib/standard_log_line.sh"
 cd "${contract_root}"
 
 : "${FOUNDRY_PROFILE:=deploy}"
 export FOUNDRY_PROFILE
 
 if [[ "${FOUNDRY_PROFILE}" != "deploy" ]]; then
-  echo "Deploy.s.sol must run with FOUNDRY_PROFILE=deploy so implementation bytecode fits EIP-170" >&2
+  openforage_log_stderr ERROR "Deploy.s.sol must run with FOUNDRY_PROFILE=deploy so implementation bytecode fits EIP-170"
   exit 64
 fi
 
@@ -25,7 +26,6 @@ required_env=(
   KEEPER_ADDRESS
   CUSTODIAN_EXECUTOR
   COLD_ACCOUNT_ADDRESS
-  SEQUENCER_UPTIME_FEED
   HYPERLIQUID_SOURCE_ACCOUNT
   WITHDRAWAL_CHAIN_SELECTOR
   GUARDIAN_0
@@ -35,11 +35,12 @@ required_env=(
   GUARDIAN_4
   GUARDIAN_5
   GUARDIAN_6
+  RESERVED_PROPOSAL_GUARDIAN
 )
 
 for name in "${required_env[@]}"; do
   if [[ -z "${!name:-}" ]]; then
-    echo "Deploy.s.sol requires ${name} to be set explicitly" >&2
+    openforage_log_stderr ERROR "Deploy.s.sol requires ${name} to be set explicitly"
     exit 64
   fi
 done

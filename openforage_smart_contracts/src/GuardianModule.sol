@@ -5,7 +5,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./AllowlistGatedUpgradeable.sol";
+import "./ForageGovernorTimelockGuard.sol";
 import "./interfaces/IAllowlist.sol";
+import "./libraries/GuardianAuthorityClassifier.sol";
 
 /// @title GuardianModule — Extracted guardian logic for ForageGovernor
 /// @notice Manages guardian permissions, pause actions, proposal cancellation,
@@ -34,16 +36,31 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     error ProtectedGovernanceTarget(address target); // OF-13-044: infrastructure-protection reverts
     error NotPendingTimelock();
     error StaleTimelockAuthority();
+    error GovernorTimelockViewUnavailable(address governor);
+    error GovernorTimelockMismatch(address governorTimelock, address pendingTimelock);
     error FinalizeDelayNotElapsed(); // OF-NEW-07 (12th audit)
     error ProposalExpired(); // OF-NEW-07 (12th audit)
     error GuardianCannotLoosen();
     error GuardianCannotMoveFunds();
     error SuccessorNotPreCommitted();
     error RotationNotReady();
+    error RoutineRotationIdOccupied(bytes32 operationId);
+    error GuardianSeatTransitionInvalid(
+        address current,
+        address successor,
+        uint256 currentPermissions,
+        uint256 successorPermissions,
+        uint256 currentEntries,
+        uint256 successorEntries
+    );
+    error GuardianFreshDeploymentRequired(uint256 observedVersion);
+    error CustodianRegistryUnavailable(address registry);
+    error CanonicalCustodianRegistryRequired();
 
     // ── Custom events ────────────────────────────────────────────────────
     event GuardianPaused(address indexed guardian, address indexed target);
     event GuardianCanceled(address indexed guardian, uint256 proposalId);
+    event GuardianEmergencyAttempted(address indexed guardian, uint256 totalCalls);
     event GuardianEmergencyExecuted(address indexed guardian, address[] targets);
     /// @dev OF-16-013: Summary event when emergency execution has failures.
     event EmergencyExecutionSummary(address indexed guardian, uint256 totalCalls, uint256 failureCount);
@@ -56,6 +73,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     event GovernorUpdated(address indexed oldGovernor, address indexed newGovernor);
     event TimelockUpdated(address indexed oldTimelock, address indexed newTimelock);
     event TimelockProposed(address indexed currentTimelock, address indexed pendingTimelock);
+    event CustodianRegistryUpdated(address indexed oldRegistry, address indexed newRegistry);
     /// @dev OF-16-021: Emitted when a pending timelock transfer is silently cancelled by upgrade.
     event PendingTimelockClearedByUpgrade(address indexed cancelledPendingTimelock);
 
@@ -80,20 +98,14 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     bytes32 public constant SLOT_LARGE_DELEGATOR = keccak256("LARGE_DELEGATOR");
     bytes32 public constant SLOT_CUSTODY_EXECUTOR = keccak256("CUSTODY_EXECUTOR");
     bytes32 public constant SLOT_GOVERNOR = keccak256("GOVERNOR");
-    bytes4 private constant _UPGRADE_TO_AND_CALL_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
-    bytes4 private constant _SET_GOVERNOR_GUARDIAN_MODULE_SELECTOR = bytes4(keccak256("setGuardianModule(address)"));
-    bytes4 private constant _PROPOSE_DOWNSTREAM_GUARDIAN_MODULE_SELECTOR =
-        bytes4(keccak256("proposeGuardianModule(address)"));
-    bytes4 private constant _FINALIZE_DOWNSTREAM_GUARDIAN_MODULE_SELECTOR =
-        bytes4(keccak256("finalizeGuardianModule()"));
     bytes4 private constant _GOVERNOR_RELAY_SELECTOR = bytes4(keccak256("relay(address,uint256,bytes)"));
     bytes4 private constant _TIMELOCK_SCHEDULE_SELECTOR =
         bytes4(keccak256("schedule(address,uint256,bytes,bytes32,bytes32,uint256)"));
     bytes4 private constant _TIMELOCK_SCHEDULE_BATCH_SELECTOR =
         bytes4(keccak256("scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)"));
-    bytes4 private constant _GUARDIAN_MODULE_VIEW_SELECTOR = bytes4(keccak256("guardianModule()"));
     bytes4 private constant _TIMELOCK_VIEW_SELECTOR = bytes4(keccak256("timelock()"));
-    uint256 private constant _GUARDIAN_MODULE_LOOKUP_GAS = 30_000;
+    bytes4 private constant _TIMELOCK_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
+    uint256 private constant _REGISTRY_TARGET = 32;
 
     // ── State variables ──────────────────────────────────────────────────
     address public governor;
@@ -116,15 +128,34 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         bool exists;
     }
 
+    struct GuardianMutationScanContext {
+        address registryOwner;
+        address executor;
+        address effectiveCaller;
+        uint256 depth;
+    }
+
+    struct GuardianSeatSetupSnapshot {
+        uint256 currentPermissions;
+        uint256 successorPermissions;
+        uint256 currentEntries;
+        uint256 successorEntries;
+        address allowlist;
+    }
+
     mapping(bytes32 => mapping(address => address)) public preCommittedSuccessor;
     mapping(bytes32 => address) public activeSlotHolder;
     mapping(bytes32 => Rotation) internal _rotations;
     mapping(bytes32 => mapping(address => bool)) internal _rotationApprovals;
     mapping(bytes32 => uint256) internal _rotationApprovalCount;
     mapping(bytes32 => uint256) internal _acceleratedRotationGenerations;
+    mapping(bytes32 => uint256) internal _routineRotationGenerations;
 
     /// @dev Reserved storage gap for future upgrades.
-    uint256[35] private __gap;
+    uint256 private _freshLayoutVersion;
+    GuardianAuthorityClassifier.CustodianRegistryStorage private _custodianRegistry;
+    mapping(address => uint256) private _guardianRosterEntryCount;
+    uint256[31] private __gap;
 
     // ── Constructor ──────────────────────────────────────────────────────
 
@@ -133,41 +164,45 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         _disableInitializers();
     }
 
+    modifier freshOnly() {
+        _requireFreshDeployment();
+        _;
+    }
+
+    modifier onlyDuringConstructionBeforeInitialization() {
+        if (address(this).code.length != 0 || _getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    function _requireFreshDeployment() private view {
+        uint256 version = _freshLayoutVersion;
+        if (version != 2) revert GuardianFreshDeploymentRequired(version);
+    }
+
     // ── Initializer ──────────────────────────────────────────────────────
 
-    function initialize(
-        address governor_,
-        address timelock_,
-        address[] calldata initialGuardians_,
-        uint256[] calldata initialGuardianPermissions_
-    ) external initializer {
-        if (governor_ == address(0)) revert ZeroAddress();
-        if (timelock_ == address(0)) revert ZeroAddress();
-        if (initialGuardians_.length != initialGuardianPermissions_.length) revert ArrayLengthMismatch();
+    function initialize(address, address, address[] calldata, uint256[] calldata) external pure {
+        revert CanonicalCustodianRegistryRequired();
+    }
 
-        governor = governor_;
-        timelock = timelock_;
-
-        for (uint256 i; i < initialGuardians_.length;) {
-            if (initialGuardians_[i] == address(0)) revert ZeroAddress();
-            if (initialGuardianPermissions_[i] == 0) revert InvalidParameter();
-            if (guardianPermissions[initialGuardians_[i]] != 0) revert DuplicateGuardian();
-            // OF-19-001: Validate permissions (MAX_VALID + PauseAndCancelForbidden)
-            _validatePermissions(initialGuardianPermissions_[i]);
-
-            guardianPermissions[initialGuardians_[i]] = initialGuardianPermissions_[i];
-            _guardianList.push(initialGuardians_[i]);
-
-            emit GuardianPermissionsUpdated(initialGuardians_[i], 0, initialGuardianPermissions_[i]);
-            unchecked {
-                ++i;
-            }
-        }
+    function initializeWithCustodianRegistry(GuardianAuthorityClassifier.InitializationConfig calldata config)
+        external
+        onlyDuringConstructionBeforeInitialization
+        initializer
+    {
+        governor = config.governor;
+        timelock = config.timelock;
+        _custodianRegistry.canonical = config.custodianRegistry;
+        emit CustodianRegistryUpdated(address(0), config.custodianRegistry);
+        GuardianAuthorityClassifier.initializeGuardianRoster(
+            _guardianList, _guardianRosterEntryCount, guardianPermissions, config
+        );
+        _freshLayoutVersion = 2;
     }
 
     // ── Guardian functions ───────────────────────────────────────────────
 
-    function guardianPause(address target) external onlyAllowedCaller {
+    function guardianPause(address target) external freshOnly onlyAllowedCaller {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
         if (permissions == 0) revert NotGuardian();
@@ -189,23 +224,21 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     /// @notice OF-001 (8th audit): Blocks guardian from cancelling proposals that would
     /// remove or modify their own guardian permissions (governance entrenchment prevention).
-    function guardianCancel(uint256 proposalId) external onlyAllowedCaller {
+    function guardianCancel(uint256 proposalId) external freshOnly onlyAllowedCaller {
         _requireCurrentGuardianModule();
         uint256 permissions = guardianPermissions[msg.sender];
         if (permissions == 0) revert NotGuardian();
         if ((permissions & PERMISSION_CAN_CANCEL) == 0) {
             revert InsufficientPermissions();
         }
+        address registryOwner = GuardianAuthorityClassifier.custodianRegistryOwner(_custodianRegistry);
 
         (address[] memory targets, uint256[] memory values, bytes[] memory calldatas, bytes32 descriptionHash) =
             IForageGovernorMinimal(governor).getProposalParams(proposalId);
         if (targets.length == 0) revert EmptyProposal();
 
-        // V7: guardian-proposed spam is cancelable by the guardian set. For ordinary
-        // governance proposals, keep the older protected-mutation cancellation guard.
-        if (!_isGuardianProposedProposal(proposalId)) {
-            _revertIfSelfTargetingGuardianMutation(msg.sender, targets, calldatas);
-        }
+        GovernancePayloadBudget.Budget memory budget = GovernancePayloadBudget.Budget(0, 0);
+        _revertIfSelfTargetingGuardianMutation(registryOwner, targets, values, calldatas, budget);
 
         // Cancel via governor (governor._validateCancel authorizes this module)
         IForageGovernorMinimal(governor).cancel(targets, values, calldatas, descriptionHash);
@@ -215,6 +248,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     function guardianExecuteEmergency(address[] calldata targets, uint256[] calldata values, bytes[] calldata calldatas)
         external
+        freshOnly
         onlyAllowedCaller
     {
         _requireCurrentGuardianModule();
@@ -246,6 +280,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
             }
         }
 
+        emit GuardianEmergencyAttempted(msg.sender, targets.length);
         // OF-004 (8th audit): Execute with try/catch — emit per-call results.
         // In an emergency, partial success is preferable to an all-or-nothing revert
         // that leaves every contract unpaused because one target failed.
@@ -258,8 +293,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
             }
         }
 
-        emit GuardianEmergencyExecuted(msg.sender, targets);
-        if (failureCount > 0) {
+        if (failureCount == 0) {
+            emit GuardianEmergencyExecuted(msg.sender, targets);
+        } else {
             emit EmergencyExecutionSummary(msg.sender, targets.length, failureCount);
         }
     }
@@ -268,7 +304,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     /// @dev OF-16-014: Validates bitmask against MAX_VALID_PERMISSIONS.
     /// @dev OF-16-005: Forbids PERMISSION_CAN_PAUSE | PERMISSION_CAN_CANCEL on same guardian.
-    function setGuardianPermissions(address guardian_, uint256 permissions) external onlyAllowedCaller {
+    function setGuardianPermissions(address guardian_, uint256 permissions) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         _requireVerifiedAccount(guardian_);
@@ -281,19 +317,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         uint256 oldPermissions = guardianPermissions[guardian_];
         guardianPermissions[guardian_] = permissions;
 
-        if (permissions == 0 && oldPermissions != 0) {
-            for (uint256 i; i < _guardianList.length;) {
-                if (_guardianList[i] == guardian_) {
-                    _guardianList[i] = _guardianList[_guardianList.length - 1];
-                    _guardianList.pop();
-                    break;
-                }
-                unchecked {
-                    ++i;
-                }
-            }
-        } else if (oldPermissions == 0 && permissions != 0) {
-            _guardianList.push(guardian_);
+        if (permissions != 0 || oldPermissions != 0) {
+            uint8 operation = permissions == 0 ? 1 : oldPermissions == 0 ? 0 : 3;
+            _mutateGuardianRoster(guardian_, address(0), operation);
         }
 
         emit GuardianPermissionsUpdated(guardian_, oldPermissions, permissions);
@@ -302,24 +328,14 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         );
     }
 
-    function removeGuardian(address guardian_) external onlyAllowedCaller {
+    function removeGuardian(address guardian_) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (guardian_ == address(0)) revert ZeroAddress();
         if (guardianPermissions[guardian_] == 0) revert NotGuardian();
 
         uint256 oldPermissions = guardianPermissions[guardian_];
         guardianPermissions[guardian_] = 0;
-
-        for (uint256 i; i < _guardianList.length;) {
-            if (_guardianList[i] == guardian_) {
-                _guardianList[i] = _guardianList[_guardianList.length - 1];
-                _guardianList.pop();
-                break;
-            }
-            unchecked {
-                ++i;
-            }
-        }
+        _mutateGuardianRoster(guardian_, address(0), 1);
 
         emit GuardianPermissionsUpdated(guardian_, oldPermissions, 0);
     }
@@ -329,7 +345,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     /// @notice Add or remove an address from the pausable target whitelist.
     /// @param target The contract address to whitelist or de-whitelist.
     /// @param allowed True to add, false to remove.
-    function setPausableTarget(address target, bool allowed) external onlyAllowedCaller {
+    function setPausableTarget(address target, bool allowed) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (target == address(0)) revert ZeroAddress();
         _pausableTargets[target] = allowed;
@@ -337,7 +353,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         emit GuardianFastPathRationale(GuardianModule.setPausableTarget.selector, RATIONALE_PAUSABLE_TARGET_FAST_PATH);
     }
 
-    function setPreCommittedSuccessor(bytes32 slot, address current, address successor) external onlyAllowedCaller {
+    function setPreCommittedSuccessor(bytes32 slot, address current, address successor)
+        external
+        freshOnly
+        onlyAllowedCaller
+    {
         _requireCurrentTimelockAuthority();
         if (slot == bytes32(0) || current == address(0) || successor == address(0)) revert ZeroAddress();
         _requireVerifiedAccount(successor);
@@ -347,28 +367,32 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         }
     }
 
+    function guardianSeatSetupSnapshot(address current, address successor)
+        external
+        view
+        freshOnly
+        returns (GuardianSeatSetupSnapshot memory snapshot)
+    {
+        snapshot.currentPermissions = guardianPermissions[current];
+        snapshot.successorPermissions = guardianPermissions[successor];
+        snapshot.currentEntries = _guardianRosterEntryCount[current];
+        snapshot.successorEntries = _guardianRosterEntryCount[successor];
+        snapshot.allowlist = allowlist();
+    }
+
     function proposeAcceleratedRotation(bytes32 slot, address current, address successor)
         external
+        freshOnly
         onlyAllowedCaller
         returns (bytes32)
     {
         _requireGuardian(msg.sender);
+        if (successor == address(0)) revert ZeroAddress();
         if (preCommittedSuccessor[slot][current] != successor) revert SuccessorNotPreCommitted();
-        bytes32 tupleId = keccak256(abi.encode("accelerated", slot, current, successor));
-        uint256 generation = _acceleratedRotationGenerations[tupleId];
-        bytes32 operationId = generation == 0 ? tupleId : keccak256(abi.encode(tupleId, generation));
-        Rotation storage rotation = _rotations[operationId];
-        if (!rotation.exists) {
-            rotation.slot = slot;
-            rotation.current = current;
-            rotation.successor = successor;
-            rotation.proposedAt = block.timestamp;
-            rotation.exists = true;
-        }
-        return operationId;
+        return _proposeAcceleratedRotation(slot, current, successor);
     }
 
-    function approveAcceleratedRotation(bytes32 operationId) external onlyAllowedCaller {
+    function approveAcceleratedRotation(bytes32 operationId) external freshOnly onlyAllowedCaller {
         _requireGuardian(msg.sender);
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists) revert InvalidParameter();
@@ -389,19 +413,20 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         return _rotations[operationId].readyAt;
     }
 
-    function executeAcceleratedRotation(bytes32 operationId) external onlyAllowedCaller {
+    function executeAcceleratedRotation(bytes32 operationId) external freshOnly onlyAllowedCaller {
         Rotation storage rotation = _rotations[operationId];
         if (rotation.readyAt == 0 || block.timestamp < rotation.readyAt || rotation.executed) {
             revert RotationNotReady();
         }
+        if (_acceleratedRotationExpired(rotation)) revert RotationNotReady();
         if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) {
             revert SuccessorNotPreCommitted();
         }
+        _requireVerifiedAccount(rotation.successor);
         rotation.executed = true;
         activeSlotHolder[rotation.slot] = rotation.successor;
-        _acceleratedRotationGenerations[
-                keccak256(abi.encode("accelerated", rotation.slot, rotation.current, rotation.successor))
-            ] += 1;
+        bytes32 tupleId = _acceleratedRotationTupleId(rotation.slot, rotation.current, rotation.successor);
+        _acceleratedRotationGenerations[tupleId] += 1;
         if (rotation.slot == SLOT_GUARDIAN_SEAT) {
             _replaceGuardianSeat(rotation.current, rotation.successor);
         }
@@ -409,28 +434,53 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     function proposeRoutineRotation(bytes32 slot, address current, address successor)
         external
+        freshOnly
         onlyAllowedCaller
         returns (bytes32)
     {
         if (msg.sender != governor) revert Unauthorized();
+        if (successor == address(0)) revert ZeroAddress();
         if (preCommittedSuccessor[slot][current] != successor) revert SuccessorNotPreCommitted();
-        bytes32 operationId = keccak256(abi.encode("routine", slot, current, successor));
-        Rotation storage rotation = _rotations[operationId];
-        rotation.slot = slot;
-        rotation.current = current;
-        rotation.successor = successor;
-        rotation.proposedAt = block.timestamp;
-        rotation.exists = true;
+        if (slot == SLOT_GUARDIAN_SEAT) _requireGuardianSeatTransition(current, successor);
+        bytes32 tupleId = _routineRotationTupleId(slot, current, successor);
+        uint256 generation = _routineRotationGenerations[tupleId];
+        bytes32 operationId = _rotationOperationId(tupleId, generation);
+        Rotation storage existing = _rotations[operationId];
+        if (existing.exists) {
+            if (!existing.executed) return operationId;
+            generation += 1;
+            operationId = _rotationOperationId(tupleId, generation);
+            if (_rotations[operationId].exists) revert RoutineRotationIdOccupied(operationId);
+            _routineRotationGenerations[tupleId] = generation;
+        }
+        Rotation storage next = _rotations[operationId];
+        next.slot = slot;
+        next.current = current;
+        next.successor = successor;
+        next.proposedAt = block.timestamp;
+        next.exists = true;
         return operationId;
     }
 
-    function finalizeRoutineRotation(bytes32 operationId) external onlyAllowedCaller {
+    function finalizeRoutineRotation(bytes32 operationId) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists || rotation.executed) revert RotationNotReady();
         if (block.timestamp < rotation.proposedAt + ROUTINE_ROTATION_DELAY) revert FinalizeDelayNotElapsed();
+        if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) {
+            revert SuccessorNotPreCommitted();
+        }
+        if (rotation.slot == SLOT_GUARDIAN_SEAT) {
+            _requireGuardianSeatTransition(rotation.current, rotation.successor);
+        }
+        _requireVerifiedAccount(rotation.successor);
         rotation.executed = true;
         activeSlotHolder[rotation.slot] = rotation.successor;
+        bytes32 tupleId = _routineRotationTupleId(rotation.slot, rotation.current, rotation.successor);
+        _routineRotationGenerations[tupleId] += 1;
+        if (rotation.slot == SLOT_GUARDIAN_SEAT) {
+            _replaceGuardianSeat(rotation.current, rotation.successor);
+        }
     }
 
     function guardianLoosenCap(address, bytes4, uint256) external pure {
@@ -449,10 +499,14 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         return _guardianList.length;
     }
 
+    function canonicalCustodianRegistry() external view freshOnly returns (address) {
+        return _custodianRegistry.canonical;
+    }
+
     // ── OF-016: Governor/Timelock update functions ──────────────────────
 
     /// @notice OF-016: Update the governor address. Only callable by the timelock.
-    function updateGovernor(address newGovernor) external onlyAllowedCaller {
+    function updateGovernor(address newGovernor) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (newGovernor == address(0)) revert ZeroAddress();
         address oldGovernor = governor;
@@ -463,7 +517,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     /// @notice OF-L04: Propose a new timelock address. Only callable by the current timelock.
     /// Two-step pattern prevents irrecoverable loss from setting a wrong timelock address.
     /// @dev OF-NEW-07 (12th audit): Records proposal timestamp for FINALIZE_DELAY enforcement.
-    function proposeTimelock(address newTimelock) external onlyAllowedCaller {
+    function proposeTimelock(address newTimelock) external freshOnly onlyAllowedCaller {
         _requireCurrentTimelockAuthority();
         if (newTimelock == address(0)) revert ZeroAddress();
         pendingTimelock = newTimelock;
@@ -473,10 +527,11 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     /// @notice OF-L04: Accept the pending timelock role. Only callable by the pending timelock.
     /// @dev OF-NEW-07 (12th audit): Enforces FINALIZE_DELAY and PROPOSAL_EXPIRY.
-    function acceptTimelock() external onlyAllowedCaller {
+    function acceptTimelock() external freshOnly onlyAllowedCaller {
         if (msg.sender != pendingTimelock) revert NotPendingTimelock();
         if (block.timestamp < timelockProposedAt + _finalizeDelay()) revert FinalizeDelayNotElapsed();
-        if (block.timestamp > timelockProposedAt + PROPOSAL_EXPIRY) revert ProposalExpired();
+        bool proposalExpired = block.timestamp > timelockProposedAt + PROPOSAL_EXPIRY;
+        _requireGovernorTimelockMatchesPending(proposalExpired);
         address oldTimelock = timelock;
         timelock = pendingTimelock;
         pendingTimelock = address(0);
@@ -485,9 +540,51 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     }
 
     /// @notice Wire the allowlist that gates every entry point. Timelock authority only.
-    function setAllowlist(address allowlist_) external {
+    function setAllowlist(address allowlist_) external freshOnly {
         _requireCurrentTimelockAuthority();
-        _setAllowlist(allowlist_);
+        GuardianAuthorityClassifier.validateProposalGuardianAllowlist(_guardianList, guardianPermissions, allowlist_);
+        _transitionAllowlist(allowlist_);
+    }
+
+    function _proposeAcceleratedRotation(bytes32 slot, address current, address successor)
+        private
+        returns (bytes32 operationId)
+    {
+        bytes32 tupleId = _acceleratedRotationTupleId(slot, current, successor);
+        uint256 generation = _acceleratedRotationGenerations[tupleId];
+        operationId = _rotationOperationId(tupleId, generation);
+        if (_acceleratedRotationExpired(_rotations[operationId])) {
+            generation += 1;
+            _acceleratedRotationGenerations[tupleId] = generation;
+            operationId = _rotationOperationId(tupleId, generation);
+        }
+        Rotation storage rotation = _rotations[operationId];
+        if (rotation.exists) return operationId;
+        rotation.slot = slot;
+        rotation.current = current;
+        rotation.successor = successor;
+        rotation.proposedAt = block.timestamp;
+        rotation.exists = true;
+    }
+
+    function _acceleratedRotationExpired(Rotation storage rotation) private view returns (bool) {
+        return rotation.readyAt != 0 && block.timestamp > rotation.readyAt + PROPOSAL_EXPIRY;
+    }
+
+    function _acceleratedRotationTupleId(bytes32 slot, address current, address successor)
+        private
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode("accelerated", slot, current, successor));
+    }
+
+    function _routineRotationTupleId(bytes32 slot, address current, address successor) private pure returns (bytes32) {
+        return keccak256(abi.encode("routine", slot, current, successor));
+    }
+
+    function _rotationOperationId(bytes32 tupleId, uint256 generation) private pure returns (bytes32) {
+        return generation == 0 ? tupleId : keccak256(abi.encode(tupleId, generation));
     }
 
     function _requireGuardian(address account) internal view {
@@ -501,32 +598,51 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function _replaceGuardianSeat(address current, address successor) internal {
         uint256 permissions = guardianPermissions[current];
         if (permissions == 0) revert NotGuardian();
-        for (uint256 i; i < _guardianList.length;) {
-            if (_guardianList[i] == current) {
-                _guardianList[i] = successor;
-                guardianPermissions[successor] = permissions;
-                guardianPermissions[current] = 0;
-                emit GuardianPermissionsUpdated(current, permissions, 0);
-                emit GuardianPermissionsUpdated(successor, 0, permissions);
-                return;
-            }
-            unchecked {
-                ++i;
-            }
+        guardianPermissions[successor] = permissions;
+        guardianPermissions[current] = 0;
+        if (!_mutateGuardianRoster(current, successor, 2)) revert NotGuardian();
+        emit GuardianPermissionsUpdated(current, permissions, 0);
+        emit GuardianPermissionsUpdated(successor, 0, permissions);
+    }
+
+    function _requireGuardianSeatTransition(address current, address successor) private view {
+        (GuardianAuthorityClassifier.GuardianSeatTransitionState memory state, bool valid) = GuardianAuthorityClassifier
+            .guardianSeatTransition(current, successor, guardianPermissions, _guardianRosterEntryCount);
+        if (!valid) {
+            revert GuardianSeatTransitionInvalid(
+                current,
+                successor,
+                state.currentPermissions,
+                state.successorPermissions,
+                state.currentEntries,
+                state.successorEntries
+            );
         }
-        revert NotGuardian();
+    }
+
+    function _mutateGuardianRoster(address guardian_, address successor, uint8 operation) private returns (bool) {
+        return GuardianAuthorityClassifier.mutateGuardianRoster(
+            _guardianList, _guardianRosterEntryCount, guardianPermissions, guardian_, successor, operation
+        );
     }
 
     // ── OF-011: UUPS upgrade authorization ────────────────────────────
 
     /// @dev Caller gate on the inherited upgrade entry point; runs before the proxy check.
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override onlyAllowedCaller {
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+        freshOnly
+        onlyAllowedCaller
+    {
         super.upgradeToAndCall(newImplementation, data);
     }
 
     /// @dev OF-011: Only the timelock can authorize upgrades.
     /// OF-031: Clear pendingTimelock on upgrade to prevent stale two-step state.
     function _authorizeUpgrade(address) internal override {
+        _requireFreshDeployment();
         _requireCurrentTimelockAuthority();
         // OF-16-021: Emit event when pending timelock is cleared by upgrade
         if (pendingTimelock != address(0)) {
@@ -538,9 +654,6 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    /// @dev OF-19-001: Shared permission validation used by both initialize() and
-    /// setGuardianPermissions(). Enforces MAX_VALID_PERMISSIONS (OF-16-014) and
-    /// PauseAndCancelForbidden (OF-16-005) in a single place.
     function _validatePermissions(uint256 permissions) internal pure {
         if (permissions > MAX_VALID_PERMISSIONS) revert InvalidPermissionBitmask();
         if ((permissions & PERMISSION_CAN_PAUSE != 0) && (permissions & PERMISSION_CAN_CANCEL != 0)) {
@@ -553,50 +666,31 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) revert Unauthorized();
     }
 
+    function _requireGovernorTimelockMatchesPending(bool proposalExpired) private view {
+        address expectedTimelock = pendingTimelock;
+        address governorTimelock = _readGovernorTimelock();
+        if (governorTimelock != expectedTimelock) {
+            if (proposalExpired) revert ProposalExpired();
+            revert GovernorTimelockMismatch(governorTimelock, expectedTimelock);
+        }
+    }
+
+    function _readGovernorTimelock() private view returns (address governorTimelock) {
+        return GuardianAuthorityClassifier.governorTimelock(governor);
+    }
+
     function _requireCurrentTimelockAuthority() internal view {
         if (msg.sender != timelock) revert Unauthorized();
 
         (bool ok, bytes memory data) = governor.staticcall(abi.encodeWithSelector(_TIMELOCK_VIEW_SELECTOR));
-        if (ok && data.length >= 32 && abi.decode(data, (address)) != timelock) revert StaleTimelockAuthority();
+        if (!ok || data.length != 32) revert Unauthorized();
+        if (abi.decode(data, (address)) != timelock) revert StaleTimelockAuthority();
     }
 
     function _validateEmergencyCalldata(bytes calldata data) internal pure returns (bytes4 selector) {
-        if (data.length < 4) revert InvalidEmergencyAction();
-        selector = bytes4(data[:4]);
-        if (selector == IEmergencyPausable.pause.selector) {
-            if (data.length != 4) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        if (
-            selector == IEmergencyRiskVaultCaps.shrinkWeeklyRedemptionCapBps.selector
-                || selector == IEmergencyRiskVaultCaps.shrinkWeeklyMintCapBps.selector
-                || selector == IEmergencyRiskVaultCaps.tightenMaxDeploymentRatioBps.selector
-                || selector == IEmergencyRiskVaultCaps.tightenDeploymentBufferBps.selector
-                || selector == IEmergencyAtRiskCaps.shrinkWeeklyWithdrawalCapBps.selector
-                || selector == IEmergencyHLBridgeCaps.shrinkPerBlockDeployCap.selector
-                || selector == IEmergencyHLBridgeCaps.shrinkPerDayDeployCap.selector
-                || selector == IEmergencyAllowlistCaps.revoke.selector
-                || selector == IEmergencyAllowlistCaps.shrinkApprovalsPerDayCap.selector
-        ) {
-            if (data.length != 36) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        if (
-            selector == IEmergencyRiskVaultCaps.shrinkPerBlockMintCap.selector
-                || selector == IEmergencyHLBridgeCaps.tightenReturnCapitalCaps.selector
-        ) {
-            if (data.length != 68) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        if (selector == IEmergencyHLBridgeCaps.freezeAttestations.selector) {
-            if (data.length != 4) revert InvalidEmergencyAction();
-            return selector;
-        }
-
-        revert InvalidEmergencyAction();
+        (bool valid, bytes4 decodedSelector) = GuardianAuthorityClassifier.validateEmergencyCalldata(data);
+        if (!valid) revert InvalidEmergencyAction();
+        return decodedSelector;
     }
 
     function _executeEmergencyCalldata(address target, bytes calldata data) internal returns (bool success) {
@@ -636,6 +730,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 emit EmergencyCallFailed(target, selector, reason);
                 return false;
             }
+        }
+        if (selector == IEmergencyRiskVaultCaps.shrinkDailyMintCapBps.selector) {
+            return _executeEmergencyDailyMintCap(target, data, selector);
         }
         if (selector == IEmergencyRiskVaultCaps.shrinkPerBlockMintCap.selector) {
             (uint256 bps, uint256 maxAmount) = abi.decode(data[4:], (uint256, uint256));
@@ -697,7 +794,48 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
                 return false;
             }
         }
+        if (selector == IEmergencyFORAGETreasuryCaps.shrinkDistributorDailyCap.selector) {
+            uint256 newCap = abi.decode(data[4:], (uint256));
+            try IEmergencyFORAGETreasuryCaps(target).shrinkDistributorDailyCap(newCap) {
+                emit EmergencyCallSucceeded(target, selector);
+                return true;
+            } catch (bytes memory reason) {
+                emit EmergencyCallFailed(target, selector, reason);
+                return false;
+            }
+        }
+        return _executeEmergencyUSDCTreasuryCalldata(target, data, selector);
+    }
+
+    function _executeEmergencyUSDCTreasuryCalldata(address target, bytes calldata data, bytes4 selector)
+        internal
+        returns (bool success)
+    {
+        if (selector == IEmergencyUSDCTreasuryCaps.shrinkLossRateCapBps.selector) {
+            uint256 cap = abi.decode(data[4:], (uint256));
+            try IEmergencyUSDCTreasuryCaps(target).shrinkLossRateCapBps(cap) {
+                emit EmergencyCallSucceeded(target, selector);
+                return true;
+            } catch (bytes memory reason) {
+                emit EmergencyCallFailed(target, selector, reason);
+                return false;
+            }
+        }
         return _executeEmergencyHLBridgeCalldata(target, data, selector);
+    }
+
+    function _executeEmergencyDailyMintCap(address target, bytes calldata data, bytes4 selector)
+        internal
+        returns (bool success)
+    {
+        uint256 bps = abi.decode(data[4:], (uint256));
+        try IEmergencyRiskVaultCaps(target).shrinkDailyMintCapBps(bps) {
+            emit EmergencyCallSucceeded(target, selector);
+            return true;
+        } catch (bytes memory reason) {
+            emit EmergencyCallFailed(target, selector, reason);
+            return false;
+        }
     }
 
     function _executeEmergencyHLBridgeCalldata(address target, bytes calldata data, bytes4 selector)
@@ -746,16 +884,30 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         revert InvalidEmergencyAction();
     }
 
-    /// @dev OF-001: Reverts if any action in the proposal would modify the calling
-    /// guardian's own permissions or route a protected governance mutation through
-    /// relay/timelock scheduling. Prevents governance entrenchment.
+    /// @dev OF-001: Reverts when a proposal would change the calling guardian's authority.
     function _revertIfSelfTargetingGuardianMutation(
-        address guardian_,
+        address registryOwner,
         address[] memory targets,
-        bytes[] memory calldatas
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        GovernancePayloadBudget.Budget memory budget
     ) internal view {
+        if (targets.length != calldatas.length || targets.length > GovernancePayloadBudget.MAX_TOP_LEVEL_ACTIONS) {
+            revert SelfTargetingGuardianMutation();
+        }
+        for (uint256 i; i < calldatas.length;) {
+            uint256 length = calldatas[i].length;
+            uint256 maximum = GovernancePayloadBudget.MAX_TOP_LEVEL_ACTION_BYTES;
+            if (length > maximum - budget.actionBytes) revert SelfTargetingGuardianMutation();
+            budget.actionBytes += length;
+            unchecked {
+                ++i;
+            }
+        }
+        address executor = _readGovernorTimelock();
+        GuardianMutationScanContext memory context = GuardianMutationScanContext(registryOwner, executor, executor, 0);
         for (uint256 i; i < targets.length;) {
-            if (_isProtectedGuardianMutation(guardian_, targets[i], calldatas[i])) {
+            if (_isSelfTargetingGuardianMutation(context, targets[i], values[i], calldatas[i], budget)) {
                 revert SelfTargetingGuardianMutation();
             }
             unchecked {
@@ -764,81 +916,168 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         }
     }
 
-    function _isGuardianProposedProposal(uint256 proposalId) internal view returns (bool) {
-        try IForageGovernorMinimal(governor).proposalProposer(proposalId) returns (address proposer) {
-            return (guardianPermissions[proposer] & PERMISSION_CAN_PROPOSE) != 0;
-        } catch {
-            return false;
-        }
-    }
-
-    function _isProtectedGuardianMutation(address guardian_, address target, bytes memory data)
-        internal
-        view
-        returns (bool)
-    {
+    function _isSelfTargetingGuardianMutation(
+        GuardianMutationScanContext memory context,
+        address target,
+        uint256 value,
+        bytes memory data,
+        GovernancePayloadBudget.Budget memory budget
+    ) internal view returns (bool) {
+        if (target == context.registryOwner && context.registryOwner != context.executor) return true;
         if (data.length < 4) return false;
 
         bytes4 selector = _selectorOf(data);
         if (target == governor) {
-            if (selector == _SET_GOVERNOR_GUARDIAN_MODULE_SELECTOR) return true;
             if (selector == _GOVERNOR_RELAY_SELECTOR) {
-                (bool ok, address nestedTarget, bytes memory nestedData) = _tryDecodeRelayForGuardianScan(data);
-                return ok && nestedData.length < data.length
-                    && _isProtectedGuardianMutation(guardian_, nestedTarget, nestedData);
+                _consumeGuardianVisits(budget, 1);
+                (bool ok, GovernancePayloadBudget.OperationPayload memory nested) =
+                    GuardianAuthorityClassifier.tryDecodeRelay(data);
+                if (!ok) revert SelfTargetingGuardianMutation();
+                if (nested.data.length >= data.length) revert SelfTargetingGuardianMutation();
+                uint256 nestedValue = _wordAt(data, 36);
+                bool protectedChild = nested.target == governor || nested.target == context.executor;
+                uint256 nestedDepth = context.depth;
+                if (protectedChild) {
+                    _requireGuardianDepth(nestedDepth);
+                    nestedDepth += 1;
+                }
+                GuardianMutationScanContext memory nestedContext =
+                    GuardianMutationScanContext(context.registryOwner, context.executor, governor, nestedDepth);
+                return _isSelfTargetingGuardianMutation(nestedContext, nested.target, nestedValue, nested.data, budget);
             }
         }
 
-        if (target == timelock) {
+        if (target == context.executor) {
             if (selector == _TIMELOCK_SCHEDULE_SELECTOR) {
-                (bool ok, address nestedTarget, bytes memory nestedData) = _tryDecodeScheduleForGuardianScan(data);
-                return ok && nestedData.length < data.length
-                    && _isProtectedGuardianMutation(guardian_, nestedTarget, nestedData);
+                if (value != 0) return false;
+                _consumeGuardianVisits(budget, 1);
+                (bool ok, GovernancePayloadBudget.OperationPayload memory nested) =
+                    GuardianAuthorityClassifier.tryDecodeSchedule(data);
+                if (!ok) revert SelfTargetingGuardianMutation();
+                if (nested.data.length >= data.length) revert SelfTargetingGuardianMutation();
+                uint256 nestedValue = _wordAt(data, 36);
+                bool protectedChild = nested.target == governor || nested.target == context.executor;
+                uint256 nestedDepth = context.depth;
+                if (protectedChild) {
+                    _requireGuardianDepth(nestedDepth);
+                    nestedDepth += 1;
+                }
+                GuardianMutationScanContext memory nestedContext =
+                    GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, nestedDepth);
+                return _isSelfTargetingGuardianMutation(nestedContext, nested.target, nestedValue, nested.data, budget);
             }
             if (selector == _TIMELOCK_SCHEDULE_BATCH_SELECTOR) {
-                (bool ok, address[] memory nestedTargets, bytes[] memory nestedCalldatas) =
-                    _tryDecodeScheduleBatchForGuardianScan(data);
-                if (!ok || nestedTargets.length != nestedCalldatas.length) return false;
-                for (uint256 i; i < nestedTargets.length;) {
-                    if (
-                        nestedCalldatas[i].length < data.length
-                            && _isProtectedGuardianMutation(guardian_, nestedTargets[i], nestedCalldatas[i])
-                    ) {
-                        return true;
-                    }
-                    unchecked {
-                        ++i;
-                    }
-                }
+                if (value != 0) return false;
+                return _scanScheduleBatchForSelfMutation(context, data, budget);
             }
         }
 
-        bool protectedDownstreamSelector = selector == _SET_GOVERNOR_GUARDIAN_MODULE_SELECTOR
-            || selector == _PROPOSE_DOWNSTREAM_GUARDIAN_MODULE_SELECTOR
-            || selector == _FINALIZE_DOWNSTREAM_GUARDIAN_MODULE_SELECTOR;
-        if (protectedDownstreamSelector && _isCurrentDownstreamGuardianModuleTarget(target)) return true;
-
-        if (target != address(this)) return false;
-
-        if (selector == GuardianModule.setGuardianPermissions.selector && data.length >= 68) {
-            // setGuardianPermissions(address,uint256): 4 + 32 + 32 = 68 bytes
-            address targetGuardian = _firstAddressArgument(data);
-            if (targetGuardian == guardian_) return true;
-        } else if (selector == GuardianModule.removeGuardian.selector && data.length >= 36) {
-            // removeGuardian(address): 4 + 32 = 36 bytes
-            address targetGuardian = _firstAddressArgument(data);
-            if (targetGuardian == guardian_) return true;
+        uint256 flags;
+        if (target == governor) {
+            flags = 4;
+        } else if (target == context.executor) {
+            if (value == 0 || selector == _TIMELOCK_UPGRADE_SELECTOR) flags = 8;
+        } else if (target == address(this)) {
+            flags = 16;
+            if (
+                selector == GuardianModule.executeAcceleratedRotation.selector && data.length >= 36
+                    && _rotationCanExecuteAgain(data)
+            ) flags |= 2;
+            if (
+                selector == GuardianModule.finalizeRoutineRotation.selector && data.length >= 36
+                    && _routineGuardianSeatCanFinalize(data)
+            ) flags |= 2;
+        } else if (target == _custodianRegistry.canonical) {
+            flags = _REGISTRY_TARGET;
         }
+        GuardianAuthorityClassifier.Context memory classifierContext = GuardianAuthorityClassifier.Context(
+            msg.sender, context.effectiveCaller, governor, address(this), context.executor, SLOT_GUARDIAN_SEAT, flags
+        );
+        return GuardianAuthorityClassifier.isAuthorityMutation(
+            data, classifierContext, guardianPermissions, _guardianRosterEntryCount, preCommittedSuccessor, allowlist()
+        );
+    }
 
-        // OF-004 (11th audit): Any proposal that would upgrade, change governor,
-        // propose a new timelock, or modify pausable targets on this module is blocked.
-        return selector == _UPGRADE_TO_AND_CALL_SELECTOR || selector == GuardianModule.updateGovernor.selector
-            || selector == GuardianModule.proposeTimelock.selector
-            || selector == GuardianModule.setPausableTarget.selector;
+    function _rotationCanExecuteAgain(bytes memory data) private view returns (bool) {
+        Rotation storage rotation = _rotations[bytes32(_wordAt(data, 4))];
+        if (!rotation.exists || rotation.successor == address(0)) return false;
+        return !rotation.executed && !_acceleratedRotationExpired(rotation);
+    }
+
+    function _routineGuardianSeatCanFinalize(bytes memory data) private view returns (bool) {
+        Rotation storage rotation = _rotations[bytes32(_wordAt(data, 4))];
+        if (!rotation.exists || rotation.executed || rotation.successor == address(0)) return false;
+        if (rotation.slot != SLOT_GUARDIAN_SEAT) return false;
+        (, bool valid) = GuardianAuthorityClassifier.guardianSeatTransition(
+            rotation.current, rotation.successor, guardianPermissions, _guardianRosterEntryCount
+        );
+        return valid;
+    }
+
+    function _scanScheduleBatchForSelfMutation(
+        GuardianMutationScanContext memory context,
+        bytes memory data,
+        GovernancePayloadBudget.Budget memory budget
+    ) private view returns (bool) {
+        (bool headerOk, GovernancePayloadBudget.ScheduleBatchHeader memory header) =
+            GuardianAuthorityClassifier.tryReadScheduleBatchHeader(data);
+        if (!headerOk) revert SelfTargetingGuardianMutation();
+        _consumeGuardianVisits(budget, header.targetsLength);
+        (bool targetsOk, address[] memory targets) =
+            GuardianAuthorityClassifier.tryReadScheduleBatchTargets(data, header);
+        if (!targetsOk) revert SelfTargetingGuardianMutation();
+        (bool batchOk, GovernancePayloadBudget.ScheduleBatchPayload memory batch) =
+            GuardianAuthorityClassifier.tryDecodeScheduleBatch(data, header, targets);
+        if (!batchOk) revert SelfTargetingGuardianMutation();
+        GuardianMutationScanContext memory batchContext =
+            GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, context.depth);
+        return _scanScheduleBatchChildren(batchContext, data, budget, batch);
+    }
+
+    function _scanScheduleBatchChildren(
+        GuardianMutationScanContext memory context,
+        bytes memory data,
+        GovernancePayloadBudget.Budget memory budget,
+        GovernancePayloadBudget.ScheduleBatchPayload memory batch
+    ) private view returns (bool) {
+        uint256 valuesHead = 4 + _wordAt(data, 36) + 32;
+        for (uint256 i; i < batch.targets.length;) {
+            address nestedTarget = batch.targets[i];
+            bytes memory nestedData = batch.calldatas[i];
+            bool protectedChild = nestedTarget == governor || nestedTarget == context.executor;
+            if (protectedChild && nestedData.length >= data.length) revert SelfTargetingGuardianMutation();
+            uint256 nestedDepth = context.depth;
+            if (protectedChild) {
+                _requireGuardianDepth(nestedDepth);
+                nestedDepth += 1;
+            }
+            uint256 nestedValue = _wordAt(data, valuesHead + i * 32);
+            GuardianMutationScanContext memory nestedContext =
+                GuardianMutationScanContext(context.registryOwner, context.executor, context.executor, nestedDepth);
+            if (_isSelfTargetingGuardianMutation(nestedContext, nestedTarget, nestedValue, nestedData, budget)) {
+                return true;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return false;
+    }
+
+    function _consumeGuardianVisits(GovernancePayloadBudget.Budget memory budget, uint256 visits) private pure {
+        uint256 maximum = GovernancePayloadBudget.MAX_NESTED_ACTION_VISITS;
+        if (visits > maximum - budget.nestedVisits) revert SelfTargetingGuardianMutation();
+        budget.nestedVisits += visits;
+    }
+
+    function _requireGuardianDepth(uint256 depth) private pure {
+        if (depth >= GovernancePayloadBudget.MAX_TIMELOCK_DEPTH) revert SelfTargetingGuardianMutation();
     }
 
     function _selectorOf(bytes memory data) internal pure returns (bytes4 selector) {
-        assembly { selector := mload(add(data, 0x20)) }
+        assembly {
+            selector := mload(add(data, 0x20))
+        }
     }
 
     function _firstAddressArgument(bytes memory data) internal pure returns (address account) {
@@ -848,213 +1087,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         }
     }
 
-    function _isCurrentDownstreamGuardianModuleTarget(address target) internal view returns (bool) {
-        if (target == address(this) || target == governor || target.code.length == 0 || !_pausableTargets[target]) {
-            return false;
-        }
-        bool ok;
-        uint256 returnSize;
-        address module_;
-        bytes4 selector = _GUARDIAN_MODULE_VIEW_SELECTOR;
-        assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, selector)
-            ok := staticcall(_GUARDIAN_MODULE_LOOKUP_GAS, target, ptr, 0x04, ptr, 0x20)
-            returnSize := returndatasize()
-            module_ := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
-        }
-        return ok && returnSize >= 32 && module_ == address(this);
-    }
-
-    function _tryDecodeRelayForGuardianScan(bytes memory data)
-        internal
-        pure
-        returns (bool ok, address nestedTarget, bytes memory nestedData)
-    {
-        if (!_hasRange(data, 4, 96)) return (false, address(0), nestedData);
-
-        (bool targetOk, address decodedTarget) = _tryReadAddress(data, 4);
-        if (!targetOk) return (false, address(0), nestedData);
-
-        (bool dataOk, bytes memory decodedData) = _tryReadBytes(data, 4, _wordAt(data, 68), 96);
-        if (!dataOk) return (false, address(0), nestedData);
-
-        return (true, decodedTarget, decodedData);
-    }
-
-    function _tryDecodeScheduleForGuardianScan(bytes memory data)
-        internal
-        pure
-        returns (bool ok, address nestedTarget, bytes memory nestedData)
-    {
-        if (!_hasRange(data, 4, 192)) return (false, address(0), nestedData);
-
-        (bool targetOk, address decodedTarget) = _tryReadAddress(data, 4);
-        if (!targetOk) return (false, address(0), nestedData);
-
-        (bool dataOk, bytes memory decodedData) = _tryReadBytes(data, 4, _wordAt(data, 68), 192);
-        if (!dataOk) return (false, address(0), nestedData);
-
-        return (true, decodedTarget, decodedData);
-    }
-
-    function _tryDecodeScheduleBatchForGuardianScan(bytes memory data)
-        internal
-        pure
-        returns (bool ok, address[] memory nestedTargets, bytes[] memory nestedCalldatas)
-    {
-        if (!_hasRange(data, 4, 192)) return (false, nestedTargets, nestedCalldatas);
-
-        (bool targetsOk, address[] memory decodedTargets) = _tryReadAddressArray(data, 4, _wordAt(data, 4), 192);
-        if (!targetsOk) return (false, nestedTargets, nestedCalldatas);
-
-        (bool valuesOk, uint256 valuesLength) = _tryReadUint256ArrayLength(data, 4, _wordAt(data, 36), 192);
-        if (!valuesOk || valuesLength != decodedTargets.length) return (false, nestedTargets, nestedCalldatas);
-
-        (bool calldatasOk, bytes[] memory decodedCalldatas) = _tryReadBytesArray(data, 4, _wordAt(data, 68), 192);
-        if (!calldatasOk || decodedCalldatas.length != decodedTargets.length) {
-            return (false, nestedTargets, nestedCalldatas);
-        }
-
-        return (true, decodedTargets, decodedCalldatas);
-    }
-
-    function _tryReadAddress(bytes memory data, uint256 offset) internal pure returns (bool ok, address account) {
-        if (!_hasRange(data, offset, 32)) return (false, address(0));
-        uint256 word = _wordAt(data, offset);
-        if (word > type(uint160).max) return (false, address(0));
-        return (true, address(uint160(word)));
-    }
-
-    function _tryReadAddressArray(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, address[] memory accounts)
-    {
-        (bool headOk, uint256 arrayHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, accounts);
-
-        uint256 count = _wordAt(data, arrayHead);
-        uint256 elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return (false, accounts);
-
-        accounts = new address[](count);
-        for (uint256 i; i < count;) {
-            (bool elementOk, address account) = _tryReadAddress(data, elementsHead + i * 32);
-            if (!elementOk) return (false, accounts);
-            accounts[i] = account;
-            unchecked {
-                ++i;
-            }
-        }
-        return (true, accounts);
-    }
-
-    function _tryReadUint256ArrayLength(
-        bytes memory data,
-        uint256 baseOffset,
-        uint256 dynamicOffset,
-        uint256 minTailOffset
-    ) internal pure returns (bool ok, uint256 count) {
-        (bool headOk, uint256 arrayHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, 0);
-
-        count = _wordAt(data, arrayHead);
-        uint256 elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return (false, 0);
-        return (true, count);
-    }
-
-    function _tryReadBytesArray(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, bytes[] memory values)
-    {
-        (bool headOk, uint256 arrayHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, values);
-
-        uint256 count = _wordAt(data, arrayHead);
-        uint256 elementsHead = arrayHead + 32;
-        if (elementsHead > data.length || count > (data.length - elementsHead) / 32) return (false, values);
-
-        values = new bytes[](count);
-        uint256 minElementTailOffset = count * 32;
-        for (uint256 i; i < count;) {
-            (bool elementOk, bytes memory value) =
-                _tryReadBytesArrayElement(data, elementsHead, minElementTailOffset, i);
-            if (!elementOk) return (false, values);
-            values[i] = value;
-            unchecked {
-                ++i;
-            }
-        }
-        return (true, values);
-    }
-
-    function _tryReadBytesArrayElement(
-        bytes memory data,
-        uint256 elementsHead,
-        uint256 minElementTailOffset,
-        uint256 index
-    ) internal pure returns (bool ok, bytes memory value) {
-        uint256 elementHead = elementsHead + index * 32;
-        return _tryReadBytes(data, elementsHead, _wordAt(data, elementHead), minElementTailOffset);
-    }
-
-    function _tryReadBytes(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, bytes memory value)
-    {
-        (bool headOk, uint256 lengthHead) = _tryReadDynamicHead(data, baseOffset, dynamicOffset, minTailOffset);
-        if (!headOk) return (false, value);
-
-        uint256 byteLength = _wordAt(data, lengthHead);
-        uint256 valueOffset = lengthHead + 32;
-        if (!_hasRange(data, valueOffset, byteLength)) return (false, value);
-
-        uint256 paddedLength = byteLength;
-        uint256 remainder = byteLength % 32;
-        if (remainder != 0) {
-            unchecked {
-                paddedLength += 32 - remainder;
-            }
-        }
-        if (!_hasRange(data, valueOffset, paddedLength)) return (false, value);
-
-        return (true, _copyBytes(data, valueOffset, byteLength));
-    }
-
-    function _tryReadDynamicHead(bytes memory data, uint256 baseOffset, uint256 dynamicOffset, uint256 minTailOffset)
-        internal
-        pure
-        returns (bool ok, uint256 headOffset)
-    {
-        if (dynamicOffset < minTailOffset || dynamicOffset % 32 != 0) return (false, 0);
-        if (baseOffset > data.length || dynamicOffset > data.length - baseOffset) return (false, 0);
-
-        headOffset = baseOffset + dynamicOffset;
-        if (!_hasRange(data, headOffset, 32)) return (false, 0);
-        return (true, headOffset);
-    }
-
-    function _hasRange(bytes memory data, uint256 offset, uint256 length) internal pure returns (bool) {
-        return offset <= data.length && length <= data.length - offset;
-    }
-
-    function _wordAt(bytes memory data, uint256 offset) internal pure returns (uint256 word) {
-        assembly { word := mload(add(add(data, 0x20), offset)) }
-    }
-
-    function _copyBytes(bytes memory data, uint256 offset, uint256 length) internal pure returns (bytes memory value) {
-        value = new bytes(length);
-        for (uint256 i; i < length;) {
-            assembly {
-                mstore(add(add(value, 0x20), i), mload(add(add(data, 0x20), add(offset, i))))
-            }
-            unchecked {
-                i += 32;
-            }
+    function _wordAt(bytes memory data, uint256 offset) private pure returns (uint256 word) {
+        assembly ("memory-safe") {
+            word := mload(add(add(data, 0x20), offset))
         }
     }
 
@@ -1091,6 +1126,7 @@ interface IEmergencyPausable {
 interface IEmergencyRiskVaultCaps {
     function shrinkWeeklyRedemptionCapBps(uint256 bps) external;
     function shrinkWeeklyMintCapBps(uint256 bps) external;
+    function shrinkDailyMintCapBps(uint256 bps) external;
     function shrinkPerBlockMintCap(uint256 bps, uint256 maxAmount) external;
     function tightenMaxDeploymentRatioBps(uint256 bps) external;
     function tightenDeploymentBufferBps(uint256 bps) external;
@@ -1110,6 +1146,14 @@ interface IEmergencyHLBridgeCaps {
 interface IEmergencyAllowlistCaps {
     function revoke(address account) external;
     function shrinkApprovalsPerDayCap(uint32 newCap) external;
+}
+
+interface IEmergencyUSDCTreasuryCaps {
+    function shrinkLossRateCapBps(uint256 newCapBps) external;
+}
+
+interface IEmergencyFORAGETreasuryCaps {
+    function shrinkDistributorDailyCap(uint256 newCap) external;
 }
 
 /// @dev Minimal interface for GuardianModule to interact with ForageGovernor.
