@@ -110,6 +110,19 @@
   },
   {
     "type": "function",
+    "name": "EARMARK_ZERO_PRINCIPAL_HELD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "FINALIZE_DELAY",
     "inputs": [],
     "outputs": [
@@ -968,6 +981,24 @@
   },
   {
     "type": "function",
+    "name": "settleBridgeSurplus",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settleLoss",
     "inputs": [
       {
@@ -1243,6 +1274,25 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BridgeSurplusHeld",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

@@ -185,13 +185,14 @@ contract AtRiskUSDStateModule is
     mapping(address => uint256) private _weeklyExitClaimedScaled;
     uint256 private _weeklyExitOpenRequests;
     mapping(uint256 => WeeklyExitCohort) private _weeklyExitCohorts;
-    uint256[17] private __gap;
+    mapping(address => mapping(address => bool)) private _explicitZeroResetRequired;
+    uint256[16] private __gap;
 
     uint256 internal constant WEEKLY_WITHDRAWAL_WINDOW = 7 days;
     uint256 internal constant DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS = 500;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 5;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 6;
     uint64 private constant PROFIT_ENTITLEMENT_VERSION = 3;
 
     address private immutable _SELF;
@@ -416,10 +417,14 @@ contract AtRiskUSDStateModule is
         uint256 sharesToBurn;
         uint256 amountOut;
         if (entitlement != 0) {
+            _ensureWeeklyWithdrawalCapacity(0);
+            entitlement = _sharesWithinAssetCap(_weeklyWithdrawalCapacityView(), entitlement);
             (sharesToBurn, amountOut) = _fundedWithdrawalSlice(pending, entitlement, _legitimateAssets);
             if (amountOut == 0) sharesToBurn = 0;
         }
         if (amountOut < minAmountOut) revert SlippageExceeded(amountOut, minAmountOut);
+        if (sharesToBurn != 0) cohort.roomShares -= sharesToBurn;
+        if (amountOut != 0) _weeklyWithdrawalUsed += amountOut;
 
         WithdrawalExecution memory execution = WithdrawalExecution({
             sharesToBurn: sharesToBurn,
@@ -801,11 +806,9 @@ contract AtRiskUSDStateModule is
         WeeklyExitCohort storage cohort = _weeklyExitCohorts[cohortStart];
         uint256 active = cohort.activeRequests;
         if (active == 0) revert WeeklyExitAccountingInvariant(1, 0);
-        if (!cohort.settled && block.timestamp < _weeklyExitWindowEnd(cohortStart)) {
-            uint256 demand = cohort.demandShares;
-            if (shares > demand) revert WeeklyExitAccountingInvariant(demand, shares);
-            cohort.demandShares = demand - shares;
-        }
+        uint256 demand = cohort.demandShares;
+        if (shares > demand) revert WeeklyExitAccountingInvariant(demand, shares);
+        cohort.demandShares = demand - shares;
         cohort.activeRequests = active - 1;
         if (active == 1) delete _weeklyExitCohorts[cohortStart];
     }

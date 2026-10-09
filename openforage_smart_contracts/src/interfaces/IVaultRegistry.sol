@@ -31,6 +31,7 @@ interface IVaultRegistry {
     error VaultRegistryFreshDeploymentRequired(uint8 layoutVersion);
 
     function getVault(uint256 vaultId) external view returns (VaultConfig memory);
+    function getVaultByAbbreviation(string calldata abbreviation) external view returns (uint256);
     function getAllVaults() external view returns (uint256[] memory);
     function getVaultsPage(uint256 offset, uint256 limit)
         external

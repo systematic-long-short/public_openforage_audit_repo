@@ -1141,6 +1141,25 @@
   },
   {
     "type": "event",
+    "name": "GuardianEmergencyAttempted",
+    "inputs": [
+      {
+        "name": "guardian",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "totalCalls",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GuardianEmergencyExecuted",
     "inputs": [
       {

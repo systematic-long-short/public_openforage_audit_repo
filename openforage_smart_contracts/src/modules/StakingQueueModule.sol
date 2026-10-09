@@ -61,6 +61,14 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         bool isPriorityLane;
     }
 
+    struct StandardLaneScanState {
+        uint256 cursor;
+        uint256 snapshotEnd;
+        uint256 scanned;
+        uint256 scanLimit;
+        bool snapshotComplete;
+    }
+
     struct QueueProcessedData {
         uint256 queueId;
         address depositor;
@@ -234,6 +242,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
     uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
     uint256 private constant _PRICE_VIEW_GAS_LIMIT = 400_000;
+    uint256 public constant CEILING_MAX_AGE = 30 days;
 
     // -- Storage (mirrors StakingQueue so delegatecall reads the queue's slots) --
     IERC20 private _riskusd;
@@ -298,7 +307,9 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
     mapping(uint8 => uint256) private _tierStandardScanSnapshotEnd;
     mapping(uint8 => uint256) private _queueCompactionCursor;
 
-    uint256[16] private __gap; // reserved for future upgrades
+    mapping(uint8 => uint256[]) private _tierDeferredStandardQueue;
+    mapping(uint8 => bool) private _tierStandardDeferredRestoring;
+    uint256[14] private __gap; // reserved for future upgrades
 
     struct QueueModuleStorage {
         address module;
@@ -308,6 +319,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         mapping(uint256 => uint256) priorityPrevious;
         mapping(uint256 => uint256) priorityNext;
         mapping(uint256 => bool) priorityActive;
+        uint8 deferredFrontierVersion;
     }
 
     bytes32 private constant QUEUE_MODULE_STORAGE_LOCATION =
@@ -453,8 +465,19 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
     }
 
     function syncTierVaults() external onlyDelegateCall {
-        VaultConfig memory config = _syncTierVaultsFromRegistry();
-        emit TierVaultsSynced(config.tierVaults);
+        VaultConfig memory config = _currentVaultConfig();
+        bool differs;
+        for (uint256 i; i < 4;) {
+            if (_tierVaults[i] != config.tierVaults[i]) {
+                differs = true;
+                break;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        _syncTierVaultsFromRegistry();
+        if (!differs) emit TierVaultsSynced(config.tierVaults);
     }
 
     function upgradeTier(uint8 fromTier, uint8 toTier, uint256 atriskusdAmount) external onlyDelegateCall {
@@ -482,9 +505,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
             if (redeemData.length < 32) revert InvalidQueueEntry();
             riskusdAmount = abi.decode(redeemData, (uint256));
             if (riskusdAmount == 0) revert ZeroAmount();
-            uint256 combinedAvailable = _availableCapacityForCap(config.capacityCap);
             uint256 tierAvailable = _availableTierDepositCapacityForCap(toTier, config.capacityCap);
-            if (riskusdAmount > combinedAvailable) revert NoCapacityAvailable();
             if (riskusdAmount > tierAvailable) {
                 revert TierDepositCapExceeded(toTier, riskusdAmount, tierAvailable);
             }
@@ -847,44 +868,103 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
 
     function _processStandardLane(QueueLaneConfig memory config) private {
         QueueLaneResult memory result;
-        uint256 cursor = _tierStandardScanCursor[config.tier];
-        uint256 snapshotEnd = _tierStandardScanSnapshotEnd[config.tier];
-        if (cursor == 0 || cursor >= snapshotEnd) {
-            uint256 firstId = _firstStandardCandidateId(config.tier);
-            if (firstId == 0) return;
-            snapshotEnd = _nextQueueId - 1;
-            _tierStandardScanSnapshotEnd[config.tier] = snapshotEnd;
-            cursor = firstId - 1;
+        StandardLaneScanState memory scan;
+        scan.scanLimit = _processScanLimit(config.budget);
+        if (_tierStandardDeferredRestoring[config.tier]) {
+            _restoreDeferredStandardEntries(config.tier, scan.scanLimit);
+            return;
         }
-        uint256 scanned;
-        uint256 scanLimit = _processScanLimit(config.budget);
-        while (cursor < snapshotEnd && scanned < scanLimit && result.processedCount < config.budget) {
-            uint256 queueId = cursor + 1;
-            QueueEntry storage entry = _queueEntries[queueId];
-            unchecked {
-                ++scanned;
-            }
-            if (entry.depositor == address(0) || entry.tier != config.tier || entry.priority) {
-                cursor = queueId;
+        scan.cursor = _tierStandardScanCursor[config.tier];
+        scan.snapshotEnd = _tierStandardScanSnapshotEnd[config.tier];
+        uint256[] storage standard = _tierStandardQueue[config.tier];
+        if (scan.snapshotEnd == 0) {
+            scan.snapshotEnd = _nextQueueId - 1;
+            _tierStandardScanSnapshotEnd[config.tier] = scan.snapshotEnd;
+            scan.cursor = _tierStandardHead[config.tier];
+        } else if (scan.cursor < _tierStandardHead[config.tier]) {
+            scan.cursor = _tierStandardHead[config.tier];
+        }
+        uint256[] storage demoted = _demotedStandardHeap[config.tier];
+        uint256[] storage deferred = _tierDeferredStandardQueue[config.tier];
+        while (scan.scanned < scan.scanLimit && result.processedCount < config.budget) {
+            if (scan.cursor < standard.length && standard[scan.cursor] == 0) {
+                unchecked {
+                    ++scan.cursor;
+                    ++scan.scanned;
+                }
                 continue;
             }
-            bool demoted = _demotedStandardHeapIndexPlusOne[queueId] != 0;
-            if (_processLaneEntry(queueId, demoted, config, result) == QueueLaneStep.STOP) {
-                result.incompleteQueueId = queueId;
-                cursor = 0;
+            uint256 standardQueueId;
+            if (scan.cursor < standard.length) {
+                standardQueueId = standard[scan.cursor];
+                if (standardQueueId > scan.snapshotEnd) standardQueueId = 0;
+            }
+            uint256 demotedQueueId;
+            if (demoted.length != 0) {
+                demotedQueueId = demoted[0];
+                if (demotedQueueId > scan.snapshotEnd) demotedQueueId = 0;
+            }
+            if (standardQueueId == 0 && demotedQueueId == 0) {
+                scan.snapshotComplete = true;
                 break;
             }
-            cursor = queueId;
+            unchecked {
+                ++scan.scanned;
+            }
+            if (demotedQueueId != 0 && (standardQueueId == 0 || demotedQueueId < standardQueueId)) {
+                QueueLaneStep step = _processDemotedStandardCandidate(config.tier, demotedQueueId, config, result);
+                if (step == QueueLaneStep.ADVANCE) {
+                    deferred.push(demotedQueueId);
+                }
+                if (step == QueueLaneStep.STOP) break;
+            } else {
+                if (_processLaneEntry(standardQueueId, false, config, result) == QueueLaneStep.STOP) break;
+                unchecked {
+                    ++scan.cursor;
+                }
+            }
         }
-        _tierStandardScanCursor[config.tier] = cursor >= snapshotEnd ? 0 : cursor;
+        _tierStandardScanCursor[config.tier] = scan.cursor;
+        if (!scan.snapshotComplete) return;
+        if (deferred.length == 0) {
+            _tierStandardScanCursor[config.tier] = _tierStandardHead[config.tier];
+            _tierStandardScanSnapshotEnd[config.tier] = 0;
+            return;
+        }
+        _tierStandardDeferredRestoring[config.tier] = true;
+        _restoreDeferredStandardEntries(config.tier, scan.scanLimit - scan.scanned);
     }
 
-    function _firstStandardCandidateId(uint8 tier) private view returns (uint256 firstId) {
-        uint256 head = _tierStandardHead[tier];
-        uint256[] storage standard = _tierStandardQueue[tier];
-        if (head < standard.length) firstId = standard[head];
-        uint256[] storage demoted = _demotedStandardHeap[tier];
-        if (demoted.length != 0 && (firstId == 0 || demoted[0] < firstId)) firstId = demoted[0];
+    function _processDemotedStandardCandidate(
+        uint8 tier,
+        uint256 queueId,
+        QueueLaneConfig memory config,
+        QueueLaneResult memory result
+    ) private returns (QueueLaneStep step) {
+        step = _processLaneEntry(queueId, true, config, result);
+        if (step == QueueLaneStep.ADVANCE) _removeDemotedStandardEntry(tier, queueId);
+    }
+
+    function _restoreDeferredStandardEntries(uint8 tier, uint256 workLimit) private {
+        uint256[] storage deferred = _tierDeferredStandardQueue[tier];
+        uint256 restored;
+        while (deferred.length != 0 && restored < workLimit) {
+            uint256 queueId = deferred[deferred.length - 1];
+            deferred.pop();
+            QueueEntry storage entry = _queueEntries[queueId];
+            if (
+                entry.depositor != address(0) && !entry.processed && !entry.cancelled
+                    && _demotedStandardHeapIndexPlusOne[queueId] == 0
+            ) _insertDemotedStandardEntry(tier, queueId);
+            unchecked {
+                ++restored;
+            }
+        }
+        if (deferred.length == 0) {
+            _tierStandardDeferredRestoring[tier] = false;
+            _tierStandardScanCursor[tier] = _tierStandardHead[tier];
+            _tierStandardScanSnapshotEnd[tier] = 0;
+        }
     }
 
     function _processLaneEntry(
@@ -1058,7 +1138,6 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         entry.priority = false;
         _priorityRiskusdQueued[entry.depositor] -= remainingRiskusd;
         _insertDemotedStandardEntry(entry.tier, queueId);
-        _tierStandardScanCursor[entry.tier] = 0;
         emit QueueEntryDemoted(queueId, entry.depositor, remainingRiskusd, reason);
         _releaseForageLock(queueId, entry.depositor);
     }
@@ -1129,6 +1208,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         if (
             !_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized
                 || !_getQueueModuleStorage().priorityIndexInitialized
+                || _getQueueModuleStorage().deferredFrontierVersion != 1
         ) {
             revert LegacyForageLockAccountingUnsupported();
         }
@@ -1252,6 +1332,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
 
         if (needsSync) {
             _storeTierVaults(config.tierVaults);
+            emit TierVaultsSynced(config.tierVaults);
         }
     }
 
@@ -1323,6 +1404,9 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
             uint256 activePrice
         ) {
             if (_priceMode == uint8(PriceMode.ORACLE)) {
+                if (_lastPriceUpdate == 0 || block.timestamp - _lastPriceUpdate > CEILING_MAX_AGE) {
+                    return (false, 0, StaleFORAGEPrice.selector);
+                }
                 uint256 priceCeiling = _foragePriceUsd;
                 if (activePrice > priceCeiling) activePrice = priceCeiling;
             }

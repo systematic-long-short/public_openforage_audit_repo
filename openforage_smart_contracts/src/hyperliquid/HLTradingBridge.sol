@@ -170,6 +170,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
     error LossSettlementInProgress();
     error PrincipalBookAnchorUnavailable();
     error LossPending();
+    error PrincipalBasisUnavailable();
     error SequencerUptimeFeedUnavailable(address feed);
     error SequencerDown();
     error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
@@ -204,23 +205,35 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         uint256 bookValue,
         uint256 rawNav,
         uint256 observedAt,
-        bool allowZeroBaseline
+        bool allowZeroBaseline,
+        uint256 lastNonzeroPrincipalBasis
     ) external view returns (uint256) {
         _requireCanonicalVaultId(bridge, vaultId);
         IHLTradingBridgeNAVState state = IHLTradingBridgeNAVState(bridge);
         if (!allowZeroBaseline && (observedAt == 0 || bookValue == 0)) revert StaleNAV();
         if (block.timestamp > observedAt + DAY_SECONDS) revert StaleNAV();
         uint256 principal = state.deployedPrincipal();
+        uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(principal, state.lastNAVBookValue(), state.appliedNAV());
+        uint256 principalCapBasis = principal;
+        if (principal == 0 && lastNonzeroPrincipalBasis != 0) {
+            IHLTradingBridgeCapitalNAVPort vault = IHLTradingBridgeCapitalNAVPort(state.riskusdVault());
+            uint256 latestLossNonce = vault.latestLossNonce();
+            if (latestLossNonce != 0 && latestLossNonce == vault.settledLossNonce()) {
+                principalCapBasis = lastNonzeroPrincipalBasis;
+            }
+        }
+        if (principal == 0 && principalCapBasis == 0 && rawNav > previousNAV) {
+            revert PrincipalBasisUnavailable();
+        }
         uint256 ceilingBase =
-            principal + IHLTradingBridgeNAVTreasury(state.usdcTreasury()).unreturnedRecognizedProfit(vaultId);
+            principalCapBasis + IHLTradingBridgeNAVTreasury(state.usdcTreasury()).unreturnedRecognizedProfit(vaultId);
         uint256 maxUp = ceilingBase + ceilingBase / 10;
         uint256 cappedNav = rawNav > maxUp ? maxUp : rawNav;
-        uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(principal, state.lastNAVBookValue(), state.appliedNAV());
         if (cappedNav > previousNAV) {
-            uint256 reportCap = previousNAV + previousNAV / 10;
+            uint256 reportCap = previousNAV + ((previousNAV == 0 ? principalCapBasis : previousNAV) / 10);
             if (cappedNav > reportCap) cappedNav = reportCap;
             (, uint256 intervalStartNAV, uint256 used) = _navInterval(state, observedAt, previousNAV);
-            uint256 intervalBudget = intervalStartNAV / 10;
+            uint256 intervalBudget = (intervalStartNAV == 0 ? principalCapBasis : intervalStartNAV) / 10;
             uint256 remaining = intervalBudget > used ? intervalBudget - used : 0;
             if (cappedNav - previousNAV > remaining) cappedNav = previousNAV + remaining;
         }
@@ -254,17 +267,21 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         if (observedAt < _lastNAVObservedAt) revert StaleNAV();
         if (_principalBookKnownSince == 0) revert PrincipalBookAnchorUnavailable();
         if (observedAt <= _principalBookKnownSince || bookValue != _deployedPrincipal) revert StaleNAV();
+        uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_deployedPrincipal, _lastNAVBookValue, _appliedNAV);
         uint256 applied = HLTradingBridgeCapitalModule(_SELF).normalizeCustodianNAV(
-            address(this), vaultId, bookValue, rawNav, observedAt, true
+            address(this),
+            vaultId,
+            bookValue,
+            rawNav,
+            observedAt,
+            true,
+            HLTradingBridgeCapitalStorage.layout().lastNonzeroPrincipalBasis
         );
-        if (IHLTradingBridgeNAVState(address(this)).paused()) {
-            uint256 accepted = _normalizeAppliedNAVToCurrentBook(_deployedPrincipal, _lastNAVBookValue, _appliedNAV);
-            if (applied > accepted) revert PausedNAVIncrease(applied, accepted);
+        if (IHLTradingBridgeNAVState(address(this)).paused() && applied > previousNAV) {
+            revert PausedNAVIncrease(applied, previousNAV);
         }
-        if (applied >= _deployedPrincipal) {
-            _requireNoUnresolvedLossNonce();
-            _requireSequencerUp();
-        }
+        if (applied > previousNAV) _requireNoUnresolvedLossNonce();
+        if (applied >= _deployedPrincipal) _requireSequencerUp();
         _recordNAVIntervalBudget(applied, observedAt);
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
@@ -475,6 +492,7 @@ library HLTradingBridgeReturnCapsHostStorage {
 interface IUSDCTreasuryReturnPort {
     function recordPrincipalReturnUSDC(uint256 amount) external;
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external;
+    function settleBridgeSurplus(uint256 vaultId, uint256 amount) external;
     function unreturnedRecognizedProfit(uint256 vaultId) external view returns (uint256);
 }
 
@@ -614,6 +632,7 @@ contract HLTradingBridge is
     event NAVPosted(uint256 indexed vaultId, uint256 bookValue, uint256 rawNav, uint256 appliedNav, uint256 observedAt);
     event PrincipalReturned(uint256 usdcE6, uint256 deployedPrincipal);
     event PnLReturned(uint256 indexed vaultId, uint256 usdcE6);
+    event ZeroPrincipalSurplusSwept(uint256 indexed vaultId, uint256 amount, address indexed treasury);
     event WithdrawalIntentRequested(
         bytes32 indexed intentId, uint256 amount, address indexed recipient, bytes32 sourceAccount, uint64 chainSelector
     );
@@ -639,6 +658,11 @@ contract HLTradingBridge is
     constructor() {
         _capitalModule = address(new HLTradingBridgeCapitalModule());
         _disableInitializers();
+    }
+
+    modifier onlyZeroPrincipalReturner() {
+        if (msg.sender != owner() && msg.sender != _keeper) revert UnauthorizedKeeper();
+        _;
     }
 
     modifier freshDeploymentOnly() {
@@ -916,6 +940,32 @@ contract HLTradingBridge is
         IUSDCTreasuryReturnPort(usdcTreasury).returnPnLUSDC(vaultId, amount);
         token.forceApprove(usdcTreasury, 0);
         emit PnLReturned(vaultId, amount);
+    }
+
+    function sweepZeroPrincipalSurplusToTreasury(uint256 vaultId, uint256 amount)
+        external
+        freshDeploymentOnly
+        onlyAllowedCaller
+        onlyZeroPrincipalReturner
+        nonReentrant
+    {
+        _requireNotPaused();
+        _delegateCapitalModule(abi.encodeCall(HLTradingBridgeCapitalModule.requireCanonicalVaultId, (vaultId)));
+        if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
+        if (amount == 0) revert ZeroAmount();
+        _requireNotBlocked(msg.sender);
+        _requireNotBlocked(address(this));
+        _requireNotBlocked(usdcTreasury);
+        uint256 principalBasis = HLTradingBridgeCapitalStorage.layout().lastNonzeroPrincipalBasis;
+        if (principalBasis == 0) revert PrincipalBasisUnavailable();
+        _enforceReturnCaps(amount, false, principalBasis);
+
+        IERC20 token = IERC20(usdc);
+        _consumeReconciledLiquidity(token, amount);
+        token.forceApprove(usdcTreasury, amount);
+        IUSDCTreasuryReturnPort(usdcTreasury).settleBridgeSurplus(vaultId, amount);
+        token.forceApprove(usdcTreasury, 0);
+        emit ZeroPrincipalSurplusSwept(vaultId, amount, usdcTreasury);
     }
 
     function returnZeroPrincipalPnLUSDC(uint256 vaultId, uint256 amount)
@@ -1419,7 +1469,9 @@ contract HLTradingBridge is
         uint256 principal = _deployedPrincipal;
         uint256 vaultPrincipal = manualVault.totalDeployed();
         if (vaultPrincipal != principal) revert VaultPrincipalMismatch(vaultPrincipal, principal);
-        uint256 normalizedNav = _normalizeCustodianNAV(vaultId, principal, nav, observedAt, false);
+        uint256 normalizedNav = _normalizeCustodianNAV(vaultId, principal, nav, observedAt, true);
+        uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, _appliedNAV);
+        if (normalizedNav > previousNAV) _requireNoUnresolvedLossNonce(true);
         bool shouldRecord = lossNonce != 0 || normalizedNav >= principal;
         return (shouldRecord, shouldRecord ? normalizedNav : 0);
     }
@@ -1449,7 +1501,13 @@ contract HLTradingBridge is
         bool allowZeroBaseline
     ) internal view returns (uint256) {
         return HLTradingBridgeCapitalModule(_capitalModule).normalizeCustodianNAV(
-            address(this), vaultId, bookValue, rawNav, observedAt, allowZeroBaseline
+            address(this),
+            vaultId,
+            bookValue,
+            rawNav,
+            observedAt,
+            allowZeroBaseline,
+            HLTradingBridgeCapitalStorage.layout().lastNonzeroPrincipalBasis
         );
     }
 

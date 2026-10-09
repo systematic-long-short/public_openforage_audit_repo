@@ -1205,6 +1205,19 @@
   },
   {
     "type": "function",
+    "name": "selfCatchUpUnpaidProfitEpochs",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setAllowlist",
     "inputs": [
       {
@@ -2395,6 +2408,27 @@
         "name": "target",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "AllowanceChangeRequiresZero",
+    "inputs": [
+      {
+        "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "currentAllowance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "requestedAllowance",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

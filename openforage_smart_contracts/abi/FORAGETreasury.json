@@ -926,6 +926,25 @@
   },
   {
     "type": "event",
+    "name": "DistributorAccepted",
+    "inputs": [
+      {
+        "name": "oldDistributor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newDistributor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "DistributorDailyCapUpdated",
     "inputs": [
       {
@@ -939,6 +958,25 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DistributorProposed",
+    "inputs": [
+      {
+        "name": "currentDistributor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pendingDistributor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1023,6 +1061,37 @@
     "type": "event",
     "name": "RoundSwept",
     "inputs": [
+      {
+        "name": "roundId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RoundSweptV2",
+    "inputs": [
+      {
+        "name": "lane",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
       {
         "name": "roundId",
         "type": "uint256",

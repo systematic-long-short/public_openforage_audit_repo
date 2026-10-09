@@ -228,10 +228,13 @@ contract FORAGETreasury is
     event DepositorClaimed(uint256 indexed roundId, address indexed account, uint256 amount);
     event PartnershipDistributed(address indexed beneficiary, address indexed wallet, uint256 amount);
     event RoundSwept(uint256 indexed roundId, address indexed recipient, uint256 amount);
+    event RoundSweptV2(bytes32 indexed lane, uint256 indexed roundId, address indexed recipient, uint256 amount);
     event BlocklistSet(address indexed blocklist);
     event VestingWalletAllowlistForwarded(
         address indexed wallet, address indexed previousAllowlist, address indexed nextAllowlist
     );
+    event DistributorProposed(address indexed currentDistributor, address indexed pendingDistributor);
+    event DistributorAccepted(address indexed oldDistributor, address indexed newDistributor);
     event DistributorDailyCapUpdated(uint256 oldCap, uint256 newCap);
 
     constructor() {
@@ -434,7 +437,10 @@ contract FORAGETreasury is
         nonReentrant
     {
         if (msg.sender != owner()) revert Unauthorized();
-        _sweep(agentRounds[roundId], roundId, recipient);
+        Round storage round = agentRounds[roundId];
+        uint256 remaining = round.totalAmount - round.claimedAmount;
+        _sweep(round, roundId, recipient);
+        emit RoundSweptV2(AGENT_REWARD_LANE, roundId, recipient, remaining);
     }
 
     function sweepExpiredDepositorRound(uint256 roundId, address recipient)
@@ -444,12 +450,16 @@ contract FORAGETreasury is
         nonReentrant
     {
         if (msg.sender != owner()) revert Unauthorized();
-        _sweep(depositorRounds[roundId], roundId, recipient);
+        Round storage round = depositorRounds[roundId];
+        uint256 remaining = round.totalAmount - round.claimedAmount;
+        _sweep(round, roundId, recipient);
+        emit RoundSweptV2(DEPOSITOR_REWARD_LANE, roundId, recipient, remaining);
     }
 
     function setDistributor(address distributor_) external freshOnly onlyAllowedCaller onlyOwner {
         if (distributor_ == address(0)) revert ZeroAddress();
         _pendingDistributor = distributor_;
+        emit DistributorProposed(_distributor, distributor_);
     }
 
     function acceptDistributor() external freshOnly onlyAllowedCaller {

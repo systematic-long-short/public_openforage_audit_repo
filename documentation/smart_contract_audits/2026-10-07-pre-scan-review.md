@@ -1,10 +1,14 @@
 # 2026-10-07 pre-scan review: source changes and limits
 
-This is OpenForage’s own source review of the public candidate before the next full scan. It is not an Octane result, a finding-closure claim, deployment approval, or security-clearance statement. The sole completed full scan remains the scan of PR #9 head `d075a36bebafd17ceace9fe4b0fb21aed81fe1ae`; no further scan is authorized by this packet.
+The source-line citations in this historical record are re-pinned to the mapped public source blobs listed in the [2026-10-09 post-scan update](2026-10-09-post-scan-update.md). Their prior review statuses remain historical; current Analysis 9–13 status is recorded in the linked disposition documents.
+
+Dated snapshot note: this record predates the Analysis 13 scan. The 2026-10-09 post-scan update is the current public status; the earlier scan and commit identities below remain historical.
+
+This is OpenForage’s own 2026-10-07 source review of the public candidate before Analysis 13. It is not an Octane result, a finding-closure claim, deployment approval, or security-clearance statement. At that time the most recent full scan was Analysis 12 on `d075a36bebafd17ceace9fe4b0fb21aed81fe1ae`; Analysis 13 later scanned the head identified in the post-scan update. No Octane analysis has run on the current candidate.
 
 ## Public source and review scope
 
-This update starts from PR #9 head `d075a36bebafd17ceace9fe4b0fb21aed81fe1ae`, which is also the commit scanned by Analysis 12. Commit `01f4abe7768f03d2a21e6ab0a0221795d315d79b` and older commits are historical. The explicit map has 40 first-party Solidity files, 20 ABI artifacts, eight selected deployment/script/interface files, and one suppression policy. Added sources: `GuardianEmergencyPrincipalLane.sol`, `interfaces/IEmergencyPrincipalLane.sol`, `modules/AtRiskUSDWeeklyExitModule.sol`, `modules/CustodianRegistryCapitalModule.sol`, and `modules/USDCTreasuryProfitPolicyModule.sol`. Added ABIs: `GuardianEmergencyPrincipalLane.json` and `USDCTreasuryAccountingModule.json`. `contracts/slither_suppressions.json` is byte-equal to the public `slither_suppressions.json`. The separately mapped suppression file is the compatible public input to the mapped checker. The map has 69 entries; all 69 mapped bytes are compared with the exact private source. The five source and two ABI files were absent from the previous public map; no first-party contract tests or private audit records, packet records, run logs, deployment state, or private tooling are copied. 
+At the time of this 2026-10-07 review, PR #9 head `d075a36bebafd17ceace9fe4b0fb21aed81fe1ae` was the base and the commit scanned by Analysis 12. The later Analysis 13 scan covered the head identified in the post-scan update. Commit `01f4abe7768f03d2a21e6ab0a0221795d315d79b` and older commits are historical. The explicit map has 40 first-party Solidity files, 20 ABI artifacts, eight selected deployment/script/interface files, and one suppression policy. Added sources: `GuardianEmergencyPrincipalLane.sol`, `interfaces/IEmergencyPrincipalLane.sol`, `modules/AtRiskUSDWeeklyExitModule.sol`, `modules/CustodianRegistryCapitalModule.sol`, and `modules/USDCTreasuryProfitPolicyModule.sol`. Added ABIs: `GuardianEmergencyPrincipalLane.json` and `USDCTreasuryAccountingModule.json`. `contracts/slither_suppressions.json` is byte-equal to the public `slither_suppressions.json`. The separately mapped suppression file is the compatible public input to the mapped checker. The map has 69 entries; all 69 mapped bytes are compared with the exact private source. The five source and two ABI files were absent from the previous public map; no first-party contract tests or private audit records, packet records, run logs, deployment state, or private tooling are copied. 
 
 ## Work since the Analysis 12 scan
 
@@ -33,20 +37,20 @@ Introduced analyzer rows have per-row dispositions and the status of their indep
 
 ## Build evidence
 
-Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. Default code generation completed; the size child exited 1 with EIP-170 runtime overages: ForageGovernor 27,212 runtime (2,636 over); StakingQueue 27,697 runtime (3,121 over); EIP-3860 initcode overages: none. Deploy exited 0; 39 of 39 first-party runtime/initcode artifacts fit. The table covers all 39 first-party runtime/initcode artifacts, including linked libraries.
+Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. Default code generation completed with zero compiler errors; its size child exited 1 on six EIP-170 runtime overages: ForageGovernor 27,212 bytes (2,636 over), HLTradingBridge 24,787 bytes (211 over), RISKUSDVaultModule 24,820 bytes (244 over), StakingQueue 27,953 bytes (3,377 over), StakingQueueModule 25,148 bytes (572 over), and USDCTreasury 24,905 bytes (329 over). The Default initcode rows have no EIP-3860 overage. Deploy exited 0 and all 39 first-party runtime/initcode artifacts fit. No Default EIP-3860 initcode overage. Deploy exited 0; all 39 first-party runtime/initcode artifacts fit.
 
 | Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
 | Allowlist | 15,058 / 15,314 (+9,518 / +33,838) | 13,303 / 13,513 (+11,273 / +35,639) |
 | AtRiskUSDProfitModule | 16,270 / 16,604 (+8,306 / +32,548) | 14,794 / 15,117 (+9,782 / +34,035) |
-| AtRiskUSDStateModule | 23,213 / 23,853 (+1,363 / +25,299) | 20,614 / 21,177 (+3,962 / +27,975) |
+| AtRiskUSDStateModule | 23,267 / 23,907 (+1,309 / +25,245) | 20,642 / 21,205 (+3,934 / +27,947) |
 | AtRiskUSDWeeklyExitModule | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | Blocklist | 9,711 / 9,967 (+14,865 / +39,185) | 8,175 / 8,384 (+16,401 / +40,768) |
 | CustodianRegistry | 21,533 / 34,516 (+3,043 / +14,636) | 17,435 / 28,865 (+7,141 / +20,287) |
 | CustodianRegistryCapitalModule | 12,545 / 12,651 (+12,031 / +36,501) | 11,030 / 11,125 (+13,546 / +38,027) |
 | CustodianRegistryCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | DelegatingVestingWallet | 7,333 / 9,505 (+17,243 / +39,647) | 6,246 / 7,733 (+18,330 / +41,419) |
-| FORAGETreasury | 23,994 / 27,364 (+582 / +21,788) | 19,852 / 22,527 (+4,724 / +26,625) |
+| FORAGETreasury | 24,295 / 27,665 (+281 / +21,487) | 20,054 / 22,729 (+4,522 / +26,423) |
 | FORAGETreasuryModule | 2,930 / 2,981 (+21,646 / +46,171) | 2,261 / 2,308 (+22,315 / +46,844) |
 | ForageGovernor | 27,212 / 48,170 (-2,636 / +982) | 23,120 / 42,223 (+1,456 / +6,929) |
 | ForageGovernorTimelockGuard | 20,284 / 20,506 (+4,292 / +28,646) | 18,528 / 18,718 (+6,048 / +30,434) |
@@ -58,24 +62,24 @@ Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. D
 | GovernancePayloadBudget | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | GuardianAuthorityClassifier | 12,838 / 12,891 (+11,738 / +36,261) | 10,855 / 10,888 (+13,721 / +38,264) |
 | GuardianEmergencyPrincipalLane | 2,590 / 2,915 (+21,986 / +46,237) | 2,306 / 2,585 (+22,270 / +46,567) |
-| GuardianModule | 24,238 / 24,494 (+338 / +24,658) | 19,761 / 19,975 (+4,815 / +29,177) |
-| HLTradingBridge | 24,108 / 32,935 (+468 / +16,217) | 22,193 / 29,908 (+2,383 / +19,244) |
-| HLTradingBridgeCapitalModule | 8,345 / 8,445 (+16,231 / +40,707) | 7,281 / 7,370 (+17,295 / +41,782) |
+| GuardianModule | 24,297 / 24,553 (+279 / +24,599) | 19,808 / 20,022 (+4,768 / +29,130) |
+| HLTradingBridge | 24,787 / 34,095 (-211 / +15,057) | 23,072 / 31,235 (+1,504 / +17,917) |
+| HLTradingBridgeCapitalModule | 8,826 / 8,926 (+15,750 / +40,226) | 7,722 / 7,818 (+16,854 / +41,334) |
 | HLTradingBridgeCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsHostStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsModule | 1,536 / 1,579 (+23,040 / +47,573) | 1,240 / 1,279 (+23,336 / +47,873) |
 | HLTradingBridgeReturnCapsModuleStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | RISKUSD | 12,324 / 12,616 (+12,252 / +36,536) | 10,418 / 10,663 (+14,158 / +38,489) |
 | RISKUSDVault | 22,135 / 22,427 (+2,441 / +26,725) | 18,655 / 18,905 (+5,921 / +30,247) |
-| RISKUSDVaultModule | 24,460 / 24,925 (+116 / +24,227) | 20,482 / 20,935 (+4,094 / +28,217) |
+| RISKUSDVaultModule | 24,820 / 25,285 (-244 / +23,867) | 20,830 / 21,283 (+3,746 / +27,869) |
 | RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| StakingQueue | 27,697 / 27,989 (-3,121 / +21,163) | 23,669 / 23,919 (+907 / +25,233) |
-| StakingQueueModule | 24,272 / 24,401 (+304 / +24,751) | 23,643 / 23,768 (+933 / +25,384) |
-| USDCTreasury | 24,197 / 28,737 (+379 / +20,415) | 21,095 / 24,840 (+3,481 / +24,312) |
+| StakingQueue | 27,953 / 28,245 (-3,377 / +20,907) | 23,934 / 24,184 (+642 / +24,968) |
+| StakingQueueModule | 25,148 / 25,277 (-572 / +23,875) | 24,376 / 24,501 (+200 / +24,651) |
+| USDCTreasury | 24,905 / 29,445 (-329 / +19,707) | 21,641 / 25,386 (+2,935 / +23,766) |
 | USDCTreasuryAccountingModule | 12,879 / 12,958 (+11,697 / +36,194) | 11,086 / 11,161 (+13,490 / +37,991) |
 | USDCTreasuryProfitPolicyModule | 4,121 / 4,165 (+20,455 / +44,987) | 3,353 / 3,392 (+21,223 / +45,760) |
 | VaultRegistry | 21,051 / 21,307 (+3,525 / +27,845) | 18,681 / 18,895 (+5,895 / +30,257) |
-| atRISKUSD | 23,520 / 47,954 (+1,056 / +1,198) | 19,552 / 41,208 (+5,024 / +7,944) |
+| atRISKUSD | 23,803 / 48,291 (+773 / +861) | 19,850 / 41,534 (+4,726 / +7,618) |
 
 ## Declared limits from the private register
 
@@ -94,7 +98,7 @@ Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. D
 | A12-05 / A10-01 gross redemption | Gross requested redemption consumes weekly cap; no mint offset or cap refund is applied. |
 | A1-18 / A7-15 / DEC-28 queue order | A too-large standard entry is skipped and retried; later smaller fitting entries may go first. No per-entry fairness or eventual-fill guarantee is claimed. |
 | A11-01 proposal slot | Multiple qualified proposal identities can consume the explicit global quota; a succeeded ordinary proposal that is never queued can remain counted and queued expiry does not apply. This is separate from the below-threshold cancellation decision. |
-| Default EIP-170 size | ForageGovernor is 27,212 bytes (2,636 over) and StakingQueue is 27,697 bytes (3,121 over); USDCTreasury is 24,197 bytes (379 below). No Default initcode overage; all Deploy artifacts fit. Exact table follows below. |
+| Default EIP-170 size | The later 2026-10-09 source build reports ForageGovernor 27,212 bytes (2,636 over), HLTradingBridge 24,787 (211 over), RISKUSDVaultModule 24,820 (244 over), StakingQueue 27,953 (3,377 over), StakingQueueModule 25,148 (572 over), and USDCTreasury 24,905 (329 over). Default has no initcode overage; Deploy fits all 39 artifacts. |
 | Storage baseline | Seven inherited layout divergences remain: atRISKUSD `_emergencyLossPendingOverrideUntil` slot and gap type; USDCTreasury gap label; VaultRegistry gap type; HLTradingBridge `guardianModule` label, `_legacyGuardianModule` slot and gap type. No baseline change or waiver is claimed; no fresh public storage comparison ran. |
 | DEC-16 Windows | Both Windows x86_64 CLI rows remain failed; no Visual Studio license is installed, purchased, or accepted. |
 | Gas measurements | No transaction or whole-call gas measurement is established for Token callback/read paths, queue scans, Registry traversal, or governance walks; source bounds are not gas proofs. |
@@ -102,3 +106,19 @@ Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. D
 ## Other proof limits
 
 A9-21 whole-query gas and A10-17 whole-call gas fit are unmeasured. No first-party contract runtime tests, mocks, fuzz/formal harness, Forge test, EVM/Anvil/runtime/gas simulation, RPC/chain, deployed-state, or legacy-proxy proof is claimed. DEC-13 fresh-only deployment remains in force; the first legacy upgrade is governed by the installed implementation’s authorizer. The bounded Analysis 11 and 12 dispositions are not unconditional fixes. The public text does not claim A9-02 is fully closed. Warning 28’s dated capture gap remains historical. No security clearance or Octane closure is claimed.
+
+## Current public source blob pins
+
+The source line references in this record resolve to these exact mapped Solidity file blobs in the public candidate.
+
+| Public source file | Git blob |
+|---|---|
+| `openforage_smart_contracts/src/ForageToken.sol` | `2fd8d00e6c58775e2b0c2662796cbfe5b1c7f122` |
+| `openforage_smart_contracts/src/GuardianEmergencyPrincipalLane.sol` | `743fc89e8f4486860a572269b2b56be8771bc43a` |
+| `openforage_smart_contracts/src/GuardianModule.sol` | `f9ebd4226bb291220c346343db2c0506b7d94b74` |
+| `openforage_smart_contracts/src/USDCTreasury.sol` | `25cb223f201be6892be3ae99501a275a6de37a76` |
+| `openforage_smart_contracts/src/hyperliquid/HLTradingBridge.sol` | `dc34e056118dddd74f5ac5a0b835457d6cc18e5d` |
+| `openforage_smart_contracts/src/modules/AtRiskUSDWeeklyExitModule.sol` | `a19345a466362619ed61dfaef6ae3891d6a5afb9` |
+| `openforage_smart_contracts/src/modules/USDCTreasuryAccountingModule.sol` | `a35a15c93ce055f48827b3caf07f1564e73b9074` |
+| `openforage_smart_contracts/src/modules/USDCTreasuryProfitPolicyModule.sol` | `ba78a8eded831314e9c8ede679d5514ec58873ad` |
+

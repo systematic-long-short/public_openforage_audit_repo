@@ -140,6 +140,7 @@ contract USDCTreasury is
     bytes32 public constant EARMARK_AGENT_PAY = keccak256("AGENT_PAY");
     bytes32 public constant EARMARK_PROTOCOL_RETAINED = keccak256("PROTOCOL_RETAINED");
     bytes32 public constant EARMARK_FOUNDATION = keccak256("FOUNDATION");
+    bytes32 public constant EARMARK_ZERO_PRINCIPAL_HELD = keccak256("ZERO_PRINCIPAL_HELD");
 
     uint256 public constant DAY_SECONDS = 1 days;
     uint16 public constant DEFAULT_FOUNDATION_ALLOCATION_BPS = 5_000;
@@ -211,6 +212,7 @@ contract USDCTreasury is
     event PrincipalReturned(uint256 amount);
     event PnLReturned(uint256 indexed vaultId, uint256 amount);
     event EarmarkDisbursed(bytes32 indexed earmark, address indexed recipient, uint256 amount);
+    event BridgeSurplusHeld(uint256 indexed vaultId, uint256 amount);
     event PnLAttestorSet(address indexed attestor);
     event HLTradingBridgeSet(address indexed bridge);
     event BlocklistSet(address indexed blocklist);
@@ -404,6 +406,18 @@ contract USDCTreasury is
 
     function returnPrincipalUSDC(uint256) external pure {
         revert PrincipalReturnsUseVault();
+    }
+
+    function settleBridgeSurplus(uint256 vaultId, uint256 amount) external freshOnly onlyAllowedCaller nonReentrant {
+        if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
+        if (amount == 0) revert ZeroAmount();
+        IERC20 token = _usdc;
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = token.balanceOf(address(this)) - balanceBefore;
+        if (received != amount) revert USDCAmountMismatch(amount, received);
+        earmarkBalance[EARMARK_ZERO_PRINCIPAL_HELD] += received;
+        emit BridgeSurplusHeld(vaultId, received);
     }
 
     function recordPrincipalReturnUSDC(uint256 amount) external freshOnly onlyAllowedCaller nonReentrant {
@@ -1004,6 +1018,10 @@ contract USDCTreasury is
 
     function _authorizeUpgrade(address) internal override freshOnly onlyOwner {
         // Match the codebase's upgrade-wipes-pending-proposals norm (OF-L06).
+        address wallet = pendingFoundationPrimary;
+        if (wallet != address(0)) {
+            emit FoundationPrimaryCancelled(wallet);
+        }
         pendingFoundationPrimary = address(0);
         pendingFoundationPrimaryAt = 0;
     }

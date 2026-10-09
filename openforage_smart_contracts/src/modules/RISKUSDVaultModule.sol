@@ -1194,12 +1194,29 @@ contract RISKUSDVaultModule is
         if (_totalDeployed + additionalDeployment > maxTotalDeployment) revert DeploymentBufferExceeded();
     }
 
-    function _activeRegisteredTierAssets() internal view returns (uint256 assets) {
-        address registry = address(_vaultRegistry);
-        (bool ok, bytes memory data) =
-            registry.staticcall(abi.encodeWithSelector(IVaultRegistry.activeRegisteredTierAssets.selector));
-        if (!ok || data.length != 32) revert DeploymentBufferEnumerationFailed(registry);
-        assets = abi.decode(data, (uint256));
+    function _activeRegisteredTierAssets() internal view returns (uint256) {
+        IVaultRegistry registry = _vaultRegistry;
+        try registry.getVaultByAbbreviation("OF-TARGET") returns (uint256 vaultId) {
+            try registry.getVault(vaultId) returns (VaultConfig memory targetVault) {
+                if (targetVault.status != VaultStatus.Active) return 0;
+                return _targetTierAssets(targetVault.tierVaults);
+            } catch {
+                revert DeploymentBufferEnumerationFailed(address(registry));
+            }
+        } catch {
+            revert DeploymentBufferEnumerationFailed(address(registry));
+        }
+    }
+
+    function _targetTierAssets(address[4] memory tierVaults) private view returns (uint256 assets) {
+        for (uint256 tier; tier < tierVaults.length; ++tier) {
+            address tierVault = tierVaults[tier];
+            try IERC4626LegitimateAssets(tierVault).legitimateAssets() returns (uint256 tierAssets) {
+                assets += tierAssets;
+            } catch {
+                revert DeploymentBufferEnumerationFailed(tierVault);
+            }
+        }
     }
 
     function _assertSolvency() internal {

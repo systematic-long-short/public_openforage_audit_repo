@@ -113,6 +113,7 @@ contract atRISKUSD is
     error WeeklyExitAccountingInvariant(uint256 expected, uint256 actual);
     error WeeklyExitArithmeticOverflow();
     error NoWeeklyExitAllocation();
+    error AllowanceChangeRequiresZero(address spender, uint256 currentAllowance, uint256 requestedAllowance);
 
     // ============================================================
     // Events
@@ -230,7 +231,8 @@ contract atRISKUSD is
     mapping(address => uint256) private _weeklyExitClaimedScaled;
     uint256 private _weeklyExitOpenRequests;
     mapping(uint256 => WeeklyExitCohort) private _weeklyExitCohorts;
-    uint256[17] private __gap;
+    mapping(address => mapping(address => bool)) private _explicitZeroResetRequired;
+    uint256[16] private __gap;
 
     // Constants
     uint256 public constant PROPOSAL_EXPIRY = 30 days; // OF-002 (11th audit)
@@ -239,7 +241,7 @@ contract atRISKUSD is
     uint64 internal constant EMERGENCY_RECOVERY_WINDOW = 7 days;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 5;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 6;
     uint64 private constant PROFIT_ENTITLEMENT_VERSION = 3;
 
     // ============================================================
@@ -456,6 +458,11 @@ contract atRISKUSD is
     function catchUpUnpaidProfitEpochs(address account) external onlyFreshAllowedCaller nonReentrant returns (bool) {
         return
             _delegateProfitModuleUint(abi.encodeCall(AtRiskUSDProfitModule.catchUpUnpaidProfitEpochs, (account))) == 1;
+    }
+
+    function selfCatchUpUnpaidProfitEpochs() external onlyFreshDeployment nonReentrant returns (bool) {
+        return _delegateProfitModuleUint(abi.encodeCall(AtRiskUSDProfitModule.catchUpUnpaidProfitEpochs, (msg.sender)))
+            == 1;
     }
 
     /// @dev OF-L22: Loss reporting must work even when paused. Auth-gated by _yieldSource.
@@ -918,8 +925,18 @@ contract atRISKUSD is
         _requireNotBlocked(msg.sender);
         if (value != 0) {
             _requireNotBlocked(spender);
+            _requireExplicitAllowanceReset(msg.sender, spender, value);
         }
-        return super.approve(spender, value);
+        bool approved = super.approve(spender, value);
+        if (approved) _explicitZeroResetRequired[msg.sender][spender] = value != 0;
+        return approved;
+    }
+
+    function _requireExplicitAllowanceReset(address owner_, address spender, uint256 value) private view {
+        uint256 currentAllowance = allowance(owner_, spender);
+        if (currentAllowance != 0 || _explicitZeroResetRequired[owner_][spender]) {
+            revert AllowanceChangeRequiresZero(spender, currentAllowance, value);
+        }
     }
 
     function transfer(address to, uint256 value) public override(ERC20Upgradeable, IERC20) returns (bool) {

@@ -204,6 +204,9 @@ contract StakingQueue is
     event ForageGovernorSet(address indexed oldGovernor, address indexed newGovernor);
     event ForageGovernorProposed(address indexed current, address indexed pending); // OF-15-005
     event TierDepositCapProposed(uint8 indexed tier, uint256 baseCap, uint256 proposedCap, uint256 proposedAt);
+    event TierDepositCapWidened(
+        uint8 indexed tier, uint256 oldEffectiveCap, uint256 newCap, address indexed caller, uint256 changedAt
+    );
     event TierDepositCapShrunk(uint8 indexed tier, uint256 oldEffectiveCap, uint256 newCap, address indexed caller);
     event ExpiredLockupProcessingFailed(address indexed depositor, uint8 tier, bytes reason);
     event QueueCompacted(uint8 tier, bool priority, uint256 removedCount);
@@ -234,6 +237,7 @@ contract StakingQueue is
     uint256 internal constant RAY = 1e27;
     uint256 internal constant AT_RISK_SHARE_SCALE = 1e6;
     uint256 internal constant PRIORITY_LOOKAHEAD_SCAN_LIMIT = 64;
+    uint256 public constant CEILING_MAX_AGE = 30 days;
 
     // -- Storage --
     IERC20 private _riskusd;
@@ -298,7 +302,9 @@ contract StakingQueue is
     mapping(uint8 => uint256) private _tierStandardScanSnapshotEnd;
     mapping(uint8 => uint256) private _queueCompactionCursor;
 
-    uint256[16] private __gap; // reserved for future upgrades
+    mapping(uint8 => uint256[]) private _tierDeferredStandardQueue;
+    mapping(uint8 => bool) private _tierStandardDeferredRestoring;
+    uint256[14] private __gap; // reserved for future upgrades
 
     // -- Module delegation (ERC-7201 namespaced storage) --
     /// @custom:storage-location erc7201:openforage.storage.QueueModule
@@ -310,6 +316,7 @@ contract StakingQueue is
         mapping(uint256 => uint256) priorityPrevious;
         mapping(uint256 => uint256) priorityNext;
         mapping(uint256 => bool) priorityActive;
+        uint8 deferredFrontierVersion;
     }
 
     bytes32 private constant QUEUE_MODULE_STORAGE_LOCATION =
@@ -359,9 +366,11 @@ contract StakingQueue is
         _forageLockAccountingInitialized = true;
         _forageLockAggregateAccountingInitialized = true;
         _getQueueModuleStorage().priorityIndexInitialized = true;
+        _getQueueModuleStorage().deferredFrontierVersion = 1;
         _vaultRegistry = vaultRegistry_;
         for (uint256 i; i < 4;) {
             _tierVaults[i] = tierVaults_[i];
+            _tierStandardDeferredRestoring[uint8(i)] = false;
             unchecked {
                 ++i;
             }
@@ -413,6 +422,7 @@ contract StakingQueue is
         if (
             !_forageLockAccountingInitialized || !_forageLockAggregateAccountingInitialized
                 || !_getQueueModuleStorage().priorityIndexInitialized
+                || _getQueueModuleStorage().deferredFrontierVersion != 1
         ) {
             revert LegacyForageLockAccountingUnsupported();
         }
@@ -916,6 +926,7 @@ contract StakingQueue is
         cap.proposedCap = proposedCap_;
         cap.proposedAt = block.timestamp;
         cap.configured = true;
+        emit TierDepositCapWidened(tier, effectiveCap, proposedCap_, msg.sender, block.timestamp);
         emit TierDepositCapProposed(tier, effectiveCap, proposedCap_, block.timestamp);
     }
 
@@ -989,6 +1000,7 @@ contract StakingQueue is
             if (_tierPriorityScanCursor[tier] > laneLength) _tierPriorityScanCursor[tier] = laneLength;
         } else {
             if (_tierStandardHead[tier] > lane.length) _tierStandardHead[tier] = lane.length;
+            if (_tierStandardScanCursor[tier] > lane.length) _tierStandardScanCursor[tier] = lane.length;
         }
 
         uint256 nextCursor = scanEnd == length ? 0 : scanEnd;
@@ -1224,6 +1236,7 @@ contract StakingQueue is
         if (mult == 0) return 0;
         uint256 price = _activeForagePriceUsd();
         if (_priceMode == uint8(PriceMode.ORACLE)) {
+            if (_lastPriceUpdate == 0 || block.timestamp - _lastPriceUpdate > CEILING_MAX_AGE) return 0;
             uint256 priceCeiling = _foragePriceUsd;
             if (priceCeiling == 0) return 0;
             if (price > priceCeiling) price = priceCeiling;

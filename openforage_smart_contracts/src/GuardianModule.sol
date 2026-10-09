@@ -60,6 +60,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     // ── Custom events ────────────────────────────────────────────────────
     event GuardianPaused(address indexed guardian, address indexed target);
     event GuardianCanceled(address indexed guardian, uint256 proposalId);
+    event GuardianEmergencyAttempted(address indexed guardian, uint256 totalCalls);
     event GuardianEmergencyExecuted(address indexed guardian, address[] targets);
     /// @dev OF-16-013: Summary event when emergency execution has failures.
     event EmergencyExecutionSummary(address indexed guardian, uint256 totalCalls, uint256 failureCount);
@@ -279,6 +280,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
             }
         }
 
+        emit GuardianEmergencyAttempted(msg.sender, targets.length);
         // OF-004 (8th audit): Execute with try/catch — emit per-call results.
         // In an emergency, partial success is preferable to an all-or-nothing revert
         // that leaves every contract unpaused because one target failed.
@@ -291,8 +293,9 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
             }
         }
 
-        emit GuardianEmergencyExecuted(msg.sender, targets);
-        if (failureCount > 0) {
+        if (failureCount == 0) {
+            emit GuardianEmergencyExecuted(msg.sender, targets);
+        } else {
             emit EmergencyExecutionSummary(msg.sender, targets.length, failureCount);
         }
     }
