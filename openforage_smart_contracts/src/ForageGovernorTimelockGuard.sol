@@ -1004,17 +1004,36 @@ library ForageGovernorTimelockMigrationGuard {
     }
 
     function hasSupportedTimelockGetterSurface(address timelockAddress) public view returns (bool) {
-        return _hasExactWordResponse(timelockAddress, IForageGovernorMigrationTimelock.getMinDelay.selector)
-            && _hasExactWordResponse(timelockAddress, IForageGovernorMigrationTimelock.DEFAULT_ADMIN_ROLE.selector)
-            && _hasExactWordResponse(timelockAddress, IForageGovernorMigrationTimelock.PROPOSER_ROLE.selector)
-            && _hasExactWordResponse(timelockAddress, IForageGovernorMigrationTimelock.CANCELLER_ROLE.selector)
-            && _hasExactWordResponse(timelockAddress, IForageGovernorMigrationTimelock.EXECUTOR_ROLE.selector);
+        (bool delayAvailable,) =
+            _readExactWordResponse(timelockAddress, IForageGovernorMigrationTimelock.getMinDelay.selector);
+        return delayAvailable
+            && _hasRoleIdentifier(
+                timelockAddress, IForageGovernorMigrationTimelock.DEFAULT_ADMIN_ROLE.selector, _DEFAULT_ADMIN_ROLE
+            )
+            && _hasRoleIdentifier(timelockAddress, IForageGovernorMigrationTimelock.PROPOSER_ROLE.selector, _PROPOSER_ROLE)
+            && _hasRoleIdentifier(
+                timelockAddress, IForageGovernorMigrationTimelock.CANCELLER_ROLE.selector, _CANCELLER_ROLE
+            )
+            && _hasRoleIdentifier(timelockAddress, IForageGovernorMigrationTimelock.EXECUTOR_ROLE.selector, _EXECUTOR_ROLE);
     }
 
-    function _hasExactWordResponse(address target, bytes4 getter) private view returns (bool) {
-        (bool success, bytes memory response) =
-            target.staticcall{gas: _AUTHORITY_VIEW_GAS}(abi.encodeWithSelector(getter));
-        return success && response.length == 32;
+    function _hasRoleIdentifier(address target, bytes4 getter, bytes32 expectedRole) private view returns (bool) {
+        (bool valid, bytes32 actualRole) = _readExactWordResponse(target, getter);
+        return valid && actualRole == expectedRole;
+    }
+
+    function _readExactWordResponse(address target, bytes4 getter)
+        private
+        view
+        returns (bool valid, bytes32 response)
+    {
+        bytes memory request = abi.encodeWithSelector(getter);
+        assembly ("memory-safe") {
+            valid := staticcall(_AUTHORITY_VIEW_GAS, target, add(request, 0x20), mload(request), 0, 0x20)
+            let returnSize := returndatasize()
+            if and(valid, eq(returnSize, 0x20)) { response := mload(0) }
+            if iszero(and(valid, eq(returnSize, 0x20))) { valid := 0 }
+        }
     }
 
     function _validateTimelockRoles(address newTimelock, address governor) private view {
@@ -1098,12 +1117,17 @@ library ForageGovernorTimelockMigrationGuard {
         uint256 len = proposalIds.length;
         for (uint256 i; i < len;) {
             uint256 proposalId = proposalIds[i];
-            if (
-                (executionActive == 0 || proposalId != executingProposalId)
-                    && IGovernor(address(this)).state(proposalId) == IGovernor.ProposalState.Queued
-            ) {
-                if (queuedCount == 0) firstQueuedProposalId = proposalId;
-                ++queuedCount;
+            if (executionActive == 0 || proposalId != executingProposalId) {
+                IGovernor.ProposalState proposalState = IGovernor(address(this)).state(proposalId);
+                bool pendingTimelockOperation = proposalState == IGovernor.ProposalState.Queued
+                    || (
+                        proposalState == IGovernor.ProposalState.Expired
+                            && IForageGovernorProposalHost(address(this)).proposalEta(proposalId) != 0
+                    );
+                if (pendingTimelockOperation) {
+                    if (queuedCount == 0) firstQueuedProposalId = proposalId;
+                    ++queuedCount;
+                }
             }
             unchecked {
                 ++i;
@@ -1191,6 +1215,7 @@ contract ForageGovernorTimelockGuard {
     error CanonicalTimelockUpgradeUnsupported(address target);
     error GuardianSeatSetupBundledWithUnrelatedAction(address current, address successor);
     error GuardianSelfAuthorityBundledWithUnrelatedAction(address target, bytes4 selector);
+    error TimelockDirectExecuteUnsupported();
 
     bytes4 private constant _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR = bytes4(keccak256("proposeTimelock(address)"));
     bytes4 private constant _GUARDIAN_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
@@ -1240,6 +1265,7 @@ contract ForageGovernorTimelockGuard {
         uint256 value;
         bytes data;
         uint256 depth;
+        address effectiveCaller;
     }
 
     struct FutureTimelockQueue {
@@ -1396,16 +1422,24 @@ contract ForageGovernorTimelockGuard {
             if (
                 targets[i] != context.executor && targets[i] != context.allowedProposer
                     && targets[i] != context.guardianModule && targets[i] != context.canonicalRegistry
-                    && _isFutureTimelockCandidateCall(targets[i], calldatas[i])
+                    && _isFutureTimelockCandidateCall(context, targets[i], calldatas[i])
             ) {
                 _enqueueFutureTimelockCall(
-                    context.futureTimelockCalls, targets[i], targets[i], values[i], calldatas[i], 0
+                    context.futureTimelockCalls,
+                    targets[i],
+                    targets[i],
+                    values[i],
+                    calldatas[i],
+                    0,
+                    context.effectiveCaller
                 );
             }
         }
         for (uint256 i; i < context.futureTimelockCalls.count[0]; ++i) {
             FutureTimelockCall memory candidate = context.futureTimelockCalls.calls[i];
-            ForageGovernorTimelockMigrationGuard.requireRoleSchema(candidate.executor);
+            if (!context.guardianClassificationOnly) {
+                ForageGovernorTimelockMigrationGuard.requireRoleSchema(candidate.executor);
+            }
             TimelockGuardContext memory candidateContext = TimelockGuardContext(
                 candidate.executor,
                 context.canonicalTimelock,
@@ -1413,7 +1447,7 @@ contract ForageGovernorTimelockGuard {
                 context.guardianModule,
                 context.canonicalRegistry,
                 context.custodianRegistryOwner,
-                context.effectiveCaller,
+                candidate.effectiveCaller,
                 context.delayFloor,
                 context.nestingBound,
                 candidate.depth,
@@ -1447,11 +1481,12 @@ contract ForageGovernorTimelockGuard {
         address target,
         uint256 value,
         bytes memory data,
-        uint256 depth
+        uint256 depth,
+        address effectiveCaller
     ) private pure {
         uint256 count = queue.count[0];
         if (count >= queue.calls.length) revert MalformedTimelockCalldata();
-        queue.calls[count] = FutureTimelockCall(executor, target, value, data, depth);
+        queue.calls[count] = FutureTimelockCall(executor, target, value, data, depth, effectiveCaller);
         queue.count[0] = count + 1;
     }
 
@@ -1461,8 +1496,25 @@ contract ForageGovernorTimelockGuard {
         return selector == _timelockScheduleSelector() || selector == _timelockScheduleBatchSelector();
     }
 
-    function _isFutureTimelockCandidateCall(address target, bytes memory data) private view returns (bool) {
-        if (_isTimelockScheduleCall(data)) return true;
+    function _isFutureTimelockCandidateCall(TimelockGuardContext memory context, address target, bytes memory data)
+        private
+        view
+        returns (bool)
+    {
+        if (_isTimelockScheduleCall(data)) {
+            return context.guardianClassificationOnly
+                || ForageGovernorTimelockMigrationGuard.hasSupportedTimelockGetterSurface(target);
+        }
+        if (data.length >= 4) {
+            bytes4 selector = _operationSelector(data);
+            if (
+                selector == bytes4(keccak256("execute(address,uint256,bytes,bytes32,bytes32)"))
+                    || selector == bytes4(keccak256("executeBatch(address[],uint256[],bytes[],bytes32,bytes32)"))
+            ) {
+                return !context.guardianClassificationOnly
+                    && ForageGovernorTimelockMigrationGuard.hasSupportedTimelockGetterSurface(target);
+            }
+        }
         return _isTimelockPolicyCall(data)
             && ForageGovernorTimelockMigrationGuard.hasSupportedTimelockGetterSurface(target);
     }
@@ -1680,11 +1732,17 @@ contract ForageGovernorTimelockGuard {
     ) private view {
         if (
             target == context.executor || target == context.allowedProposer || target == context.guardianModule
-                || target == context.canonicalRegistry || !_isFutureTimelockCandidateCall(target, data)
+                || target == context.canonicalRegistry || !_isFutureTimelockCandidateCall(context, target, data)
         ) return;
         if (data.length >= parentLength) revert MalformedTimelockCalldata();
         _enqueueFutureTimelockCall(
-            context.futureTimelockCalls, target, target, value, data, _nextTimelockDepth(context)
+            context.futureTimelockCalls,
+            target,
+            target,
+            value,
+            data,
+            _nextTimelockDepth(context),
+            context.effectiveCaller
         );
     }
 
@@ -1696,10 +1754,16 @@ contract ForageGovernorTimelockGuard {
     ) private view {
         if (
             target == address(0) || target == context.executor || target == context.allowedProposer
-                || !_isFutureTimelockCandidateCall(target, data)
+                || !_isFutureTimelockCandidateCall(context, target, data)
         ) return;
         _enqueueFutureTimelockCall(
-            context.futureTimelockCalls, target, target, value, data, _nextTimelockDepth(context)
+            context.futureTimelockCalls,
+            target,
+            target,
+            value,
+            data,
+            _nextTimelockDepth(context),
+            context.effectiveCaller
         );
     }
 
@@ -1815,6 +1879,15 @@ contract ForageGovernorTimelockGuard {
             return;
         }
         if (target != context.executor) return;
+        if (
+            !context.guardianClassificationOnly
+                && (
+                    selector == bytes4(keccak256("execute(address,uint256,bytes,bytes32,bytes32)"))
+                        || selector == bytes4(keccak256("executeBatch(address[],uint256[],bytes[],bytes32,bytes32)"))
+                )
+        ) {
+            revert TimelockDirectExecuteUnsupported();
+        }
         if (selector == _updateDelaySelector()) {
             if (!context.guardianClassificationOnly) _appendDelay(policies, _readWord(_operationPayload(data), 0));
             return;

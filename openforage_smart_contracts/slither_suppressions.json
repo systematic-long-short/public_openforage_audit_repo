@@ -446,7 +446,7 @@
     {
       "detector": "unused-return",
       "file": "src/ForageGovernorTimelockGuard.sol",
-      "idDigest": "466f043b40c776967ed84c569e400200ec5d1932fd8c6542bbc9aad08aa87ba3",
+      "idDigest": "06999247e975dcded161f981aec0f13b3af51fa90a424768063689d762caf87e",
       "name": "_reclassifyProposal",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -626,7 +626,7 @@
     {
       "detector": "unused-return",
       "file": "src/GuardianModule.sol",
-      "idDigest": "78c14c3d4c7624ded7248205c0a85537eef8675e789354e068fd4c61e6009f0b",
+      "idDigest": "ea7da973b4b530c1d3426b192d9e38254e6ba388607d9157a56d7fc9c711bda9",
       "name": "_routineGuardianSeatCanFinalize",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -1816,7 +1816,7 @@
     {
       "detector": "controlled-delegatecall",
       "file": "src/atRISKUSD.sol",
-      "idDigest": "f6085c9c53964dcb0f74d9f19813be97dacafd3759a4c43e803e0eacfc718d22",
+      "idDigest": "e092f2c441c02d5a5c50bc0755ed8e8dffb20d9248b64a96d840f6dee9867881",
       "name": "_delegateProfitModuleUint",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -1866,7 +1866,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/atRISKUSD.sol",
-      "idDigest": "6220ecdc0eb49db9104ff662f5500c1ff7e4656fa204e0c828d890c79a132668",
+      "idDigest": "2bf794784f74bcdbbf25e4953c272f26c6b675303789181f820a83d6cb1fe6fa",
       "name": "_resetWeeklyWithdrawalWindowIfExpired",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -1924,16 +1924,6 @@
       "owner": "OpenForage security"
     },
     {
-      "detector": "uninitialized-state",
-      "file": "src/atRISKUSD.sol",
-      "idDigest": "321dd1a6440aab489cdd81c6412eecfb311f8c9cb18505c2b2920147c9291fd6",
-      "name": "_weeklyExitCohorts",
-      "created": "2026-10-07",
-      "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FRESH_EMPTY_COHORT_MAPPING: C22g static-triage row #14 JUSTIFIED_FRESH_EMPTY_COHORT_MAPPING; current source identity SHA-256 base64url:GVpwYz3fv2-YE3j354zNakBkH-ZTmHXObTV1j2LA45M. The mapping begins empty under fresh initialization. The first cohort request establishes its demand and active-request count; settlement checks those paired values before storing the room or advancing the window. No legacy mapping translation is implied. Exact current Slither row Slither-row-SHA-256-base64url:Mh3RpkQKq0ic3YHGQS7s-zEfjJyxhQXCspIBR8kpH9Y, detector uninitialized-state, site src/atRISKUSD.sol:_weeklyExitCohorts. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
-      "owner": "OpenForage security"
-    },
-    {
       "detector": "constable-states",
       "file": "src/atRISKUSD.sol",
       "idDigest": "06bc54d0a3b54cfe73d5244ccba8d2417f49e43805606f152d9300387cd1ecd0",
@@ -1986,7 +1976,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/atRISKUSD.sol",
-      "idDigest": "12dd16e14c5c58f9e0fe050f4fe82cac2a716d6db9c6cc54a0e091c40b992078",
+      "idDigest": "66143e6a70dfd5a99240e292b2dc10c23e5d113427adf9a9591ee20538542929",
       "name": "_weeklyWithdrawalWindowView",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2026,7 +2016,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "89c07915cfb43dcdff91e0df728017fc8ee92dec67e519117bbb66437cb1d0ec",
+      "idDigest": "14026bba55160415d5a8e12c009548b157d7daf98c43ba807b1201c53eea4367",
       "name": "_creditUnassignedWithdrawalArrival",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2206,7 +2196,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "32d9f3266dee4707e3fcd4722776cb9c3e0e268dce15dcd1710bb96ec440d48a",
+      "idDigest": "ccba28f7deb3251dd6e0145783b451873b7ab1ad6dab923fe43f08d3b3dc364d",
       "name": "_requestWithdrawalIntent",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2346,7 +2336,7 @@
     {
       "detector": "reentrancy-balance",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "46c7f894a0633c7b2c256b5085257245757b452c7e6465f8d26d5ea98891eb3e",
+      "idDigest": "0cc84639106a445417aa453c1c61e05e0d58e8af8f552763f20e01af88279b3b",
       "name": "deployToHyperLiquid",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2356,7 +2346,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "afc432509e4ebfee45d3846162b563501cf66c37afd801430c5cbcbc7d3f7ba5",
+      "idDigest": "a676b63299f0d59441ff87ebcddf2a675ed71df7be2dc13ef3b99a1a3fd6a79b",
       "name": "deployToHyperLiquid",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2366,7 +2356,7 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "dda9fe7d696d33bebfc3e3a8759e5122c0672247752345b21762938a5a905363",
+      "idDigest": "f6f68296280376b76a430ecfcb438c7d1319cc72236afc756b5d4a11f1e0a3ad",
       "name": "enforceDeployCaps",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2386,7 +2376,7 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "853e3f1aaa5be9f582ea5b6bfb5653d147f99116ac1ef62a6b85ce7fcb258e47",
+      "idDigest": "327ffc5c236aa70f41f6942759039716a941263c9bde1983af06e7d282e38041",
       "name": "initialize",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2396,7 +2386,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "6bd95e329fb250a5cc36de2cf68b63995530a5db6cc053719a6fc51ab73c1b16",
+      "idDigest": "718f605d2088838dcffb150b8aa9f050a049e00a15b196f69e9e4280cc2138a3",
       "name": "recordLossWriteDown",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2406,7 +2396,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "f6010af5fad0bc8c014df17c2d913a415cf38404adee5da08c57b73259b9480c",
+      "idDigest": "61f76e5680e07bdc0259cce1103424eddd59f21fcd7d1706d670ab7be0362ee8",
       "name": "recordLossWriteDown",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2436,7 +2426,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "ae26e72bc233f2e463b53f08fc7e91401c57108f66265aa40322297849ca8a41",
+      "idDigest": "038903e169e5c46320a6dac019595c7e46d4c3eb5bf14f446c7e145850f26b4a",
       "name": "settleLoss",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2706,7 +2696,7 @@
     {
       "detector": "controlled-delegatecall",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "014d1b911b70a3dfcc705ba9d0446201f8b92461f2cbfb332c6c28d212d82f2b",
+      "idDigest": "ad3f48c26860cfed3a35ead23849be492190ffcb0d0300b8dfd65e78fa6e7a0d",
       "name": "_delegateProfitModule",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2716,7 +2706,7 @@
     {
       "detector": "controlled-delegatecall",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "0011785229ebc20fee7f82f376be2b800fc96d8b5b3e1746e03c9d24b1430375",
+      "idDigest": "677320e8e9eb7506c73af174497683bdd81ba5181ce58a025ed5b1899983fa57",
       "name": "_delegateProfitModuleUint",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2786,7 +2776,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "4be2b17556175b5a1a1084ccc387b1b2378ffc29c66453b937e63371f84bca6a",
+      "idDigest": "999223c5693c92199a1d6916b6cdbd182a7bf8d1abec6e2268f1a1c33655acb3",
       "name": "_removeAutoRenewDisabledExpiry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2796,7 +2786,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "6f60ec06d30958cee13bc9d1879115d85692c2d9c6dedb69e230f198ceae2881",
+      "idDigest": "59cde028371f89b92261945e4e0d790a8a146c4c9de2d9a1c48a8a7e9a9c6b27",
       "name": "_removeAutoRenewDisabledExpiry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2816,7 +2806,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "ee18bbfacc0255c77b178f0422d5eb03adbd18f2ad040d97b31c5a8898be74db",
+      "idDigest": "28d32721ae4bd3fc1d0e8f2f4e28eadeb59db90553e7fa50d111b5e9c1862d6d",
       "name": "_updateWithLossCheck",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2826,7 +2816,7 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "974cb9ce3f2173a563638367af40cd3c49a47f1b75eb21feda0e8ddcda2ccb6a",
+      "idDigest": "e78a746ff27c506cffe6931d95edd1c5024ec4935fecbeedfc1191cdf7c96f50",
       "name": "_weeklyCohortStart",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2916,7 +2906,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "4aa7d2f9fd9e89ce5e1cbbd0f80d4f29ade7c677549b5f7aebdb8c8c660759f5",
+      "idDigest": "769f497367ac5dd952dfc25cb13d2fe099a31448b8fd77a20bb85c905998347c",
       "name": "absorbLoss",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -2936,7 +2926,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "46fa62bd651d2bae3727b37f2b4257334998d48ea4a5d13d531cbb63fce5a407",
+      "idDigest": "8e3a7fb4cc0f68b5418a66e1f0b33d02572a11286b3dbc36537b0c48481fc413",
       "name": "applyPendingYieldSource",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -3546,7 +3536,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "2dcb09b3d133d74d7894544d4492c88143b8ff4c11108eccd0fa316a6d7e6b09",
+      "idDigest": "fb5f9a8382571498f739ed6d8c0cf000901fc5d6314b7eed0a5cd6818684ffda",
       "name": "_deadlineWithinCeiling",
       "created": "2026-09-29",
       "expires": "2027-03-28",
@@ -3726,7 +3716,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "8ddaa4b8aba2b89b589bbf9236068d47206fd045b8b7ded492cbe2390dc88e27",
+      "idDigest": "1c496967786180bbb82e76fdcef0a9dd5afb282a40173ff3afa2fe15c225f904",
       "name": "_partialFillMinimumShares",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -3906,7 +3896,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "ce37d303a8ba8631d8c50be91c2c9ebd511bd58130de441de23f5588d1657308",
+      "idDigest": "21e26422cd0d324dfd1ec36f7b08adf6475d2715d6e431a8ff12426fa8a0e0e7",
       "name": "_processLaneEntry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -3916,7 +3906,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "1c2f774cd7687f1c5dd843b054c5c9cdfc959412b80f1b8e8c37b45766eba754",
+      "idDigest": "502ae7a4ee27d50e3b9dc124398d18ede51bac2fe971e3cd0b84d0274bb06c19",
       "name": "_processLaneEntry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -3926,7 +3916,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "7c19aeae606f2cbd790d39d91b22376d847641dd7d5c39276b78f91dc3f3b15a",
+      "idDigest": "bcf07f4efb1911a39f826c3136127272f1bccb4f580a8d773e4377e1c196005d",
       "name": "_processLaneFill",
       "created": "2026-09-29",
       "expires": "2027-03-28",
@@ -3936,7 +3926,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "f07bc50226908949ac98dc3d882b1c806075794832c21ae07566a7cea89def42",
+      "idDigest": "3a355b862eeda10420f54d7c8c1f1494d62a66564351c5099f54155a3b72c35e",
       "name": "_processLaneFill",
       "created": "2026-09-29",
       "expires": "2027-03-28",
@@ -3947,14 +3937,14 @@
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
       "stableIdentity": {
-        "contract": "StakingQueueModule",
         "detector": "reentrancy-no-eth",
-        "elementIdentitySha256": "263142cfdff05b820c9095f64ed73c4f6c4107e59f47cc14beb9f80bed12c275",
-        "file": "src/modules/StakingQueueModule.sol",
+        "contract": "StakingQueueModule",
         "function": "_processStandardLane(StakingQueueModule.QueueLaneConfig)",
-        "functionSha256": "4e927a9d985fd41d4085ddd823cd01f57b396475e5dccc8c69a50e1147b3f818",
+        "file": "src/modules/StakingQueueModule.sol",
+        "rootStart": 40689,
         "rootLength": 3151,
-        "rootStart": 40588
+        "functionSha256": "4e927a9d985fd41d4085ddd823cd01f57b396475e5dccc8c69a50e1147b3f818",
+        "elementIdentitySha256": "21473f8470053c645ded4ade110df1338abedd50da6a7efe30e3145cccee4c97"
       },
       "name": "_processStandardLane",
       "created": "2026-10-07",
@@ -3965,7 +3955,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "a45209ad160fc005ebb599caafb75cf3736790c00ac15ad916fd7183cd83073a",
+      "idDigest": "d61b8718fc7eb99cdb516ca02417c67e65eb450d7995588133fd38da9a3c36a1",
       "name": "_recordQueueFill",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -3975,7 +3965,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "9652be0228ac5fa1b82a9daae0ff3082475014efa8159adee3f6d2248f9755f9",
+      "idDigest": "e5a4a8d3004f891378a10cd744fc01b6f8a7f34c06165c6ee899e676990f7dd6",
       "name": "_reducePriorityLock",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4065,7 +4055,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "379f7a0110c37313ad29e939827a664d9ca48bef01000fb6cf61c607d72936ce",
+      "idDigest": "3c600882ca813bc1b9fa2f9b56aa27ba3d89faa6889e5884fcc49c9788e05e78",
       "name": "adminCancelQueue",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4095,7 +4085,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "b9b3dc27f1b2965e6c3de1dba76d6c22fdd83ad29d76414bc7a074baf7d8fccb",
+      "idDigest": "f1f0bf923a28f270b1dbda6570bb49ef4db7671c0f05d1681acfe42d0291ee73",
       "name": "processQueue",
       "created": "2026-09-29",
       "expires": "2027-03-28",
@@ -4245,7 +4235,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "08748e11856508c2b1fe78b3b4de750aae485e871d8d5950bef4eb0d9960a1d3",
+      "idDigest": "36913a6e039074bc72ce4826d7caf898769c01448062638ce211bf810f7e86ce",
       "name": "_refreshEarliestAutoRenewDisabledExpiry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4255,7 +4245,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "02c9a5b26b56f4d669212fb9067a5616226af94e35814576658652db3dfc0233",
+      "idDigest": "50a477253fc1965f792f3882d144387c36e6e080c4affda32315c0b73bde0cd2",
       "name": "_syncAutoRenewDisabledTracking",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4295,7 +4285,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "f4e7fb6bcd53505de5355d4340e2890f66891af31e9e23f449d68eb38814cda3",
+      "idDigest": "f039bb17bf7ead53a2f17df70a6c999e0b570e2045a4c5133f6fdf0de6064174",
       "name": "_demotePriorityEntry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4305,7 +4295,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "5dd550ccac44cb7066d94bdffa831238bd1920befc2d71dc0d72d80c5bb290a0",
+      "idDigest": "975dcf56204a117a3aa49953ed2f6b1ac2f5391fe2d45cb2b085fdafb2ad7c52",
       "name": "_joinQueue",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4315,7 +4305,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "72d2f008b25bd7af406bd4727e37e4b76dc9bb2cc983193594f8d1887df51fd8",
+      "idDigest": "77e2ae2348b09ac3cf50c17edb009dacc68e4d4401a3860a8e7f93df9a4572a8",
       "name": "_depositQueuedRiskusd",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4325,7 +4315,7 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "c3206041a191d4ebf35a7b9a26fe85376d69e35e9942b9f54d4e52635f4b8e98",
+      "idDigest": "7d0bb8b46cec5b9010bbf6bf2ff9394db5a8855ca70f536e94fc33d396c47a75",
       "name": "_minimumSharesReachable",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -4455,10 +4445,10 @@
         "contract": "StakingQueueModule",
         "function": "processQueue(uint8,uint256)",
         "file": "src/modules/StakingQueueModule.sol",
-        "rootStart": 19177,
+        "rootStart": 19278,
         "rootLength": 1844,
         "functionSha256": "62507c4730fe8c28d3ceb45c78c0e40e6ac7d411aeaba24e2b05e41804cfaa69",
-        "elementIdentitySha256": "1618108b304df4d6272b08a4124525cbc36d9388b69ba63f5ddf99ee02fef8d3"
+        "elementIdentitySha256": "68bdd0d38df79f6a37111303117330562a8e0e1c302c360f836a122e7c114c93"
       }
     },
     {
@@ -4614,7 +4604,7 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "0a4fcd1535bc3d9e1e8c62b26c00d054458e05eebc10425050623ed157e8d993",
+      "idDigest": "ff3712b2c2991db4e326bc92dd502d49693b781a9dbe336ed8db08115897b002",
       "name": "_returnPrincipalUSDC",
       "created": "2026-10-07",
       "expires": "2027-04-05",
@@ -5198,12 +5188,21 @@
       "contract": "StakingQueueModule",
       "function": "_processDemotedStandardCandidate(uint8,uint256,StakingQueueModule.QueueLaneConfig,StakingQueueModule.QueueLaneResult)",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "55f5f75d362f580486fef9d15c86d22037885b83ff491d270fbee921ef6fc7e4",
       "name": "_processDemotedStandardCandidate",
       "created": "2026-10-09",
       "expires": "2027-04-07",
-      "rationale": "The private helper is reachable only through _processStandardLane from processQueue; the host entry checks onlyFreshQueue, onlyAllowedCaller, onlyQueueProcessor, whenNotPaused and nonReentrant before delegatecall.",
-      "owner": "OpenForage security"
+      "rationale": "The private helper is reachable only through _processStandardLane from processQueue; the host entry checks onlyFreshQueue, onlyAllowedCaller, onlyQueueProcessor, whenNotPaused and nonReentrant before delegatecall. The raw identity varies between the two independent C29 scans; this entry binds the stable source and trace-element identity.",
+      "owner": "OpenForage security",
+      "stableIdentity": {
+        "detector": "reentrancy-no-eth",
+        "contract": "StakingQueueModule",
+        "function": "_processDemotedStandardCandidate(uint8,uint256,StakingQueueModule.QueueLaneConfig,StakingQueueModule.QueueLaneResult)",
+        "file": "src/modules/StakingQueueModule.sol",
+        "rootStart": 43846,
+        "rootLength": 367,
+        "functionSha256": "fe9a7d6295ff7ba664a524bac58720b704a5bf54bfcc8ec45355d18c41f8fe4d",
+        "elementIdentitySha256": "4f783edede3dd979c68e2790497fdd0598c1e4c310be652de0e7533b7a404f6b"
+      }
     },
     {
       "detector": "uninitialized-local",
@@ -5261,6 +5260,36 @@
       "created": "2026-10-09",
       "expires": "2027-04-07",
       "rationale": "This mapping of per-tier deferred queue IDs is append-only fresh-deployment state. Solidity mapping/array storage starts empty for a fresh proxy, initialize sets deferredFrontierVersion=1, and onlyFreshQueue plus the module fresh-accounting guard refuse storage where that version is absent before queue processing; there is no legacy translation path. Empty is the invariant for a fresh deferred frontier; the saved IDs are added before use and removed only through bounded restore/processing. DEC-13 fresh-only deployment is preserved.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "uninitialized-local",
+      "file": "src/GuardianModule.sol",
+      "name": "a",
+      "idDigest": "fbb24f23c1c056f62999b3b51a3a501f13b0afbbd1997bea98ebf2e345c21e30",
+      "created": "2026-10-11",
+      "expires": "2027-04-09",
+      "rationale": "JUSTIFIED: Solidity initializes this local uint256 accumulator to zero. executeAcceleratedRotation increments it only while scanning the roster, which is capped at 14 entries, and requires at least four qualifying approvals before state mutation. No uninitialized value is consumed.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "cache-array-length",
+      "file": "src/GuardianModule.sol",
+      "name": "i < _guardianList.length",
+      "idDigest": "1dbb54c2683d0b7adddba142d6cb36aa7ba7e8da233095668eb2027775acef64",
+      "created": "2026-10-11",
+      "expires": "2027-04-09",
+      "rationale": "JUSTIFIED: this Slither detector flags a gas-only cached-length optimization. The roster has a hard maximum of 14 entries enforced by GuardianAuthorityClassifier._MAX_GUARDIAN_ENTRIES; executeAcceleratedRotation therefore scans at most 14 entries and stops after four approvals. Caching the length does not change access control or state behavior.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "incorrect-equality",
+      "file": "src/atRISKUSD.sol",
+      "idDigest": "c80631438ef5eb81c059b3e56b8d50d7a70770560985c7645f8d5d932bced6f5",
+      "name": "_settleStaleWeeklyExitWindow",
+      "created": "2026-10-11",
+      "expires": "2027-04-09",
+      "rationale": "JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: the zero start is the unset weekly-window sentinel; before any window opens there is no stale interval or cohort reservation to settle. Both cap setters call this private helper before changing the cap; for nonzero starts it checks the close and next-close boundaries, refusing a two-window stale settlement and settling the one stale cohort with its snapshotted rate. The exact predicate is src/atRISKUSD.sol:1138 in the current function body (SHA-256 base64url:rW8Kcadstt0cykqZnDxAwbWK_hE_P8HPYrnZzCPyEIE). Static source disposition only; no runtime, deployment, or Octane-closure claim.",
       "owner": "OpenForage security"
     }
   ]

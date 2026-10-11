@@ -1323,10 +1323,11 @@ contract HLTradingBridgeReturnCapsModule {
         uint16 perCallBps,
         uint16 perDayBps,
         bool intent,
-        bool principalReturn
+        bool principalReturn,
+        bool zeroPrincipalHighWater
     ) external onlyDelegateCall {
-        _syncReturnDayBasis(principal);
-        _syncIntentDayBasis(principal);
+        _syncReturnDayBasis(principal, zeroPrincipalHighWater && !intent && !principalReturn);
+        _syncIntentDayBasis(principal, zeroPrincipalHighWater && intent);
         if (!intent && !principalReturn) {
             uint256 perCallCap = principal * uint256(perCallBps) / BPS_DENOMINATOR;
             if (amount > perCallCap) revert ReturnPerCallCapExceeded(amount, perCallCap);
@@ -1345,24 +1346,28 @@ contract HLTradingBridgeReturnCapsModule {
         return IEmergencyPrincipalLane(lane).principalLaneOpen();
     }
 
-    function _syncReturnDayBasis(uint256 principal) private {
+    function _syncReturnDayBasis(uint256 principal, bool zeroPrincipalHighWater) private {
         HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
         uint256 used = state.returnUsedThisDay;
         if (block.timestamp >= state.returnUsedDayStart + DAY_SECONDS) {
             state.returnUsedDayStart = block.timestamp;
             state.returnUsedThisDay = 0;
             state.returnDayBasis = principal;
+        } else if (zeroPrincipalHighWater && principal > state.returnDayBasis) {
+            state.returnDayBasis = principal;
         } else if (state.returnDayBasis == 0 && used == 0 && principal != 0) {
             state.returnDayBasis = principal;
         }
     }
 
-    function _syncIntentDayBasis(uint256 principal) private {
+    function _syncIntentDayBasis(uint256 principal, bool zeroPrincipalHighWater) private {
         HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
         uint256 used = state.withdrawalIntentUsedThisDay;
         if (block.timestamp >= state.withdrawalIntentUsedDayStart + DAY_SECONDS) {
             state.withdrawalIntentUsedDayStart = block.timestamp;
             state.withdrawalIntentUsedThisDay = 0;
+            state.withdrawalIntentDayBasis = principal;
+        } else if (zeroPrincipalHighWater && principal > state.withdrawalIntentDayBasis) {
             state.withdrawalIntentDayBasis = principal;
         } else if (state.withdrawalIntentDayBasis == 0 && used == 0 && principal != 0) {
             state.withdrawalIntentDayBasis = principal;

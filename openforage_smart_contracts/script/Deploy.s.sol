@@ -98,15 +98,15 @@ contract Deploy is Script {
     address private constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     bytes32 private constant MIGRATION_GUARD_SALT =
         keccak256("openforage:octane-remediation:ForageGovernorTimelockMigrationGuard:v1");
-    address private constant MIGRATION_GUARD_ADDRESS = 0xC7B0cdC73e6A351BBBD784aFec4ed581a6E20a5f;
+    address private constant MIGRATION_GUARD_ADDRESS = 0x15104D103992c9790bC506eBe96F98F2570e7c9f;
     bytes32 private constant MIGRATION_GUARD_INIT_CODE_HASH = bytes32(
-        (uint256(0xf3fb21151285a7eb) << 192) | (uint256(0x28c7ae558fc07a73) << 128)
-            | (uint256(0xeb2f197567f678ef) << 64) | uint256(0x38eb5d2ba0b2284b)
+        (uint256(0x34eb051e1fac7b71) << 192) | (uint256(0x872b97a93da9289c) << 128)
+            | (uint256(0xffc9ea1aede8f8e5) << 64) | uint256(0xa73eb2d763c77c25)
     );
-    uint256 private constant MIGRATION_GUARD_RUNTIME_LENGTH = 21_770;
+    uint256 private constant MIGRATION_GUARD_RUNTIME_LENGTH = 22_027;
     bytes32 private constant MIGRATION_GUARD_RUNTIME_HASH = bytes32(
-        (uint256(0xae52e4e6cb83762b) << 192) | (uint256(0x0cca5ce6635b2100) << 128)
-            | (uint256(0xfc579c22f7d9afcc) << 64) | uint256(0x36f63efce08defe5)
+        (uint256(0xe8e7b9018e4b3997) << 192) | (uint256(0x838dc97d5def8c4c) << 128)
+            | (uint256(0x7b1865d1bfc74b66) << 64) | uint256(0xbcb17977fd318580)
     );
     bytes32 private constant AUTHORITY_CLASSIFIER_SALT =
         keccak256("openforage:octane-remediation:GuardianAuthorityClassifier:v1");

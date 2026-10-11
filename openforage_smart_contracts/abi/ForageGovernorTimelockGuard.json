@@ -1,0 +1,369 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "canonicalCustodianRegistry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "canonicalRegistryAddress",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "enforceOperation",
+    "inputs": [
+      {
+        "name": "executor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "allowedProposer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "guardianModule",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "delayFloor",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nestingBound",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "enforceOperations",
+    "inputs": [
+      {
+        "name": "executor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "allowedProposer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "guardianModule",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "delayFloor",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nestingBound",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "targets",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "values",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "calldatas",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hasMixedGuardianSelfAuthorityForMigration",
+    "inputs": [
+      {
+        "name": "executor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "guardianModule",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "registryOwner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "targets",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "values",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "calldatas",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "CanonicalCustodianRegistryUnavailable",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CanonicalTimelockUpgradeUnsupported",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianSeatSetupBundledWithUnrelatedAction",
+    "inputs": [
+      {
+        "name": "current",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "successor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianSelfAuthorityBundledWithUnrelatedAction",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "MalformedTimelockCalldata",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ProtectedCallAuthorityUnavailable",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ProtectedCallCallerMismatch",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "requiredCaller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockDelayBelowMinimum",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minimum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockDirectExecuteUnsupported",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TimelockExternalAdminGrant",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockExternalProposerGrant",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockExternalRoleGrant",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockNonpayableSelfMutationValue",
+    "inputs": [
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockRequiredGovernorRoleRevoked",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockSelfAdminRevoked",
+    "inputs": [
+      {
+        "name": "timelock",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockSelfProposerGrant",
+    "inputs": []
+  }
+]

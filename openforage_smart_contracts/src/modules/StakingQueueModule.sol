@@ -147,6 +147,7 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
     bytes4 private constant _SEL_DEPOSIT = bytes4(keccak256("deposit(uint256,address)"));
     bytes4 private constant _SEL_PREVIEW_DEPOSIT = bytes4(keccak256("previewDeposit(uint256)"));
     bytes4 private constant _SEL_REDEEM_UPGRADE = bytes4(keccak256("redeemForUpgrade(address,uint256)"));
+    bytes4 private constant _SEL_CATCH_UP = bytes4(keccak256("catchUpUnpaidProfitEpochs(address)"));
     bytes4 private constant _SEL_RENEW_LOCKUP = bytes4(keccak256("renewLockup(address)"));
     bytes4 private constant _SEL_REDEEM_REVERSION = bytes4(keccak256("redeemForReversion(address,uint256)"));
     bytes4 private constant _SEL_LOCKUPS = bytes4(keccak256("lockups(address)"));
@@ -1150,6 +1151,12 @@ contract StakingQueueModule is AllowlistGatedUpgradeable {
         uint256 minimumShares = _minimumDepositShares(tierVaultAddr, riskusdAmount);
         if (depositorMinimumShares > minimumShares) {
             minimumShares = depositorMinimumShares;
+        }
+
+        for (uint256 i; i < 4; ++i) {
+            (bool ok, bytes memory data) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_CATCH_UP, depositor));
+            if (!ok || data.length != 32) break;
+            if (abi.decode(data, (uint256)) != 0) break;
         }
 
         // OF-M10: use forceApprove instead of bare approve

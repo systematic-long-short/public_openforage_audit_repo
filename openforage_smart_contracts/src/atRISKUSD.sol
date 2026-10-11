@@ -166,7 +166,7 @@ contract atRISKUSD is
     struct WeeklyExitCohort {
         uint256 demandShares;
         uint256 roomShares;
-        uint256 fractionRay;
+        uint256 windowCapBps;
         uint256 activeRequests;
         bool settled;
     }
@@ -241,7 +241,7 @@ contract atRISKUSD is
     uint64 internal constant EMERGENCY_RECOVERY_WINDOW = 7 days;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant SHARE_SCALE = 1e6;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 6;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 7;
     uint64 private constant PROFIT_ENTITLEMENT_VERSION = 3;
 
     // ============================================================
@@ -288,12 +288,13 @@ contract atRISKUSD is
         __Pausable_init();
         _yieldSource = yieldSource_;
         _stakingQueue = stakingQueue_;
-        _legitimateAssets = IERC20(riskusd_).balanceOf(address(this));
+        _legitimateAssets = 0;
         _lockupPeriod = lockupPeriod_;
         _cooldownPeriod = cooldownPeriod_;
         _tierId = tierId_;
         _weeklyWithdrawalCapBps = DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS;
         _weeklyWithdrawalWindowStart = block.timestamp;
+        _weeklyExitCohorts[_weeklyWithdrawalWindowStart].windowCapBps = DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS;
         _autoRenewDisabledTrackedCount = 0;
         _earliestAutoRenewDisabledExpiry = 0;
         _freshDeploymentVersion = FRESH_DEPLOYMENT_VERSION;
@@ -431,9 +432,12 @@ contract atRISKUSD is
     }
 
     function _directWeeklyWithdrawalRoom(uint256 weeklyRoom) private view returns (uint256) {
-        WeeklyExitCohort storage cohort = _weeklyExitCohorts[_weeklyWithdrawalWindowStart];
-        uint256 queuedReserve = cohort.demandShares == 0 ? 0 : previewRedeem(cohort.demandShares);
-        return AtRiskUSDWeeklyExitModule.directRoom(weeklyRoom, queuedReserve);
+        uint256 start = _weeklyWithdrawalWindowStart;
+        if (start <= WEEKLY_WITHDRAWAL_WINDOW) return weeklyRoom;
+        WeeklyExitCohort storage cohort = _weeklyExitCohorts[start - WEEKLY_WITHDRAWAL_WINDOW];
+        uint256 reservedShares = cohort.settled ? cohort.roomShares : 0;
+        uint256 reservedAssets = reservedShares == 0 ? 0 : previewRedeem(reservedShares);
+        return AtRiskUSDWeeklyExitModule.directRoom(weeklyRoom, reservedAssets);
     }
 
     // ============================================================
@@ -695,11 +699,13 @@ contract atRISKUSD is
     }
 
     function setWeeklyWithdrawalCapBps(uint256 bps_) external onlyFreshAllowedCaller onlyOwner {
+        _settleStaleWeeklyExitWindow();
         _setWeeklyWithdrawalCapBps(bps_);
     }
 
     function shrinkWeeklyWithdrawalCapBps(uint256 bps_) external onlyFreshAllowedCaller {
         _requireEmergencyCapTightener();
+        _settleStaleWeeklyExitWindow();
         if (bps_ > _effectiveWeeklyWithdrawalCapBps()) revert CapTighteningOnly();
         _setWeeklyWithdrawalCapBps(bps_);
     }
@@ -773,7 +779,9 @@ contract atRISKUSD is
     function weeklyWithdrawalRemaining() public view returns (uint256) {
         _requireFreshDeployment();
         (uint256 used, uint256 baseAssets) = _weeklyWithdrawalWindowView();
-        uint256 cap = baseAssets * _effectiveWeeklyWithdrawalCapBps() / 10000;
+        uint256 capBps = _weeklyExitCohorts[_weeklyWithdrawalWindowStart].windowCapBps;
+        if (capBps == 0) revert WeeklyExitAccountingInvariant(1, capBps);
+        uint256 cap = Math.mulDiv(baseAssets, capBps, 10000);
         return used >= cap ? 0 : cap - used;
     }
 
@@ -1124,6 +1132,18 @@ contract atRISKUSD is
         }
     }
 
+    function _settleStaleWeeklyExitWindow() private {
+        uint256 start = _weeklyWithdrawalWindowStart;
+        uint256 window = WEEKLY_WITHDRAWAL_WINDOW;
+        if (start == 0) return;
+        if (start > type(uint256).max - window) revert WeeklyExitArithmeticOverflow();
+        uint256 closesAt = start + window;
+        if (block.timestamp < closesAt) return;
+        if (closesAt > type(uint256).max - window) revert WeeklyExitArithmeticOverflow();
+        if (block.timestamp >= closesAt + window) revert WeeklyExitSettlementRequired(closesAt);
+        _delegateStateModule(abi.encodeCall(AtRiskUSDStateModule.settleWeeklyExit, ()));
+    }
+
     function _weeklyWithdrawalWindowView() private view returns (uint256 used, uint256 baseAssets) {
         uint256 start = _weeklyWithdrawalWindowStart;
         if (start == 0 || block.timestamp >= start + WEEKLY_WITHDRAWAL_WINDOW) {
@@ -1131,6 +1151,7 @@ contract atRISKUSD is
         }
         baseAssets = _weeklyWithdrawalWindowStartAssets;
         if (baseAssets == 0) baseAssets = totalAssets();
+        if (baseAssets == 1) baseAssets = 0;
         return (_weeklyWithdrawalUsed, baseAssets);
     }
 
@@ -1143,6 +1164,9 @@ contract atRISKUSD is
         _resetWeeklyWithdrawalWindowIfExpired();
         if (_weeklyWithdrawalWindowStartAssets == 0) {
             _weeklyWithdrawalWindowStartAssets = totalAssets();
+        } else if (_weeklyWithdrawalWindowStartAssets == 1) {
+            if (assets != 0) revert WeeklyWithdrawalCapExceeded(assets, 0);
+            return;
         }
 
         uint256 used = _weeklyWithdrawalUsed;

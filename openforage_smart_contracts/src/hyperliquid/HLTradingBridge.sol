@@ -25,6 +25,7 @@ library HLTradingBridgeCapitalStorage {
     struct Layout {
         address emergencyPrincipalLane;
         uint256 lastNonzeroPrincipalBasis;
+        uint256 maxReturnCapBasis;
     }
 
     function layout() internal pure returns (Layout storage state) {
@@ -462,7 +463,8 @@ interface IHLTradingBridgeReturnCapsModule {
         uint16 perCallBps,
         uint16 perDayBps,
         bool intent,
-        bool principalReturn
+        bool principalReturn,
+        bool zeroPrincipalHighWater
     ) external;
 }
 
@@ -618,7 +620,7 @@ contract HLTradingBridge is
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
     uint16 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant DEFAULT_WITHDRAWAL_INTENT_TIMEOUT_SECONDS = 7 days;
-    uint64 private constant FRESH_DEPLOYMENT_VERSION = 5;
+    uint64 private constant FRESH_DEPLOYMENT_VERSION = 6;
     address private immutable _capitalModule;
 
     struct RouteConfig {
@@ -727,6 +729,7 @@ contract HLTradingBridge is
         HLTradingBridgeCapitalStorage.Layout storage capital = HLTradingBridgeCapitalStorage.layout();
         capital.emergencyPrincipalLane = address(0);
         capital.lastNonzeroPrincipalBasis = 0;
+        capital.maxReturnCapBasis = 0;
         _freshDeploymentVersion = FRESH_DEPLOYMENT_VERSION;
         _updatePrincipalBookAnchor();
         emit SequencerUptimeFeedSet(address(0), route.sequencerUptimeFeed);
@@ -932,7 +935,9 @@ contract HLTradingBridge is
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);
-        _enforceReturnCaps(amount, false, _deployedPrincipal);
+        uint256 principalBasis = _deployedPrincipal;
+        if (principalBasis == 0) principalBasis = HLTradingBridgeCapitalStorage.layout().maxReturnCapBasis;
+        _enforceReturnCaps(amount, false, principalBasis);
 
         IERC20 token = IERC20(usdc);
         _consumeReconciledLiquidity(token, amount);
@@ -956,7 +961,7 @@ contract HLTradingBridge is
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);
-        uint256 principalBasis = HLTradingBridgeCapitalStorage.layout().lastNonzeroPrincipalBasis;
+        uint256 principalBasis = HLTradingBridgeCapitalStorage.layout().maxReturnCapBasis;
         if (principalBasis == 0) revert PrincipalBasisUnavailable();
         _enforceReturnCaps(amount, false, principalBasis);
 
@@ -982,7 +987,7 @@ contract HLTradingBridge is
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);
-        uint256 principalBasis = HLTradingBridgeCapitalStorage.layout().lastNonzeroPrincipalBasis;
+        uint256 principalBasis = HLTradingBridgeCapitalStorage.layout().maxReturnCapBasis;
         if (principalBasis == 0) revert PrincipalBasisUnavailable();
         _enforceReturnCaps(amount, false, principalBasis);
 
@@ -1536,29 +1541,49 @@ contract HLTradingBridge is
 
     function _recordLastNonzeroPrincipalBasis() private {
         uint256 principal = _deployedPrincipal;
-        if (principal != 0) HLTradingBridgeCapitalStorage.layout().lastNonzeroPrincipalBasis = principal;
+        if (principal != 0) {
+            HLTradingBridgeCapitalStorage.Layout storage capital = HLTradingBridgeCapitalStorage.layout();
+            capital.lastNonzeroPrincipalBasis = principal;
+            if (principal > capital.maxReturnCapBasis) capital.maxReturnCapBasis = principal;
+        }
     }
 
     function _syncReturnDayBases() private {
-        _delegateReturnCapsModule(0, false, false, _deployedPrincipal);
+        _delegateReturnCapsModule(0, false, false, _deployedPrincipal, false);
     }
 
     function _enforceReturnCaps(uint256 amount, bool principalReturn, uint256 principalBasis) internal {
-        _delegateReturnCapsModule(amount, false, principalReturn, principalBasis);
+        bool zeroPrincipalHighWater = !principalReturn && _deployedPrincipal == 0;
+        _delegateReturnCapsModule(amount, false, principalReturn, principalBasis, zeroPrincipalHighWater);
     }
 
     function _enforceWithdrawalIntentCaps(uint256 amount) internal {
-        _delegateReturnCapsModule(amount, true, false, _deployedPrincipal);
+        uint256 principalBasis = _deployedPrincipal;
+        bool zeroPrincipalHighWater = principalBasis == 0;
+        if (zeroPrincipalHighWater) principalBasis = HLTradingBridgeCapitalStorage.layout().maxReturnCapBasis;
+        _delegateReturnCapsModule(amount, true, false, principalBasis, zeroPrincipalHighWater);
     }
 
-    function _delegateReturnCapsModule(uint256 amount, bool intent, bool principalReturn, uint256 principalBasis)
-        private
-    {
+    function _delegateReturnCapsModule(
+        uint256 amount,
+        bool intent,
+        bool principalReturn,
+        uint256 principalBasis,
+        bool zeroPrincipalHighWater
+    ) private {
         address module = HLTradingBridgeReturnCapsHostStorage.layout().module;
         if (module.code.length == 0) revert InvalidReturnCapsModule(module);
         bytes memory callData = abi.encodeCall(
             IHLTradingBridgeReturnCapsModule.enforceCaps,
-            (amount, principalBasis, _returnPerCallCapBps, _returnPerDayCapBps, intent, principalReturn)
+            (
+                amount,
+                principalBasis,
+                _returnPerCallCapBps,
+                _returnPerDayCapBps,
+                intent,
+                principalReturn,
+                zeroPrincipalHighWater
+            )
         );
         (bool success, bytes memory result) = module.delegatecall(callData);
         if (!success) {

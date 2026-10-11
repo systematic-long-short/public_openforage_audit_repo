@@ -422,12 +422,21 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) {
             revert SuccessorNotPreCommitted();
         }
+        uint256 a;
+        for (uint256 i; i < _guardianList.length; ++i) {
+            if (
+                guardianPermissions[_guardianList[i]] != 0 && _rotationApprovals[operationId][_guardianList[i]]
+                    && ++a == 4
+            ) break;
+        }
+        if (a < 4) revert RotationNotReady();
         _requireVerifiedAccount(rotation.successor);
         rotation.executed = true;
         activeSlotHolder[rotation.slot] = rotation.successor;
         bytes32 tupleId = _acceleratedRotationTupleId(rotation.slot, rotation.current, rotation.successor);
         _acceleratedRotationGenerations[tupleId] += 1;
         if (rotation.slot == SLOT_GUARDIAN_SEAT) {
+            _requireGuardianSeatTransition(rotation.current, rotation.successor);
             _replaceGuardianSeat(rotation.current, rotation.successor);
         }
     }

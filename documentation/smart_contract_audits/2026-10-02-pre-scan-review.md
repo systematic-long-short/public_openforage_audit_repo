@@ -1,5 +1,7 @@
 # Whole-source pre-scan review and proof limits
 
+Line references (note of 2026-10-11): the source-line ranges on this page were written for commit `01f4abe7768f03d2a21e6ab0a0221795d315d79b` and have not been maintained since; some of them do not match that commit either. They are kept as published. Use the two 2026-10-11 pages for current references.
+
 This is OpenForage's own source review of the public contract candidate. It is not an Octane result, an Octane finding closure, a deployment approval, or a security-clearance claim. No Octane scan or public write is part of this update.
 
 ## Candidate and scope
@@ -92,36 +94,49 @@ Two checker-control limits are retained rather than described as whole-call proo
 
 ## Build, equality, and proof evidence
 
-Forge 1.3.5 and Solc 0.8.24 compiled 132 public inputs in each profile with zero compiler errors. Default code generation completed; its size child exited 1 with EIP-170 runtime overages: ForageGovernor 28,436 bytes (3,860 over); StakingQueue 27,439 bytes (2,863 over); USDCTreasury 27,905 bytes (3,329 over); EIP-3860 initcode overages: none. Deploy exited 0 and all 22 first-party contract runtime/initcode pairs fit. The table lists all 26 compiled contract/library artifacts. GuardianModule links GuardianAuthorityClassifier; ForageGovernorTimelockGuard links ForageGovernorTimelockMigrationGuard. GuardianAuthorityClassifier is 8,994/9,047 bytes in Default and 7,735/7,768 in Deploy; ForageGovernorTimelockMigrationGuard is 3,976/4,029 bytes in Default and 3,337/3,368 in Deploy.
+Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each offline profile with the test tree skipped. Default had zero compiler errors and its size child exited 1 on eight EIP-170 runtime overages: ForageGovernor 28,053 bytes (3,477 over), ForageGovernorTimelockMigrationGuard 24,690 (114 over), GuardianModule 24,632 (56 over), HLTradingBridge 24,673 (97 over), RISKUSDVaultModule 24,820 (244 over), StakingQueue 27,953 (3,377 over), StakingQueueModule 25,421 (845 over), and USDCTreasury 24,905 (329 over). ForageGovernor initcode is 49,498 bytes (346 over). Deploy exited 0 and all 39 first-party runtime/initcode artifacts fit; StakingQueueModule has the tightest runtime margin at 65 bytes. The table below is the current 39-artifact build result.
 
 | Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
-| Allowlist | 13,833 / 14,089 (+10,743 / +35,063) | 12,214 / 12,424 (+12,362 / +36,728) |
-| AtRiskUSDProfitModule | 7,710 / 8,031 (+16,866 / +41,121) | 7,033 / 7,348 (+17,543 / +41,804) |
-| AtRiskUSDStateModule | 24,471 / 25,083 (+105 / +24,069) | 20,907 / 21,442 (+3,669 / +27,710) |
-| Blocklist | 9,335 / 9,585 (+15,241 / +39,567) | 7,807 / 8,016 (+16,769 / +41,136) |
-| CustodianRegistry | 24,374 / 24,630 (+202 / +24,522) | 20,266 / 20,480 (+4,310 / +28,672) |
+| Allowlist | 15,058 / 15,314 (+9,518 / +33,838) | 13,303 / 13,513 (+11,273 / +35,639) |
+| AtRiskUSDProfitModule | 16,270 / 16,604 (+8,306 / +32,548) | 14,794 / 15,117 (+9,782 / +34,035) |
+| AtRiskUSDStateModule | 23,611 / 24,251 (+965 / +24,901) | 20,896 / 21,459 (+3,680 / +27,693) |
+| AtRiskUSDWeeklyExitModule | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
+| Blocklist | 9,711 / 9,967 (+14,865 / +39,185) | 8,175 / 8,384 (+16,401 / +40,768) |
+| CustodianRegistry | 21,533 / 34,516 (+3,043 / +14,636) | 17,435 / 28,865 (+7,141 / +20,287) |
+| CustodianRegistryCapitalModule | 12,545 / 12,651 (+12,031 / +36,501) | 11,030 / 11,125 (+13,546 / +38,027) |
+| CustodianRegistryCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | DelegatingVestingWallet | 7,333 / 9,505 (+17,243 / +39,647) | 6,246 / 7,733 (+18,330 / +41,419) |
-| FORAGETreasury | 24,542 / 24,834 (+34 / +24,318) | 21,624 / 21,874 (+2,952 / +27,278) |
-| ForageGovernor | 28,436 / 46,948 (-3,860 / +2,204) | 24,499 / 41,441 (+77 / +7,711) |
-| ForageGovernorTimelockGuard | 17,838 / 18,060 (+6,738 / +31,092) | 16,367 / 16,557 (+8,209 / +32,595) |
-| ForageGovernorTimelockMigrationGuard | 3,976 / 4,029 (+20,600 / +45,123) | 3,337 / 3,368 (+21,239 / +45,784) |
-| ForageToken | 24,112 / 49,129 (+464 / +23) | 23,455 / 45,684 (+1,121 / +3,468) |
-| ForageTokenStateModule | 24,458 / 24,671 (+118 / +24,481) | 21,704 / 21,912 (+2,872 / +27,240) |
+| FORAGETreasury | 24,295 / 27,665 (+281 / +21,487) | 20,054 / 22,729 (+4,522 / +26,423) |
+| FORAGETreasuryModule | 2,930 / 2,981 (+21,646 / +46,171) | 2,261 / 2,308 (+22,315 / +46,844) |
+| ForageGovernor | 28,053 / 49,498 (-3,477 / -346) | 23,853 / 43,271 (+723 / +5,881) |
+| ForageGovernorTimelockGuard | 20,771 / 20,993 (+3,805 / +28,159) | 18,843 / 19,033 (+5,733 / +30,119) |
+| ForageGovernorTimelockMigrationGuard | 24,690 / 24,743 (-114 / +24,409) | 22,027 / 22,060 (+2,549 / +27,092) |
+| ForageToken | 24,553 / 24,986 (+23 / +24,166) | 23,917 / 24,278 (+659 / +24,874) |
+| ForageTokenStateModule | 24,525 / 40,292 (+51 / +8,860) | 22,223 / 37,544 (+2,353 / +11,608) |
+| ForageTokenVoteEligibilitySyncQueue | 9,044 / 15,436 (+15,532 / +33,716) | 8,094 / 14,993 (+16,482 / +34,159) |
+| ForageTokenVoteEligibilitySyncReplay | 6,191 / 6,234 (+18,385 / +42,918) | 6,700 / 6,739 (+17,876 / +42,413) |
 | GovernancePayloadBudget | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| GuardianAuthorityClassifier | 8,994 / 9,047 (+15,582 / +40,105) | 7,735 / 7,768 (+16,841 / +41,384) |
-| GuardianModule | 24,487 / 24,743 (+89 / +24,409) | 19,674 / 19,888 (+4,902 / +29,264) |
-| HLTradingBridge | 24,529 / 24,821 (+47 / +24,331) | 22,577 / 22,827 (+1,999 / +26,325) |
+| GuardianAuthorityClassifier | 12,838 / 12,891 (+11,738 / +36,261) | 10,855 / 10,888 (+13,721 / +38,264) |
+| GuardianEmergencyPrincipalLane | 2,590 / 2,915 (+21,986 / +46,237) | 2,306 / 2,585 (+22,270 / +46,567) |
+| GuardianModule | 24,632 / 24,888 (-56 / +24,264) | 20,118 / 20,332 (+4,458 / +28,820) |
+| HLTradingBridge | 24,673 / 33,981 (-97 / +15,171) | 23,242 / 31,405 (+1,334 / +17,747) |
+| HLTradingBridgeCapitalModule | 8,826 / 8,926 (+15,750 / +40,226) | 7,722 / 7,818 (+16,854 / +41,334) |
+| HLTradingBridgeCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
+| HLTradingBridgeReturnCapsHostStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
+| HLTradingBridgeReturnCapsModule | 1,668 / 1,711 (+22,908 / +47,441) | 1,369 / 1,408 (+23,207 / +47,744) |
+| HLTradingBridgeReturnCapsModuleStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | RISKUSD | 12,324 / 12,616 (+12,252 / +36,536) | 10,418 / 10,663 (+14,158 / +38,489) |
-| RISKUSDVault | 21,977 / 22,269 (+2,599 / +26,883) | 18,582 / 18,832 (+5,994 / +30,320) |
-| RISKUSDVaultModule | 24,131 / 24,596 (+445 / +24,556) | 19,858 / 20,311 (+4,718 / +28,841) |
+| RISKUSDVault | 22,135 / 22,427 (+2,441 / +26,725) | 18,655 / 18,905 (+5,921 / +30,247) |
+| RISKUSDVaultModule | 24,820 / 25,285 (-244 / +23,867) | 20,830 / 21,283 (+3,746 / +27,869) |
 | RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| StakingQueue | 27,439 / 27,731 (-2,863 / +21,421) | 23,275 / 23,525 (+1,301 / +25,627) |
-| StakingQueueModule | 24,536 / 24,658 (+40 / +24,494) | 23,262 / 23,380 (+1,314 / +25,772) |
-| USDCTreasury | 27,905 / 28,197 (-3,329 / +20,955) | 24,365 / 24,615 (+211 / +24,537) |
-| USDCTreasuryAccountingModule | 4,044 / 4,073 (+20,532 / +45,079) | 3,059 / 3,086 (+21,517 / +46,066) |
+| StakingQueue | 27,953 / 28,245 (-3,377 / +20,907) | 23,934 / 24,184 (+642 / +24,968) |
+| StakingQueueModule | 25,421 / 25,550 (-845 / +23,602) | 24,511 / 24,636 (+65 / +24,516) |
+| USDCTreasury | 24,905 / 29,445 (-329 / +19,707) | 21,641 / 25,386 (+2,935 / +23,766) |
+| USDCTreasuryAccountingModule | 12,879 / 12,958 (+11,697 / +36,194) | 11,086 / 11,161 (+13,490 / +37,991) |
+| USDCTreasuryProfitPolicyModule | 4,121 / 4,165 (+20,455 / +44,987) | 3,353 / 3,392 (+21,223 / +45,760) |
 | VaultRegistry | 21,051 / 21,307 (+3,525 / +27,845) | 18,681 / 18,895 (+5,895 / +30,257) |
-| atRISKUSD | 23,471 / 49,135 (+1,105 / +17) | 19,584 / 41,505 (+4,992 / +7,647) |
+| atRISKUSD | 24,069 / 48,901 (+507 / +251) | 20,182 / 42,120 (+4,394 / +7,032) |
 
 The 61-file map is byte-equal to the exact private source reference. Default and Deploy BuildInfo use the same two source-qualified library pins as the private Foundry configuration; their public addresses, runtime lengths, and runtime code hashes match the values checked by Deploy. The two root dependency Gitlinks and nine recursive pins match the previous public base. All 18 ABI files match their mapped private bytes; 17 have compiler source definitions and `FoundationTreasury.json` remains the existing source-less orphan. The 155 Analysis 1–8 identity rows and their original counts remain unchanged; Warning 28 keeps the dated original-capture gap.
 

@@ -555,6 +555,10 @@ contract ForageGovernor is
             proposalState == ProposalState.Succeeded
                 && block.timestamp > proposalDeadline(proposalId) + STALE_SUCCEEDED_PROPOSAL_AGE
         ) return ProposalState.Expired;
+        if (proposalState == ProposalState.Queued) {
+            uint256 eta = proposalEta(proposalId);
+            if (eta != 0 && block.timestamp > eta + STALE_QUEUED_PROPOSAL_AGE) return ProposalState.Expired;
+        }
         return proposalState;
     }
 
@@ -894,6 +898,7 @@ contract ForageGovernor is
         while (i < _activeProposalIds.length) {
             uint256 proposalId = _activeProposalIds[i];
             ProposalState proposalState = state(proposalId);
+            if (proposalState == ProposalState.Expired) _cancelExpiredQueuedOperation(proposalId);
             if (
                 _isBelowThresholdOrdinaryProposal(proposalId, proposalState)
                     || (proposalState == ProposalState.Queued && !_usesActiveProposalSlot(proposalId, proposalState))
@@ -905,6 +910,17 @@ contract ForageGovernor is
                 }
             }
         }
+    }
+
+    function _cancelExpiredQueuedOperation(uint256 proposalId) private {
+        if (proposalEta(proposalId) == 0) return;
+
+        ProposalParams storage pp = _proposalParams[proposalId];
+        TimelockControllerUpgradeable currentTimelock = TimelockControllerUpgradeable(payable(timelock()));
+        bytes32 operationId = currentTimelock.hashOperationBatch(
+            pp.targets, pp.values, pp.calldatas, bytes32(0), bytes20(address(this)) ^ pp.descriptionHash
+        );
+        if (currentTimelock.isOperationPending(operationId)) currentTimelock.cancel(operationId);
     }
 
     function _usesActiveProposalSlot(uint256 proposalId, ProposalState proposalState) internal view returns (bool) {

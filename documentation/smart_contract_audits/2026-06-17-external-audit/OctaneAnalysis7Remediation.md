@@ -1,12 +1,12 @@
 # Octane Analyses 1–8 — Historical Identity and Remediation Record
 
-The source-line citations in this historical record are re-pinned to the mapped public source blobs listed in the [2026-10-09 post-scan update](../2026-10-09-post-scan-update.md). Their prior review statuses remain historical; current Analysis 9–13 status is recorded in the linked disposition documents.
+The source-line citations in this historical record are re-pinned to the mapped public source blobs listed in the [2026-10-11 post-scan update](../2026-10-11-post-scan-update.md). Their prior review statuses remain historical; current Analysis 9–13 status is recorded in the linked disposition documents.
 
 This document records a selective public source snapshot and the current limits of its evidence. It is not a security audit, a finding-clearance record, or an Octane analysis result.
 
 ## Public identity and status
 
-The exact previous-head and scan identity is in the linked post-scan update; older commit identities remain historical. `6efd4cd86a9b2fec7f484c0da073f71385900308`, `ef049358efb6496f8304faef11a99c34d2610e62`, and earlier commits are historical. The current source map contains 69 files: 40 source/interface/library/module files, 20 ABI files, 8 selected script/interface files, and 1 reviewed suppression policy. The private inventory has no first-party source/interface/library/module/ABI path outside the explicit map; `GuardianAuthorityClassifier.sol` and `IRISKUSDSettlement.sol` are included.
+The exact previous-head and scan identity is in the linked post-scan update; older commit identities remain historical. `6efd4cd86a9b2fec7f484c0da073f71385900308`, `ef049358efb6496f8304faef11a99c34d2610e62`, and earlier commits are historical. The current source map contains 70 files: 40 source/interface/library/module files, 21 ABI files, 8 selected script/interface files, and 1 reviewed suppression policy. The private inventory has no first-party source/interface/library/module/ABI path outside the explicit map; `GuardianAuthorityClassifier.sol` and `IRISKUSDSettlement.sol` are included.
 
 This file keeps all 155 exact `(analysis, UUID)` identities from analyses 1–8. The counts remain 55, 11, 9, 14, 9, 5, 28, and 24. The row codes and UUIDs are unchanged. Analyses 9, 10, and 11 have separate disposition documents; none is added to this historical identity table.
 
@@ -250,13 +250,13 @@ These rules do not prove that every current source path satisfies them. The firs
 
 ## Current public build and evidence limits
 
-Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. Default code generation completed with zero compiler errors; its size child exited 1 on six EIP-170 runtime overages: ForageGovernor 27,212 bytes (2,636 over), HLTradingBridge 24,787 bytes (211 over), RISKUSDVaultModule 24,820 bytes (244 over), StakingQueue 27,953 bytes (3,377 over), StakingQueueModule 25,148 bytes (572 over), and USDCTreasury 24,905 bytes (329 over). The Default initcode rows have no EIP-3860 overage. Deploy exited 0 and all 39 first-party runtime/initcode artifacts fit. No Default EIP-3860 initcode overage. Deploy exited 0; all 39 first-party runtime/initcode artifacts fit.
+Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each offline profile with the test tree skipped. Default had zero compiler errors and its size child exited 1 on eight EIP-170 runtime overages: ForageGovernor 28,053 bytes (3,477 over), ForageGovernorTimelockMigrationGuard 24,690 (114 over), GuardianModule 24,632 (56 over), HLTradingBridge 24,673 (97 over), RISKUSDVaultModule 24,820 (244 over), StakingQueue 27,953 (3,377 over), StakingQueueModule 25,421 (845 over), and USDCTreasury 24,905 (329 over). ForageGovernor initcode is 49,498 bytes (346 over). Deploy exited 0 and all 39 first-party runtime/initcode artifacts fit; StakingQueueModule has the tightest runtime margin at 65 bytes.
 
 | Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
 | Allowlist | 15,058 / 15,314 (+9,518 / +33,838) | 13,303 / 13,513 (+11,273 / +35,639) |
 | AtRiskUSDProfitModule | 16,270 / 16,604 (+8,306 / +32,548) | 14,794 / 15,117 (+9,782 / +34,035) |
-| AtRiskUSDStateModule | 23,267 / 23,907 (+1,309 / +25,245) | 20,642 / 21,205 (+3,934 / +27,947) |
+| AtRiskUSDStateModule | 23,611 / 24,251 (+965 / +24,901) | 20,896 / 21,459 (+3,680 / +27,693) |
 | AtRiskUSDWeeklyExitModule | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | Blocklist | 9,711 / 9,967 (+14,865 / +39,185) | 8,175 / 8,384 (+16,401 / +40,768) |
 | CustodianRegistry | 21,533 / 34,516 (+3,043 / +14,636) | 17,435 / 28,865 (+7,141 / +20,287) |
@@ -265,9 +265,9 @@ Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. D
 | DelegatingVestingWallet | 7,333 / 9,505 (+17,243 / +39,647) | 6,246 / 7,733 (+18,330 / +41,419) |
 | FORAGETreasury | 24,295 / 27,665 (+281 / +21,487) | 20,054 / 22,729 (+4,522 / +26,423) |
 | FORAGETreasuryModule | 2,930 / 2,981 (+21,646 / +46,171) | 2,261 / 2,308 (+22,315 / +46,844) |
-| ForageGovernor | 27,212 / 48,170 (-2,636 / +982) | 23,120 / 42,223 (+1,456 / +6,929) |
-| ForageGovernorTimelockGuard | 20,284 / 20,506 (+4,292 / +28,646) | 18,528 / 18,718 (+6,048 / +30,434) |
-| ForageGovernorTimelockMigrationGuard | 24,546 / 24,599 (+30 / +24,553) | 21,770 / 21,803 (+2,806 / +27,349) |
+| ForageGovernor | 28,053 / 49,498 (-3,477 / -346) | 23,853 / 43,271 (+723 / +5,881) |
+| ForageGovernorTimelockGuard | 20,771 / 20,993 (+3,805 / +28,159) | 18,843 / 19,033 (+5,733 / +30,119) |
+| ForageGovernorTimelockMigrationGuard | 24,690 / 24,743 (-114 / +24,409) | 22,027 / 22,060 (+2,549 / +27,092) |
 | ForageToken | 24,553 / 24,986 (+23 / +24,166) | 23,917 / 24,278 (+659 / +24,874) |
 | ForageTokenStateModule | 24,525 / 40,292 (+51 / +8,860) | 22,223 / 37,544 (+2,353 / +11,608) |
 | ForageTokenVoteEligibilitySyncQueue | 9,044 / 15,436 (+15,532 / +33,716) | 8,094 / 14,993 (+16,482 / +34,159) |
@@ -275,28 +275,28 @@ Forge 1.3.5 and Solc 0.8.24 compiled 137 public source inputs in each profile. D
 | GovernancePayloadBudget | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | GuardianAuthorityClassifier | 12,838 / 12,891 (+11,738 / +36,261) | 10,855 / 10,888 (+13,721 / +38,264) |
 | GuardianEmergencyPrincipalLane | 2,590 / 2,915 (+21,986 / +46,237) | 2,306 / 2,585 (+22,270 / +46,567) |
-| GuardianModule | 24,297 / 24,553 (+279 / +24,599) | 19,808 / 20,022 (+4,768 / +29,130) |
-| HLTradingBridge | 24,787 / 34,095 (-211 / +15,057) | 23,072 / 31,235 (+1,504 / +17,917) |
+| GuardianModule | 24,632 / 24,888 (-56 / +24,264) | 20,118 / 20,332 (+4,458 / +28,820) |
+| HLTradingBridge | 24,673 / 33,981 (-97 / +15,171) | 23,242 / 31,405 (+1,334 / +17,747) |
 | HLTradingBridgeCapitalModule | 8,826 / 8,926 (+15,750 / +40,226) | 7,722 / 7,818 (+16,854 / +41,334) |
 | HLTradingBridgeCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsHostStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| HLTradingBridgeReturnCapsModule | 1,536 / 1,579 (+23,040 / +47,573) | 1,240 / 1,279 (+23,336 / +47,873) |
+| HLTradingBridgeReturnCapsModule | 1,668 / 1,711 (+22,908 / +47,441) | 1,369 / 1,408 (+23,207 / +47,744) |
 | HLTradingBridgeReturnCapsModuleStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | RISKUSD | 12,324 / 12,616 (+12,252 / +36,536) | 10,418 / 10,663 (+14,158 / +38,489) |
 | RISKUSDVault | 22,135 / 22,427 (+2,441 / +26,725) | 18,655 / 18,905 (+5,921 / +30,247) |
 | RISKUSDVaultModule | 24,820 / 25,285 (-244 / +23,867) | 20,830 / 21,283 (+3,746 / +27,869) |
 | RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | StakingQueue | 27,953 / 28,245 (-3,377 / +20,907) | 23,934 / 24,184 (+642 / +24,968) |
-| StakingQueueModule | 25,148 / 25,277 (-572 / +23,875) | 24,376 / 24,501 (+200 / +24,651) |
+| StakingQueueModule | 25,421 / 25,550 (-845 / +23,602) | 24,511 / 24,636 (+65 / +24,516) |
 | USDCTreasury | 24,905 / 29,445 (-329 / +19,707) | 21,641 / 25,386 (+2,935 / +23,766) |
 | USDCTreasuryAccountingModule | 12,879 / 12,958 (+11,697 / +36,194) | 11,086 / 11,161 (+13,490 / +37,991) |
 | USDCTreasuryProfitPolicyModule | 4,121 / 4,165 (+20,455 / +44,987) | 3,353 / 3,392 (+21,223 / +45,760) |
 | VaultRegistry | 21,051 / 21,307 (+3,525 / +27,845) | 18,681 / 18,895 (+5,895 / +30,257) |
-| atRISKUSD | 23,803 / 48,291 (+773 / +861) | 19,850 / 41,534 (+4,726 / +7,618) |
+| atRISKUSD | 24,069 / 48,901 (+507 / +251) | 20,182 / 42,120 (+4,394 / +7,032) |
 
 
 
-The current source map contains 69 files: 40 first-party sources/interfaces/libraries/modules, 20 ABI files, 8 selected script/interface files, and 1 reviewed suppression policy. All 69 mapped bytes, including the suppression policy, match the exact private source. Nineteen ABI files have compiler source definitions; `FoundationTreasury.json` remains source-less. An earlier 2026-10-08 source-matched storage comparison recorded 17 OK rows and seven inherited divergences; that result is a dated snapshot. The later retained private checker run against byte-mapped source exited 1 with 26 matching rows and the same seven inherited divergences. The checker is absent from the public tree; this document records no fresh public-tree storage run.
+The current source map contains 70 files: 40 first-party sources/interfaces/libraries/modules, 21 ABI files, 8 selected script/interface files, and 1 reviewed suppression policy. All 70 mapped bytes, including the suppression policy, match the exact private source. Twenty ABI files have compiler source definitions; `FoundationTreasury.json` remains source-less. An earlier 2026-10-08 source-matched storage comparison recorded 17 OK rows and seven inherited divergences; that result is a dated snapshot. The later retained private checker run against byte-mapped source exited 1 with 26 matching rows and the same seven inherited divergences. The checker is absent from the public tree; this document records no fresh public-tree storage run.
 
 The public analyzer table records 47 analyzer identities: 7 Semgrep and 40 Slither. Each row pins its source lines to the current candidate-file blob. The current previous-head and historical commit identities are classified in the linked post-scan update. `6efd4cd86a9b2fec7f484c0da073f71385900308`, `ef049358efb6496f8304faef11a99c34d2610e62`, and older commits are historical. Forty have bounded source-only review; seven stale or unresolved identities remain pending. The earlier 72-row table stays separate with all independent reviews pending. No fresh full `audit-static` pass is established. The public suppression checker and policy pass against the retained raw scan; no fresh Slither scan is claimed. The Semgrep preflight remains red because the public source manifest is stale for the changed ABI input. The scanner-coverage gap remains open, and `SL-28` still needs a current-source rebind. Two Windows CLI rows remain failed, no Windows license or toolchain was installed or accepted, and no first-party contract test, EVM/runtime/gas simulation, RPC, chain, deployment, or Octane action ran. A9-21 whole-query gas, A10-17 whole-call gas fit, old-proxy state, and deployed behavior remain unproved.
 
@@ -307,4 +307,4 @@ Review the 155 exact identity pairs against their original Octane entries and th
 
 ## 2026-10-09 current source status
 
-The historical Analysis 1–8 identity census above is unchanged. Current later-analysis source status and limits are in the [Analysis 13 dispositions](../2026-10-09-analysis-13-dispositions.md) and [2026-10-09 post-scan update](../2026-10-09-post-scan-update.md).
+The historical Analysis 1–8 identity census above is unchanged. Current later-analysis source status and limits are in the [Analysis 13 dispositions](../2026-10-09-analysis-13-dispositions.md) and [2026-10-11 post-scan update](../2026-10-11-post-scan-update.md).
