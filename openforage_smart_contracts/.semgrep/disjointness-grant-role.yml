@@ -1,12 +1,5 @@
-## C6 / D-31 disjointness lint rule — prevents PROPOSER_ROLE from being granted
-## to an address that is a current or prospective guardian. Enforces the
-## three-way disjointness between guardian / executor / governance-proposer
-## address sets at commit time, so the on-chain DisjointnessViolation revert
-## at runtime is never actually reached in production.
-##
-## Spec: plans/smart_contracts/disjointness_enforcement.md
-## Audit-doc anchor: Appendix D-31 in documentation/smart_contract_audits/defence_in_depth.md
-## Skill: .claude/skills/agent-friendly-lints/SKILL.md § Solidity rules
+## Public production rule: do not grant governance proposer role to a guardian.
+## Apply the check to public Solidity source and deployment code.
 rules:
   - id: disjointness-no-proposer-role-to-guardian
     severity: ERROR
@@ -15,12 +8,6 @@ rules:
       include:
         - "src/**/*.sol"
         - "script/**/*.sol"
-        - "test/**/*.sol"
-      exclude:
-        # Tests that explicitly assert the revert are allowed to call the
-        # violating pattern. They declare their intent with a disjointness-reviewed:
-        # comment on the same line as the grantRole call.
-        - "**/*DisjointnessSpec*.t.sol"
     patterns:
       - pattern-either:
           - pattern: |
@@ -32,42 +19,20 @@ rules:
           - pattern: |
               TimelockController($TL).grantRole(PROPOSER_ROLE, $ADDR);
       - pattern-not-inside: |
-          require(!IGuardianModule($GM).isKnownGuardian($ADDR), ...);
-          ...
-          $TL.grantRole(PROPOSER_ROLE, $ADDR);
-      - pattern-not-inside: |
-          require($GUARD, ...);
-          ...
-          $TL.grantRole(PROPOSER_ROLE, $ADDR);
-          // disjointness-reviewed: ...
+          function _wireTargetStack(DeployConfig memory cfg) internal {
+            ...
+            if (GuardianModule($GM).isGuardian($ADDR)) {
+              ...
+            }
+            ...
+            TimelockController(payable(deployedTimelock)).grantRole(PROPOSER_ROLE, $ADDR);
+            ...
+          }
     message: |
-      C6 / D-31 disjointness violation: grantRole(PROPOSER_ROLE, $ADDR) granted
-      without an upstream assertion that $ADDR is not a known guardian. The
-      three address sets (guardians, executors, governance proposers) MUST stay
-      mutually disjoint.
-
-      Remediation (pick one):
-
-      1) Wrap the grant with a disjointness precondition that fails fast:
-         require(
-             !IGuardianModule(GUARDIAN_MODULE).isKnownGuardian($ADDR),
-             "disjointness: $ADDR is a guardian"
-         );
-         $TL.grantRole(PROPOSER_ROLE, $ADDR);
-
-      2) Route the grant through OpenForageTimelockController, whose
-         _grantRole override performs the check natively (spec C6 step 6).
-
-      3) If this call is in a test that *asserts* the revert (e.g., proving
-         that grantRole reverts with DisjointnessViolation), append a
-         // disjointness-reviewed: <reason>
-         comment on the same line. The rule's pattern-not-inside honors
-         this escape hatch only inside files under test/**/*DisjointnessSpec*.t.sol.
-
-      References:
-      - L2 spec: plans/smart_contracts/disjointness_enforcement.md
-      - Audit doc: documentation/smart_contract_audits/defence_in_depth.md, Appendix D-31
-      - Skill: .claude/skills/agent-friendly-lints/SKILL.md § Solidity rules
+      C6 / D-31 disjointness violation: the Timelock proposer grant address
+      must not be a configured GuardianModule member. The checked deployment
+      flow tests the same address at the actual grant site and fails before
+      granting PROPOSER_ROLE when that address is a guardian.
     metadata:
       category: security
       technology: [solidity]

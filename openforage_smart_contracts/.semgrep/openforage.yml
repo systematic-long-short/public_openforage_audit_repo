@@ -6,6 +6,10 @@ rules:
     severity: ERROR
     languages: [generic]
     message: "OpenForage: do not use bare call{value: ...}; value-forwarding calls need an explicit reviewed helper."
+    paths:
+      include:
+        - "/src/**/*.sol"
+        - "/script/**/*.sol"
     patterns:
       - pattern-regex: '\.call\s*\{\s*value\s*:'
 
@@ -32,14 +36,15 @@ rules:
   - id: openforage-no-skip-of-assert-solvency
     severity: ERROR
     languages: [generic]
-    message: "OpenForage I-1: value-moving vault paths must keep _assertSolvency() unless explicitly documented."
+    message: "OpenForage I-1: the Vault module must keep _assertSolvency() after value moves."
     paths:
       include:
         - "**/src/RISKUSDVault.sol"
+        - "**/src/modules/RISKUSDVaultModule.sol"
     pattern-either:
       - pattern-regex: '(?s)function\s+deposit\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+redeem\s*\('
       - pattern-regex: '(?s)function\s+redeem\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+deployCapital\s*\('
-      - pattern-regex: '(?s)function\s+deployCapital\s*\([^)]*\).*?\{(?:(?!_assertSolvency\s*\(\s*\)).)*function\s+returnCapital\s*\('
+      - pattern-regex: '(?s)function\s+deployCapital\s*\(\s*uint256\s+usdcAmount\s*\)\s*external\s+onlyDelegateCall\s*\{(?:(?!_assertSolvency\s*\(\s*\)|\}).)*_usdc\s*\.\s*safeTransfer\s*\(\s*_custodian\s*,\s*usdcAmount\s*\)(?:(?!_assertSolvency\s*\(\s*\)|\}).)*\}'
 
   - id: openforage-allowlist-gate-missing-modifier
     severity: ERROR

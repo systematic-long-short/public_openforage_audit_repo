@@ -291,6 +291,19 @@
   },
   {
     "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "approveAcceleratedRotation",
     "inputs": [
       {
@@ -301,6 +314,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "canonicalCustodianRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -521,6 +547,57 @@
   },
   {
     "type": "function",
+    "name": "guardianSeatSetupSnapshot",
+    "inputs": [
+      {
+        "name": "current",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "successor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "snapshot",
+        "type": "tuple",
+        "internalType": "struct GuardianModule.GuardianSeatSetupSnapshot",
+        "components": [
+          {
+            "name": "currentPermissions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "successorPermissions",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "currentEntries",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "successorEntries",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "allowlist",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hasPermission",
     "inputs": [
       {
@@ -548,24 +625,69 @@
     "name": "initialize",
     "inputs": [
       {
-        "name": "governor_",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "timelock_",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "initialGuardians_",
+        "name": "",
         "type": "address[]",
         "internalType": "address[]"
       },
       {
-        "name": "initialGuardianPermissions_",
+        "name": "",
         "type": "uint256[]",
         "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "initializeWithCustodianRegistry",
+    "inputs": [
+      {
+        "name": "config",
+        "type": "tuple",
+        "internalType": "struct GuardianAuthorityClassifier.InitializationConfig",
+        "components": [
+          {
+            "name": "governor",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "timelock",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "custodianRegistry",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "candidateAllowlist",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "guardians",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "permissions",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ]
       }
     ],
     "outputs": [],
@@ -745,6 +867,19 @@
   },
   {
     "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setGuardianPermissions",
     "inputs": [
       {
@@ -861,6 +996,44 @@
   },
   {
     "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CustodianRegistryUpdated",
+    "inputs": [
+      {
+        "name": "oldRegistry",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newRegistry",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "EmergencyCallFailed",
     "inputs": [
       {
@@ -959,6 +1132,25 @@
       },
       {
         "name": "proposalId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "GuardianEmergencyAttempted",
+    "inputs": [
+      {
+        "name": "guardian",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "totalCalls",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1157,8 +1349,40 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ArrayLengthMismatch",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CanonicalCustodianRegistryRequired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CustodianRegistryUnavailable",
+    "inputs": [
+      {
+        "name": "registry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1198,6 +1422,33 @@
   },
   {
     "type": "error",
+    "name": "GovernorTimelockMismatch",
+    "inputs": [
+      {
+        "name": "governorTimelock",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pendingTimelock",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GovernorTimelockViewUnavailable",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "GuardianCannotLoosen",
     "inputs": []
   },
@@ -1205,6 +1456,53 @@
     "type": "error",
     "name": "GuardianCannotMoveFunds",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "GuardianFreshDeploymentRequired",
+    "inputs": [
+      {
+        "name": "observedVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianSeatTransitionInvalid",
+    "inputs": [
+      {
+        "name": "current",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "successor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "currentPermissions",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "successorPermissions",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentEntries",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "successorEntries",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1274,7 +1572,23 @@
   },
   {
     "type": "error",
+    "name": "RoutineRotationIdOccupied",
+    "inputs": [
+      {
+        "name": "operationId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "SelfTargetingGuardianMutation",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StaleTimelockAuthority",
     "inputs": []
   },
   {

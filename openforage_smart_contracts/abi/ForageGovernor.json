@@ -1,7 +1,13 @@
 [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "canonicalCustodianRegistry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -62,7 +68,59 @@
   },
   {
     "type": "function",
+    "name": "MAX_ACTIVE_GUARDIAN_PROPOSALS_PER_GUARDIAN",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_PROPOSAL_ACTIONS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MIN_TIMELOCK_DELAY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_VOTING_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "STALE_QUEUED_PROPOSAL_AGE",
     "inputs": [],
     "outputs": [
       {
@@ -88,6 +146,25 @@
   },
   {
     "type": "function",
+    "name": "activeGuardianProposalCount",
+    "inputs": [
+      {
+        "name": "guardian",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "activeProposalCount",
     "inputs": [],
     "outputs": [
@@ -95,6 +172,19 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "allowlist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -135,6 +225,25 @@
   },
   {
     "type": "function",
+    "name": "cancelBelowThreshold",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "castVote",
     "inputs": [
       {
@@ -162,22 +271,22 @@
     "name": "castVoteBySig",
     "inputs": [
       {
-        "name": "proposalId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "support",
+        "name": "",
         "type": "uint8",
         "internalType": "uint8"
       },
       {
-        "name": "voter",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "signature",
+        "name": "",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -259,32 +368,32 @@
     "name": "castVoteWithReasonAndParamsBySig",
     "inputs": [
       {
-        "name": "proposalId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "support",
+        "name": "",
         "type": "uint8",
         "internalType": "uint8"
       },
       {
-        "name": "voter",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "reason",
+        "name": "",
         "type": "string",
         "internalType": "string"
       },
       {
-        "name": "params",
+        "name": "",
         "type": "bytes",
         "internalType": "bytes"
       },
       {
-        "name": "signature",
+        "name": "",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -680,27 +789,27 @@
     "name": "onERC1155BatchReceived",
     "inputs": [
       {
-        "name": "",
+        "name": "operator",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "from",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "ids",
         "type": "uint256[]",
         "internalType": "uint256[]"
       },
       {
-        "name": "",
+        "name": "values",
         "type": "uint256[]",
         "internalType": "uint256[]"
       },
       {
-        "name": "",
+        "name": "data",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -719,27 +828,27 @@
     "name": "onERC1155Received",
     "inputs": [
       {
-        "name": "",
+        "name": "operator",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "from",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "id",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "value",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "data",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -758,22 +867,22 @@
     "name": "onERC721Received",
     "inputs": [
       {
-        "name": "",
+        "name": "operator",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "from",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "tokenId",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "",
+        "name": "data",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -783,6 +892,25 @@
         "name": "",
         "type": "bytes4",
         "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "prepareTimelockMigrationCandidate",
+    "inputs": [
+      {
+        "name": "minDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -1068,6 +1196,19 @@
   },
   {
     "type": "function",
+    "name": "setAllowlist",
+    "inputs": [
+      {
+        "name": "allowlist_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setGuardianModule",
     "inputs": [
       {
@@ -1290,6 +1431,25 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AllowlistSet",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1532,6 +1692,43 @@
   },
   {
     "type": "event",
+    "name": "TimelockMigrationCandidatePrepared",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "currentTimelock",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "candidate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "minDelay",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "salt",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Upgraded",
     "inputs": [
       {
@@ -1674,6 +1871,33 @@
   },
   {
     "type": "error",
+    "name": "AllowlistUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BlockedAddress",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CallerNotAllowed",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -1724,6 +1948,17 @@
     "type": "error",
     "name": "GovernorDisabledDeposit",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "GovernorFreshLayoutRequired",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1887,6 +2122,75 @@
   },
   {
     "type": "error",
+    "name": "GuardianActiveProposalQuotaReached",
+    "inputs": [
+      {
+        "name": "guardian",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "active",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianModuleRegistryMismatch",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expectedRegistry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actualRegistry",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianTimelockMigrationNotPrepared",
+    "inputs": [
+      {
+        "name": "requestedTimelock",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "pendingTimelock",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "GuardianTimelockStateUnavailable",
+    "inputs": [
+      {
+        "name": "guardianModule",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "IncompatibleGuardianModule",
     "inputs": []
   },
@@ -1923,6 +2227,11 @@
   },
   {
     "type": "error",
+    "name": "MalformedTimelockCalldata",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "MaxActiveProposalsReached",
     "inputs": []
   },
@@ -1935,6 +2244,22 @@
     "type": "error",
     "name": "NotInitializing",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "QueuedProposalBlocksTimelockUpdate",
+    "inputs": [
+      {
+        "name": "queuedCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1954,6 +2279,71 @@
   },
   {
     "type": "error",
+    "name": "SignatureVotingDisabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TimelockAllowlistUnavailable",
+    "inputs": [
+      {
+        "name": "allowlistAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockCandidateAddressMismatch",
+    "inputs": [
+      {
+        "name": "candidate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockCandidateAlreadyExists",
+    "inputs": [
+      {
+        "name": "candidate",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockCandidateMissingCode",
+    "inputs": [
+      {
+        "name": "candidate",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockCandidateNotSystemAccount",
+    "inputs": [
+      {
+        "name": "candidate",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TimelockDelayBelowMinimum",
     "inputs": [
       {
@@ -1963,6 +2353,70 @@
       },
       {
         "name": "minimum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockExternalProposerGrant",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockMigrationContextMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actual",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockRoleMissing",
+    "inputs": [
+      {
+        "name": "role",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TimelockSelfProposerGrant",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooManyProposalActions",
+    "inputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1988,6 +2442,22 @@
     "type": "error",
     "name": "Unauthorized",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VotingPeriodBelowMinimum",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minimum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

@@ -78,8 +78,11 @@ const TEXT_EXTENSIONS = new Set([
 
 const SKIP_DIRS = new Set([".git", "broadcast", "cache", "node_modules", "out"]);
 const SKIP_FILES = new Set([
-  "openforage_smart_contracts/script/check_no_legacy_transport.js",
-  "openforage_smart_contracts/test/hyperliquid/HLLegacyTransportStatic.t.sol",
+  path.relative(repoRoot, path.join(contractRoot, "script/check_no_legacy_transport.js")),
+  path.relative(
+    repoRoot,
+    path.join(contractRoot, "test/hyperliquid/HLLegacyTransportStatic.t.sol"),
+  ),
 ]);
 
 const FORBIDDEN = [
