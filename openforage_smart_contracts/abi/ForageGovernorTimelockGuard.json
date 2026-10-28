@@ -261,6 +261,22 @@
   },
   {
     "type": "error",
+    "name": "TimelockDelayAboveMaximum",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maximum",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TimelockDelayBelowMinimum",
     "inputs": [
       {

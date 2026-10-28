@@ -35,6 +35,10 @@ interface ICustodianRegistryTreasuryRole {
     function hlTradingBridge() external view returns (address);
 }
 
+interface ICustodianRegistryGuardianSource {
+    function guardianModule() external view returns (address);
+}
+
 interface ICustodianRegistryExecutorQuery {
     function hasActiveExecutor(address account) external view returns (bool);
 }
@@ -492,8 +496,17 @@ contract CustodianRegistryCapitalModule is
         uint256 maxRemaining = state.maxDeployed > state.deployed ? state.maxDeployed - state.deployed : 0;
         if (amount > maxRemaining) revert CustodianDeployCapExceeded(id, amount, maxRemaining);
         if (state.perBlockDeployCap != 0) revert CustodianPerBlockDeployCapRetired(state.perBlockDeployCap);
-        CustodianRegistryCapitalStorage.Layout storage capital = CustodianRegistryCapitalStorage.layout();
         uint256 utcDay = block.timestamp / DAY_SECONDS;
+        // A14-H3: each custodian's configured perDayDeployCap is enforced beside the registry-wide daily cap.
+        if (state.deployUsedDayStart != utcDay) {
+            state.deployUsedDayStart = utcDay;
+            state.deployUsedThisDay = 0;
+        }
+        uint256 custodianUsed = state.deployUsedThisDay;
+        uint256 custodianRemaining = state.perDayDeployCap > custodianUsed ? state.perDayDeployCap - custodianUsed : 0;
+        if (amount > custodianRemaining) revert CustodianPerDayCapExceeded(id, amount, custodianRemaining);
+        state.deployUsedThisDay = custodianUsed + amount;
+        CustodianRegistryCapitalStorage.Layout storage capital = CustodianRegistryCapitalStorage.layout();
         if (capital.deployUsedDayStart != utcDay) {
             uint256 supply = _dayStartDepositSupply(capital.canonicalVault);
             capital.deployUsedDayStart = utcDay;
@@ -554,9 +567,10 @@ contract CustodianRegistryCapitalModule is
     }
 
     function _syncReturnDayBasis(CustodianState storage state) private {
-        uint256 dayStart = state.returnUsedDayStart;
-        if (dayStart == 0 || block.timestamp >= dayStart + DAY_SECONDS) {
-            state.returnUsedDayStart = block.timestamp;
+        // A1-43: the return window rolls on the UTC day boundary, as the Bridge's does.
+        uint256 dayStart = block.timestamp / DAY_SECONDS * DAY_SECONDS;
+        if (state.returnUsedDayStart != dayStart) {
+            state.returnUsedDayStart = dayStart;
             state.returnUsedThisDay = 0;
             state.returnDayBasis = state.deployed;
         } else if (state.returnDayBasis == 0 && state.returnUsedThisDay == 0 && state.deployed != 0) {
@@ -576,6 +590,13 @@ contract CustodianRegistryCapitalModule is
         address lane = CustodianRegistryCapitalStorage.layout().emergencyPrincipalLane;
         if (lane == address(0)) return false;
         if (lane.code.length == 0) revert EmergencyPrincipalLaneUnavailable(lane);
+        // G1: a lane bound to an earlier guardian module no longer lifts the caps.
+        if (
+            IEmergencyPrincipalLane(lane).guardianModule()
+                != ICustodianRegistryGuardianSource(address(this)).guardianModule()
+        ) {
+            return false;
+        }
         (bool ok, bytes memory data) = lane.staticcall(abi.encodeCall(IEmergencyPrincipalLane.principalLaneOpen, ()));
         if (!ok || data.length != 32) revert EmergencyPrincipalLaneUnavailable(lane);
         uint256 openWord;

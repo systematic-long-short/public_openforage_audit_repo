@@ -1199,7 +1199,13 @@ contract RISKUSDVaultModule is
         try registry.getVaultByAbbreviation("OF-TARGET") returns (uint256 vaultId) {
             try registry.getVault(vaultId) returns (VaultConfig memory targetVault) {
                 if (targetVault.status != VaultStatus.Active) return 0;
-                return _targetTierAssets(targetVault.tierVaults);
+                uint256 liveAssets = _targetTierAssets(targetVault.tierVaults);
+                // A7-11: a stake made since the UTC day began cannot widen the room; read the day-start snapshot.
+                try registry.tierAssetsAtEpochStart(vaultId) returns (uint256 epochStartAssets) {
+                    return liveAssets < epochStartAssets ? liveAssets : epochStartAssets;
+                } catch {
+                    revert DeploymentBufferEnumerationFailed(address(registry));
+                }
             } catch {
                 revert DeploymentBufferEnumerationFailed(address(registry));
             }
@@ -1295,6 +1301,7 @@ library HLTradingBridgeReturnCapsModuleStorage {
 
 interface IHLTradingBridgeCapitalLaneState {
     function emergencyPrincipalLane() external view returns (address);
+    function guardianModule() external view returns (address);
 }
 
 contract HLTradingBridgeReturnCapsModule {
@@ -1329,7 +1336,7 @@ contract HLTradingBridgeReturnCapsModule {
         _syncReturnDayBasis(principal, zeroPrincipalHighWater && !intent && !principalReturn);
         _syncIntentDayBasis(principal, zeroPrincipalHighWater && intent);
         if (!intent && !principalReturn) {
-            uint256 perCallCap = principal * uint256(perCallBps) / BPS_DENOMINATOR;
+            uint256 perCallCap = _flooredCap(principal, perCallBps);
             if (amount > perCallCap) revert ReturnPerCallCapExceeded(amount, perCallCap);
         }
         if ((intent || principalReturn) && _principalLaneOpen()) return;
@@ -1341,16 +1348,27 @@ contract HLTradingBridgeReturnCapsModule {
     }
 
     function _principalLaneOpen() private view returns (bool) {
-        address lane = IHLTradingBridgeCapitalLaneState(address(this)).emergencyPrincipalLane();
+        IHLTradingBridgeCapitalLaneState host = IHLTradingBridgeCapitalLaneState(address(this));
+        address lane = host.emergencyPrincipalLane();
         if (lane.code.length == 0) return false;
+        // G1: a lane bound to an earlier guardian module no longer lifts the caps.
+        if (IEmergencyPrincipalLane(lane).guardianModule() != host.guardianModule()) return false;
         return IEmergencyPrincipalLane(lane).principalLaneOpen();
+    }
+
+    /// @dev A14-06: a nonzero basis keeps at least one raw unit of room instead of rounding the cap to zero.
+    function _flooredCap(uint256 basis, uint16 bps) private pure returns (uint256 cap) {
+        cap = basis * uint256(bps) / BPS_DENOMINATOR;
+        if (cap == 0 && basis != 0 && bps != 0) cap = 1;
     }
 
     function _syncReturnDayBasis(uint256 principal, bool zeroPrincipalHighWater) private {
         HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
         uint256 used = state.returnUsedThisDay;
-        if (block.timestamp >= state.returnUsedDayStart + DAY_SECONDS) {
-            state.returnUsedDayStart = block.timestamp;
+        // A1-43: the return window rolls on the UTC day boundary, as the CustodianRegistry's does.
+        uint256 dayStart = block.timestamp / DAY_SECONDS * DAY_SECONDS;
+        if (state.returnUsedDayStart != dayStart) {
+            state.returnUsedDayStart = dayStart;
             state.returnUsedThisDay = 0;
             state.returnDayBasis = principal;
         } else if (zeroPrincipalHighWater && principal > state.returnDayBasis) {
@@ -1378,7 +1396,7 @@ contract HLTradingBridgeReturnCapsModule {
         HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
         uint256 used = state.returnUsedThisDay;
         uint256 basis = state.returnDayBasis;
-        uint256 dayCap = basis * uint256(perDayBps) / BPS_DENOMINATOR;
+        uint256 dayCap = _flooredCap(basis, perDayBps);
         uint256 remaining = dayCap > used ? dayCap - used : 0;
         if (amount > remaining) revert ReturnPerDayCapExceeded(amount, remaining);
         state.returnUsedThisDay = used + amount;
@@ -1388,7 +1406,7 @@ contract HLTradingBridgeReturnCapsModule {
         HLTradingBridgeReturnCapsModuleStorage.Layout storage state = HLTradingBridgeReturnCapsModuleStorage.layout();
         uint256 used = state.withdrawalIntentUsedThisDay;
         uint256 basis = state.withdrawalIntentDayBasis;
-        uint256 dayCap = basis * uint256(perDayBps) / BPS_DENOMINATOR;
+        uint256 dayCap = _flooredCap(basis, perDayBps);
         uint256 remaining = dayCap > used ? dayCap - used : 0;
         if (amount > remaining) revert WithdrawalIntentAmountExceeded(amount, remaining);
         state.withdrawalIntentUsedThisDay = used + amount;

@@ -301,6 +301,25 @@
   },
   {
     "type": "function",
+    "name": "claimUnpaidProfitTo",
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "clearPendingForageGovernor",
     "inputs": [],
     "outputs": [],
@@ -2080,6 +2099,31 @@
   },
   {
     "type": "event",
+    "name": "UnpaidProfitClaimedTo",
+    "inputs": [
+      {
+        "name": "holder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UnpaidProfitRecognized",
     "inputs": [
       {
@@ -3044,6 +3088,17 @@
     "type": "error",
     "name": "ProposalExpired",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RecipientNotAllowed",
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

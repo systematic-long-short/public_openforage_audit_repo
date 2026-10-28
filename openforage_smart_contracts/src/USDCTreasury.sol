@@ -13,10 +13,35 @@ import "./AllowlistGatedUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./interfaces/IAtRiskUSDProfitClaims.sol";
 import {IAllowlist} from "./interfaces/IAllowlist.sol";
-import {IUSDCTreasuryLossSettlement, IUSDCTreasuryYieldClaims} from "./interfaces/IUSDCTreasuryYieldClaims.sol";
+import {
+    IUSDCTreasuryAccountingModule,
+    IUSDCTreasuryLossSettlement,
+    IUSDCTreasuryYieldClaims
+} from "./interfaces/IUSDCTreasuryYieldClaims.sol";
 import "./interfaces/IVaultRegistry.sol";
 import {USDCTreasuryAccountingModule} from "./modules/USDCTreasuryAccountingModule.sol";
-import {USDCTreasuryProfitPolicyModule} from "./modules/USDCTreasuryProfitPolicyModule.sol";
+import {
+    IRISKUSDVaultNAV as IUSDCTreasuryNAVSource,
+    USDCTreasuryProfitPolicyModule
+} from "./modules/USDCTreasuryProfitPolicyModule.sol";
+
+/// @dev A14-02: the NAV attestation each vault's last recognition answered.
+library USDCTreasuryRecognitionStorage {
+    struct Layout {
+        mapping(uint256 => uint256) recognizedAttestation;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.USDCTreasuryRecognition")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
+}
 
 interface IUSDCTreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
@@ -123,6 +148,7 @@ contract USDCTreasury is
     error LossNonceMismatch(uint256 provided, uint256 expected);
     error LossVaultMismatch(uint256 provided, uint256 expected);
     error NoPendingLoss();
+    error RetainedCoverExceedsShortfall(uint256 requested, uint256 shortfall);
     error AttestedLossPending();
     error UnauthorizedLossCapShrinker(address caller);
     error VaultTopUpAmountMismatch(uint256 provided, uint256 pending);
@@ -226,6 +252,9 @@ contract USDCTreasury is
     event AttestedLossSettled(uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount);
     event LossSettlementProgressed(
         uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount, uint256 remaining
+    );
+    event RetainedLossCoverFunded(
+        uint256 indexed lossNonce, address indexed funder, uint256 amount, uint256 remainingShortfall
     );
 
     USDCTreasuryProfitPolicyModule private immutable _profitPolicyModule;
@@ -363,6 +392,9 @@ contract USDCTreasury is
     function recognizePnL(uint256 vaultId, int256 amount) external freshOnly onlyAllowedCaller nonReentrant {
         if (msg.sender != pnlAttestor) revert UnauthorizedAttestor();
         if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
+        // A14-02: any recognition, positive, zero or negative, answers the current attestation and reopens admissions.
+        USDCTreasuryRecognitionStorage.layout().recognizedAttestation[vaultId] =
+            IUSDCTreasuryNAVSource(riskusdVault).lastAttestationTimestamp();
         if (amount >= 0) {
             uint256 profit = SignedMath.abs(amount);
             _delegateProfitPolicyModule(profit, unreturnedRecognizedProfit[vaultId], PNL_POLICY_RECOGNITION);
@@ -457,8 +489,35 @@ contract USDCTreasury is
         _usdc.forceApprove(riskusdVault, 0);
     }
 
+    /// @notice A14-02: tier admissions wait while a fresh NAV attestation shows profit not yet recognized.
+    function recognitionWindowOpen(uint256 vaultId) external view returns (bool) {
+        IUSDCTreasuryNAVSource vault = IUSDCTreasuryNAVSource(riskusdVault);
+        uint256 attestedAt = vault.lastAttestationTimestamp();
+        if (attestedAt == 0 || attestedAt > block.timestamp) return false;
+        if (block.timestamp - attestedAt > vault.attestationIntervalSeconds()) return false;
+        if (USDCTreasuryRecognitionStorage.layout().recognizedAttestation[vaultId] == attestedAt) return false;
+        uint256 nav = vault.adjustedCustodianNAV();
+        uint256 principal = vault.totalDeployed();
+        return nav > principal && nav - principal > unreturnedRecognizedProfit[vaultId];
+    }
+
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external freshOnly onlyAllowedCaller nonReentrant {
         if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
+        _returnPnL(vaultId, amount, false);
+    }
+
+    /// @notice A14-15: turns surplus held at zero principal into a PnL return under the same policy and allocation.
+    function allocateZeroPrincipalHeldAsPnLReturn(uint256 vaultId, uint256 amount)
+        external
+        freshOnly
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
+        _returnPnL(vaultId, amount, true);
+    }
+
+    function _returnPnL(uint256 vaultId, uint256 amount, bool fromHeldSurplus) private {
         if (amount == 0) revert ZeroAmount();
         if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
         if (recognizedProfit[vaultId] == 0) revert PnLNotRecognized(vaultId);
@@ -467,7 +526,13 @@ contract USDCTreasury is
         _delegateProfitPolicyModule(amount, 0, PNL_POLICY_RETURN);
         PnLReturnState memory state = _preflightPnLReturn(vaultId);
         unreturnedRecognizedProfit[vaultId] = unpaid - amount;
-        _collectPnLReturn(amount);
+        if (fromHeldSurplus) {
+            uint256 held = earmarkBalance[EARMARK_ZERO_PRINCIPAL_HELD];
+            if (amount > held) revert InsufficientEarmark();
+            earmarkBalance[EARMARK_ZERO_PRINCIPAL_HELD] = held - amount;
+        } else {
+            _collectPnLReturn(amount);
+        }
         USDCTreasuryAccountingModule.PnLReturnAllocation memory allocation =
             _calculatePnLReturnAllocation(vaultId, amount, state.outstandingClaim, state.existingPending);
         _commitPnLReturn(vaultId, amount, allocation);
@@ -593,6 +658,10 @@ contract USDCTreasury is
             _requireValueIncrease(tierVault, tierBalanceBefore, riskusd.balanceOf(tierVault), yieldAmount);
         }
         _requireBalanceDecrease(riskusd, address(this), treasuryRiskusdBefore, totalYield);
+    }
+
+    function fundRetainedLossCover(uint256 amount) external freshOnly onlyAllowedCaller onlyOwner nonReentrant {
+        _delegateAccountingModule(abi.encodeCall(IUSDCTreasuryAccountingModule.fundRetainedLossCover, (amount)));
     }
 
     function settleLoss(uint256 vaultId, uint256 lossNonce)

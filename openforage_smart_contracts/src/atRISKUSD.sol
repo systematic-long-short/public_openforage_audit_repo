@@ -70,6 +70,7 @@ contract atRISKUSD is
     error WeeklyWithdrawalCapExceeded(uint256 requested, uint256 remaining);
     error CapTighteningOnly();
     error BlockedAddress(address account);
+    error RecipientNotAllowed(address recipient);
     error ZeroAssetLegacySupply();
     error EmptyAbbreviation();
     error CustodianSettlementHookFailed(address custodian);
@@ -146,6 +147,7 @@ contract atRISKUSD is
     event UnpaidProfitRecognized(uint256 amount, uint256 shares);
     event UnpaidProfitWrittenDown(uint256 amount, uint256 remaining);
     event UnpaidProfitClaimed(address indexed holder, uint256 amount);
+    event UnpaidProfitClaimedTo(address indexed holder, address indexed recipient, uint256 amount);
     event UnpaidProfitCatchUpProgress(address indexed account, uint64 nextEpoch, uint64 currentEpoch);
     event WeeklyExitSettled(uint256 indexed windowStart, uint256 demandShares, uint256 roomShares);
     event WeeklyExitSharesReleased(address indexed holder, uint256 shares);
@@ -453,6 +455,17 @@ contract atRISKUSD is
 
     function writeDownUnpaidProfit(uint256 amount) external onlyFreshAllowedCaller nonReentrant {
         _delegateProfitModule(abi.encodeCall(AtRiskUSDProfitModule.writeDownUnpaidProfit, (amount)));
+    }
+
+    /// @notice A14-08: a holder whose allowlist approval lapsed sends its funded profit to an allowlisted recipient.
+    function claimUnpaidProfitTo(address recipient) external onlyFreshDeployment nonReentrant returns (uint256) {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (!IAllowlist(allowlist()).isAllowed(recipient)) revert RecipientNotAllowed(recipient);
+        _requireNotBlocked(msg.sender);
+        _requireNotBlocked(recipient);
+        return _delegateProfitModuleUint(
+            abi.encodeCall(AtRiskUSDProfitModule.claimUnpaidProfitFor, (msg.sender, recipient))
+        );
     }
 
     function claimUnpaidProfit() external onlyFreshDeployment onlyAllowedCaller nonReentrant returns (uint256) {

@@ -3310,6 +3310,11 @@
   },
   {
     "type": "error",
+    "name": "TargetVaultDepositsClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },

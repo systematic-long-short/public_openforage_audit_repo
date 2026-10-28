@@ -20,6 +20,7 @@ contract RegisterAllowlist is Script {
     error RegistrarFinalizeWaiting(bytes4 selector);
     error SystemRegistrarNotFinalized(address account);
     error DistributorKeyMismatch(address signer, address distributor);
+    error ExpectedChainMismatch(uint256 expectedChainId, uint256 actualChainId);
 
     uint256 internal sendCount;
     uint256 internal skipCount;
@@ -28,6 +29,8 @@ contract RegisterAllowlist is Script {
     bytes4 internal waitSelector;
 
     function run() external {
+        uint256 expectedChainId = vm.envUint("EXPECTED_CHAIN_ID");
+        if (expectedChainId != block.chainid) revert ExpectedChainMismatch(expectedChainId, block.chainid);
         string memory manifestPath =
             vm.envOr("DEPLOYMENT_MANIFEST_PATH", string("deployments/arbitrum-sepolia/latest.json"));
         string memory manifest = vm.readFile(manifestPath);

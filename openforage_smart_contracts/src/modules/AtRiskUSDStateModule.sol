@@ -579,7 +579,7 @@ contract AtRiskUSDStateModule is
         if (shares == 0) revert ZeroAmount();
         if (totalSupply() == 0 || totalAssets() != 0) revert NotTotalLossState();
         _requireNoPendingWithdrawal(msg.sender);
-        _requireNoLossPending();
+        // A8-20: a tier with no assets has nothing a pending loss can take, so the freeze does not hold its shares.
         _requireNotBlocked(msg.sender);
         _burn(msg.sender, shares);
         emit WorthlessSharesBurned(msg.sender, shares);

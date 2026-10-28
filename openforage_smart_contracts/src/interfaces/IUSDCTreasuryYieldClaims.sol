@@ -21,3 +21,7 @@ interface IUSDCTreasuryCallerEligibility {
 interface IYieldSourceBridgeRoute {
     function usdcTreasury() external view returns (address);
 }
+
+interface IUSDCTreasuryAccountingModule {
+    function fundRetainedLossCover(uint256 amount) external;
+}

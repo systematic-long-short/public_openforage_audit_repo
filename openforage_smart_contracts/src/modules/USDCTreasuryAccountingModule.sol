@@ -73,6 +73,8 @@ contract USDCTreasuryAccountingModule {
     error LossNonceMismatch(uint256 provided, uint256 expected);
     error LossVaultMismatch(uint256 provided, uint256 expected);
     error NoPendingLoss();
+    error ZeroAmount();
+    error RetainedCoverExceedsShortfall(uint256 requested, uint256 shortfall);
 
     uint256 private constant LOSS_RATE_WINDOW = 1 days;
     bytes32 private constant EARMARK_PROTOCOL_RETAINED = keccak256("PROTOCOL_RETAINED");
@@ -198,6 +200,9 @@ contract USDCTreasuryAccountingModule {
     event AttestedLossSettled(uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount);
     event LossSettlementProgressed(
         uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount, uint256 remaining
+    );
+    event RetainedLossCoverFunded(
+        uint256 indexed lossNonce, address indexed funder, uint256 amount, uint256 remainingShortfall
     );
 
     event LossRateCapUpdated(uint256 oldCapBps, uint256 newCapBps);
@@ -464,6 +469,25 @@ contract USDCTreasuryAccountingModule {
         nextWindowUsed += chargedLoss;
     }
 
+    function fundRetainedLossCover(uint256 amount) external onlyDelegateCall {
+        IUSDCTreasuryLossSettlementVault centralVault = IUSDCTreasuryLossSettlementVault(_mirrorRiskusdVault);
+        uint256 lossNonce = centralVault.latestLossNonce();
+        uint256 settledNonce = centralVault.settledLossNonce();
+        uint256 vaultId = centralVault.lossPendingVaultId();
+        uint256 loss = centralVault.latestLossAmount();
+        if (lossNonce == 0 || lossNonce <= settledNonce || vaultId == 0 || loss == 0 || !centralVault.lossPending()) {
+            revert NoPendingLoss();
+        }
+        if (amount == 0) revert ZeroAmount();
+        uint256 shortfall = _retainedCoverShortfall(vaultId, lossNonce, loss);
+        if (amount > shortfall) revert RetainedCoverExceedsShortfall(amount, shortfall);
+        uint256 balanceBefore = _usdc.balanceOf(address(this));
+        _usdc.safeTransferFrom(msg.sender, address(this), amount);
+        _requireValueIncrease(address(this), balanceBefore, _usdc.balanceOf(address(this)), amount);
+        earmarkBalance[EARMARK_PROTOCOL_RETAINED] += amount;
+        emit RetainedLossCoverFunded(lossNonce, msg.sender, amount, shortfall - amount);
+    }
+
     function settleLoss(uint256 vaultId, uint256 lossNonce)
         external
         onlyDelegateCall
@@ -482,6 +506,24 @@ contract USDCTreasuryAccountingModule {
         LossSettlementPlan memory plan = _prepareLossSettlement(vaultId, lossNonce, loss);
         originalLoss = _pendingLossSettlement.originalLoss;
         complete = _applyLossSettlement(vaultId, lossNonce, centralVault, plan);
+    }
+
+    function _retainedCoverShortfall(uint256 vaultId, uint256 lossNonce, uint256 loss) private view returns (uint256) {
+        PendingLossSettlement storage pending = _pendingLossSettlement;
+        uint256 requiredCover;
+        if (pending.nonce != 0) {
+            if (pending.nonce != lossNonce) revert LossNonceMismatch(lossNonce, pending.nonce);
+            if (pending.vaultId != vaultId) revert LossVaultMismatch(vaultId, pending.vaultId);
+            uint256 expectedLoss = _sum(pending.remainingTierAllocations) + pending.remainingRetainedCover;
+            if (expectedLoss != loss) revert SettlementValueMismatch(address(this), loss, expectedLoss);
+            requiredCover = pending.remainingRetainedCover;
+        } else {
+            VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
+            (, uint256 totalTierAssets) = _tierAssetSnapshot(config);
+            requiredCover = loss > totalTierAssets ? loss - totalTierAssets : 0;
+        }
+        uint256 retained = earmarkBalance[EARMARK_PROTOCOL_RETAINED];
+        return requiredCover > retained ? requiredCover - retained : 0;
     }
 
     function _tierAssetSnapshot(VaultConfig memory config)

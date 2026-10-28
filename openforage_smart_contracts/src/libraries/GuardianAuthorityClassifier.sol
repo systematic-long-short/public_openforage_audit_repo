@@ -85,8 +85,6 @@ library GuardianAuthorityClassifier {
     bytes4 private constant _EMERGENCY_TIGHTEN_RETURN_CAPS =
         bytes4(keccak256("tightenReturnCapitalCaps(uint16,uint16)"));
     bytes4 private constant _EMERGENCY_FREEZE_ATTESTATIONS = bytes4(keccak256("freezeAttestations()"));
-    bytes4 private constant _EMERGENCY_REVOKE = bytes4(keccak256("revoke(address)"));
-    bytes4 private constant _EMERGENCY_SHRINK_APPROVALS = bytes4(keccak256("shrinkApprovalsPerDayCap(uint32)"));
     bytes4 private constant _EMERGENCY_SHRINK_LOSS_RATE = bytes4(keccak256("shrinkLossRateCapBps(uint256)"));
     bytes4 private constant _EMERGENCY_SHRINK_DISTRIBUTOR_DAILY =
         bytes4(keccak256("shrinkDistributorDailyCap(uint256)"));
@@ -278,8 +276,7 @@ library GuardianAuthorityClassifier {
                 || selector == _EMERGENCY_SHRINK_DAILY_MINT || selector == _EMERGENCY_TIGHTEN_MAX_DEPLOYMENT_RATIO
                 || selector == _EMERGENCY_TIGHTEN_DEPLOYMENT_BUFFER || selector == _EMERGENCY_SHRINK_WITHDRAWAL
                 || selector == _EMERGENCY_SHRINK_PER_BLOCK_DEPLOY || selector == _EMERGENCY_SHRINK_PER_DAY_DEPLOY
-                || selector == _EMERGENCY_SHRINK_LOSS_RATE || selector == _EMERGENCY_REVOKE
-                || selector == _EMERGENCY_SHRINK_APPROVALS || selector == _EMERGENCY_SHRINK_DISTRIBUTOR_DAILY
+                || selector == _EMERGENCY_SHRINK_LOSS_RATE || selector == _EMERGENCY_SHRINK_DISTRIBUTOR_DAILY
         ) {
             return (data.length == 36, selector);
         }

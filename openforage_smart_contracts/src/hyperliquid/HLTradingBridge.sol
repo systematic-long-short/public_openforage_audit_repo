@@ -163,6 +163,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
     error EmergencyPrincipalLaneUnavailable(address lane);
     error EmergencyPrincipalLaneClosed();
     error UnauthorizedLaneGuardian(address account);
+    error StaleEmergencyPrincipalLane(address lane, address laneModule, address currentModule);
     error StaleNAV();
     error DirectionFrozen();
     error UnauthorizedKeeper();
@@ -323,6 +324,10 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         if (lane.code.length == 0) revert EmergencyPrincipalLaneUnavailable(lane);
         IEmergencyPrincipalLane authority = IEmergencyPrincipalLane(lane);
         if (!authority.principalLaneOpen()) revert EmergencyPrincipalLaneClosed();
+        // G1: a lane built for an earlier guardian module gives no authority after the Governor rotates it.
+        address currentModule = ICustodianRegistryAccountingPort(custodianRegistry).guardianModule();
+        address laneModule = authority.guardianModule();
+        if (laneModule != currentModule) revert StaleEmergencyPrincipalLane(lane, laneModule, currentModule);
         if (!authority.isLaneGuardian(msg.sender)) revert UnauthorizedLaneGuardian(msg.sender);
         IHLTradingBridgeLaneReturnHost(address(this)).returnPrincipalUSDCWithNAVBasis(amount, false);
     }
@@ -394,8 +399,16 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         }
     }
 
+    /// @notice BRIDGE-NAV-SEQUENCER-BYPASS: lets the Bridge's manual NAV path apply the same sequencer check.
+    function requireSequencerUp(address feed) external view {
+        _requireSequencerUpFor(feed);
+    }
+
     function _requireSequencerUp() private view {
-        address feed = _sequencerUptimeFeed;
+        _requireSequencerUpFor(_sequencerUptimeFeed);
+    }
+
+    function _requireSequencerUpFor(address feed) private view {
         if (feed == address(0)) {
             if (block.chainid == ARBITRUM_ONE_CHAIN_ID) revert SequencerUptimeFeedUnavailable(feed);
             return;
@@ -1475,6 +1488,9 @@ contract HLTradingBridge is
         uint256 vaultPrincipal = manualVault.totalDeployed();
         if (vaultPrincipal != principal) revert VaultPrincipalMismatch(vaultPrincipal, principal);
         uint256 normalizedNav = _normalizeCustodianNAV(vaultId, principal, nav, observedAt, true);
+        if (normalizedNav >= principal) {
+            HLTradingBridgeCapitalModule(_capitalModule).requireSequencerUp(_sequencerUptimeFeed);
+        }
         uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, _appliedNAV);
         if (normalizedNav > previousNAV) _requireNoUnresolvedLossNonce(true);
         bool shouldRecord = lossNonce != 0 || normalizedNav >= principal;

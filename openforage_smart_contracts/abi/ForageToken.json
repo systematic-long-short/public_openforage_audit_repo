@@ -1232,6 +1232,24 @@
     "stateMutability": "payable"
   },
   {
+    "type": "function",
+    "name": "verifyVestingSourceAllowlists",
+    "inputs": [
+      {
+        "name": "forCancellation",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "maxSources",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "AllowlistReindexActivated",
     "inputs": [

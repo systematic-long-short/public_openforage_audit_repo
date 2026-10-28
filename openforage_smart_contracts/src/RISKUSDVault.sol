@@ -96,6 +96,7 @@ contract RISKUSDVault is
     error NotPendingCustodian();
     error NotPendingLossReporter();
     error LossPending(); // OF-001 (11th audit)
+    error TargetVaultDepositsClosed();
     error NoAcknowledgedLoss(); // OF-NEW-02 (12th audit)
     error VaultWindingDown(); // OF-13-009 (13th audit)
     error FinalizeDelayNotElapsed(); // OF-002 (11th audit)
@@ -413,6 +414,7 @@ contract RISKUSDVault is
         // Exempt _lossReporter for protocol-controlled loss/yield accounting that must remain live.
         if (_lossPendingActive() && msg.sender != _lossReporter) revert LossPending();
         _requireNotBlocked(msg.sender);
+        if (msg.sender != _lossReporter && !_targetDepositOpen()) revert TargetVaultDepositsClosed();
         // KYC-03: a basis-2 wallet's first deposit must clear the configured minimum before any USDC moves.
         uint8 basis = IAllowlist(allowlist()).basisOf(msg.sender);
         if (basis == 2 && !_depositedOnce[msg.sender] && usdcAmount < _minimumFirstDeposit[2]) {
@@ -459,8 +461,9 @@ contract RISKUSDVault is
         _seedRedemptionCapBases(riskusdSupplyBefore);
         uint256 weeklyMintConsumed = _consumeWeeklyRedemptionMint(riskusdAmount);
         uint256 dailyMintConsumed = _consumeDailyRedemptionMint(riskusdAmount);
-        uint256 weeklyCapCharge = riskusdAmount;
-        uint256 dailyCapCharge = riskusdAmount;
+        // A14-H2: same-window mints offset the charge, so a mint-and-redeem round trip consumes no redemption room.
+        uint256 weeklyCapCharge = riskusdAmount - weeklyMintConsumed;
+        uint256 dailyCapCharge = riskusdAmount - dailyMintConsumed;
         _enforceWeeklyCap(weeklyCapCharge, weeklyMintConsumed);
         _enforceDailyRedemptionCap(dailyCapCharge, dailyMintConsumed);
 
@@ -1116,7 +1119,7 @@ contract RISKUSDVault is
         } else {
             effectiveSupply = _redemptionCapBasis(_windowStartSupply, _weeklyRedemptionUsed);
         }
-        return effectiveSupply * _weeklyRedemptionCapBps / 10000;
+        return _flooredRedemptionCap(effectiveSupply, _weeklyRedemptionCapBps);
     }
 
     function weeklyRedemptionRemaining() external view returns (uint256) {
@@ -1137,7 +1140,7 @@ contract RISKUSDVault is
         } else {
             effectiveSupply = _redemptionCapBasis(_dailyRedemptionWindowStartSupply, _dailyRedemptionUsed);
         }
-        return effectiveSupply * _dailyRedemptionCapBps / 10000;
+        return _flooredRedemptionCap(effectiveSupply, _dailyRedemptionCapBps);
     }
 
     function dailyRedemptionRemaining() external view returns (uint256) {
@@ -1284,6 +1287,20 @@ contract RISKUSDVault is
 
     function _redemptionMintTrackingEnabled() internal view returns (bool) {
         return address(_vaultRegistry) != address(0);
+    }
+
+    /// @dev VLT-WINDDOWN-DEPOSIT: public deposits open only while the registry reports OF-TARGET open for deposits.
+    function _targetDepositOpen() private view returns (bool) {
+        IVaultRegistry registry = _vaultRegistry;
+        try registry.getVaultByAbbreviation("OF-TARGET") returns (uint256 vaultId) {
+            try registry.isDepositOpen(vaultId) returns (bool open) {
+                return open;
+            } catch {
+                return false;
+            }
+        } catch {
+            return false;
+        }
     }
 
     function _requirePublicAccountingRegistry() internal view {
@@ -1473,8 +1490,8 @@ contract RISKUSDVault is
         }
 
         uint256 capBasis = _redemptionCapBasis(_windowStartSupply, _weeklyRedemptionUsed);
-        uint256 cap = capBasis * _weeklyRedemptionCapBps / 10000;
-        if (_weeklyRedemptionUsed + riskusdAmount > cap) revert WeeklyRedemptionCapExceeded();
+        uint256 cap = _flooredRedemptionCap(capBasis, _weeklyRedemptionCapBps);
+        if (riskusdAmount > cap || _weeklyRedemptionUsed > cap - riskusdAmount) revert WeeklyRedemptionCapExceeded();
 
         // PHASE3-002: Min-track supply to prevent inflation via temporary large deposits
         _lastActiveSupply =
@@ -1496,8 +1513,15 @@ contract RISKUSDVault is
         }
 
         uint256 capBasis = _redemptionCapBasis(_dailyRedemptionWindowStartSupply, _dailyRedemptionUsed);
-        uint256 cap = capBasis * _dailyRedemptionCapBps / 10000;
-        if (_dailyRedemptionUsed + riskusdAmount > cap) revert DailyRedemptionCapExceeded();
+        uint256 cap = _flooredRedemptionCap(capBasis, _dailyRedemptionCapBps);
+        if (riskusdAmount > cap || _dailyRedemptionUsed > cap - riskusdAmount) revert DailyRedemptionCapExceeded();
+    }
+
+    /// @dev A11-07: a nonzero basis keeps at least one raw unit of room, so a residual supply left by a loss burn
+    ///      can still be redeemed instead of rounding the cap down to zero.
+    function _flooredRedemptionCap(uint256 capBasis, uint256 capBps) private pure returns (uint256 cap) {
+        cap = capBasis * capBps / 10000;
+        if (cap == 0 && capBasis != 0 && capBps != 0) cap = 1;
     }
 
     function _syncDailyMintWindow(uint256 supply) private {
@@ -1530,7 +1554,7 @@ contract RISKUSDVault is
 
         uint256 cap = _weeklyMintWindowStartSupply * _weeklyMintCapBps / 10000;
         if (cap < 10_000_000e6) cap = 10_000_000e6;
-        if (_weeklyMintUsed + riskusdAmount > cap) revert WeeklyMintCapExceeded();
+        if (riskusdAmount > cap || _weeklyMintUsed > cap - riskusdAmount) revert WeeklyMintCapExceeded();
         _weeklyMintUsed += riskusdAmount;
     }
 
@@ -1542,7 +1566,7 @@ contract RISKUSDVault is
 
         uint256 cap = _dailyMintWindowStartSupply * _dailyMintCapBps / 10000;
         if (cap < 10_000_000e6) cap = 10_000_000e6;
-        if (_dailyMintUsed + riskusdAmount > cap) revert DailyMintCapExceeded();
+        if (riskusdAmount > cap || _dailyMintUsed > cap - riskusdAmount) revert DailyMintCapExceeded();
         _dailyMintUsed += riskusdAmount;
 
         _lastDailyMintActiveSupply =

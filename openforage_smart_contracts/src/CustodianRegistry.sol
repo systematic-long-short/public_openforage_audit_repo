@@ -1105,9 +1105,10 @@ contract CustodianRegistry is
     }
 
     function _syncReturnDayBasis(CustodianState storage state) private {
-        uint256 dayStart = state.returnUsedDayStart;
-        if (dayStart == 0 || block.timestamp >= dayStart + DAY_SECONDS) {
-            state.returnUsedDayStart = block.timestamp;
+        // A1-43: the return window rolls on the UTC day boundary, as the Bridge's does.
+        uint256 dayStart = block.timestamp / DAY_SECONDS * DAY_SECONDS;
+        if (state.returnUsedDayStart != dayStart) {
+            state.returnUsedDayStart = dayStart;
             state.returnUsedThisDay = 0;
             state.returnDayBasis = state.deployed;
         } else if (state.returnDayBasis == 0 && state.returnUsedThisDay == 0 && state.deployed != 0) {

@@ -24,6 +24,19 @@
   },
   {
     "type": "function",
+    "name": "guardianModule",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isLaneGuardian",
     "inputs": [
       {
