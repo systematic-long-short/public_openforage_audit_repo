@@ -1,4 +1,5 @@
 # 2026-10-11 post-scan update
+Dated note (2026-10-28): this page records the 2026-10-11 update. The [2026-10-28 pre-scan review](2026-10-28-pre-scan-review.md) is the current public status; its fixes change several of the declared limits and retained behaviors listed below.
 
 ## What changed
 
