@@ -903,7 +903,11 @@ contract USDCTreasury is
         returns (uint256 writtenDown)
     {
         (uint256 outstanding, uint256[4] memory tierOutstanding) = _projectYieldClaims(vaultId, config);
-        writtenDown = amount < outstanding ? amount : outstanding;
+        // OPEN-141: the part of the claim already backed by returned cash (the pending vault top-up) is not exposed
+        // to a later loss, so that cash stays with the holders.
+        uint256 pending = pendingVaultTopUp[vaultId];
+        uint256 exposed = outstanding > pending ? outstanding - pending : 0;
+        writtenDown = amount < exposed ? amount : exposed;
         if (writtenDown == 0) return 0;
         uint256[4] memory allocations = _allocateCapped(writtenDown, tierOutstanding, outstanding);
         recognizedDepositorClaim[vaultId] -= writtenDown;

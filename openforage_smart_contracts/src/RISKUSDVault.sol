@@ -480,6 +480,9 @@ contract RISKUSDVault is
         _dailyRedemptionUsed += dailyCapCharge;
         _reduceWeeklyRedemptionBasis(weeklyCapCharge);
         _reduceDailyRedemptionBasis(dailyCapCharge);
+        // A15-H1: the same-window mint that offsets this redemption also returns its mint room, so a round trip
+        // moves neither the redemption caps nor the mint caps.
+        _releaseMintRoom(weeklyMintConsumed, dailyMintConsumed);
 
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
@@ -1571,6 +1574,11 @@ contract RISKUSDVault is
 
         _lastDailyMintActiveSupply =
             _lastDailyMintActiveSupply > cachedTotalSupply ? _lastDailyMintActiveSupply : cachedTotalSupply;
+    }
+
+    function _releaseMintRoom(uint256 weeklyMintConsumed, uint256 dailyMintConsumed) private {
+        _weeklyMintUsed -= _min(weeklyMintConsumed, _weeklyMintUsed);
+        _dailyMintUsed -= _min(dailyMintConsumed, _dailyMintUsed);
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {

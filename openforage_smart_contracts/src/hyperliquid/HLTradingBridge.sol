@@ -171,6 +171,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
     error BlockedAddress(address account);
     error LossSettlementInProgress();
     error PrincipalBookAnchorUnavailable();
+    error ReconciledReturnPending(uint256 amount);
     error LossPending();
     error PrincipalBasisUnavailable();
     error SequencerUptimeFeedUnavailable(address feed);
@@ -284,6 +285,10 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         }
         if (applied > previousNAV) _requireNoUnresolvedLossNonce();
         if (applied >= _deployedPrincipal) _requireSequencerUp();
+        // OPEN-150: returned principal still held by the bridge is not a custody loss; return it before reporting one.
+        if (applied < _deployedPrincipal && _reconciledReturnLiquidity != 0) {
+            revert ReconciledReturnPending(_reconciledReturnLiquidity);
+        }
         _recordNAVIntervalBudget(applied, observedAt);
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
@@ -611,6 +616,7 @@ contract HLTradingBridge is
     error InvalidManualNAVObservation(uint256 observedAt, uint256 currentTimestamp);
     error VaultPrincipalMismatch(uint256 vaultPrincipal, uint256 bridgePrincipal);
     error PrincipalBookAnchorUnavailable();
+    error ReconciledReturnPending(uint256 amount);
     error ManualNAVObservationNotAfterPrincipalChange(uint256 observedAt, uint256 principalBookKnownSince);
     error PausedNAVIncrease(uint256 proposed, uint256 accepted);
     error BridgeRoleCollision(address account, address conflictingAccount);
@@ -1493,6 +1499,10 @@ contract HLTradingBridge is
         }
         uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, _appliedNAV);
         if (normalizedNav > previousNAV) _requireNoUnresolvedLossNonce(true);
+        // OPEN-150: returned principal still held by the bridge is not a custody loss; return it before reporting one.
+        if (lossNonce != 0 && normalizedNav < principal && _reconciledReturnLiquidity != 0) {
+            revert ReconciledReturnPending(_reconciledReturnLiquidity);
+        }
         bool shouldRecord = lossNonce != 0 || normalizedNav >= principal;
         return (shouldRecord, shouldRecord ? normalizedNav : 0);
     }

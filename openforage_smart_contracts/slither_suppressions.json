@@ -2606,31 +2606,31 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/modules/USDCTreasuryProfitPolicyModule.sol",
-      "idDigest": "f3df253e4c44b126a2f0f5c2ceecd1f39ec217a66f87d347be1c123b21eb45bc",
+      "idDigest": "355ee0f214828c260e0bc5a013cd9027878fc8918e045cc8448109451e934bfa",
       "name": "_agentPayWindowOpen",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #96 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:Txj8ZcjeKV8vpPRlxPHGIIC4fAmES2uTKV6iL0FXnmE. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:aFqa1U2he4ER_x-yTrH3hypVomeWisSqacONtRObN38, detector divide-before-multiply, site src/modules/USDCTreasuryAccountingModule.sol:_agentPayWindowOpen. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #96 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:Txj8ZcjeKV8vpPRlxPHGIIC4fAmES2uTKV6iL0FXnmE. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:aFqa1U2he4ER_x-yTrH3hypVomeWisSqacONtRObN38, detector divide-before-multiply, site src/modules/USDCTreasuryAccountingModule.sol:_agentPayWindowOpen. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-28 after the OPEN-121 patch moved USDCTreasuryProfitPolicyModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/modules/USDCTreasuryProfitPolicyModule.sol",
-      "idDigest": "0f3e5cbd82709899fd8c038f0e0aa5910a4331a1240eea9293032a2e7846238e",
+      "idDigest": "b68a0431d28ca6204038680ef7c14d2dc8e4e7547039e3300abacb0cc2957ab2",
       "name": "_agentPayWindowOpen",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #99 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:9ho1PlGtboIGB21F4HplKxTqPEMibNGRZs7xJwsLD9U. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:aLV4IIsdtA7Slb1nqjJFGv17PlimLM_349LaNZTaXC4, detector divide-before-multiply, site src/modules/USDCTreasuryAccountingModule.sol:_agentPayWindowOpen. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #99 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:9ho1PlGtboIGB21F4HplKxTqPEMibNGRZs7xJwsLD9U. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:aLV4IIsdtA7Slb1nqjJFGv17PlimLM_349LaNZTaXC4, detector divide-before-multiply, site src/modules/USDCTreasuryAccountingModule.sol:_agentPayWindowOpen. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-28 after the OPEN-121 patch moved USDCTreasuryProfitPolicyModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/modules/USDCTreasuryProfitPolicyModule.sol",
-      "idDigest": "ba7dcd57b3e8177499b3d8603ddeb81cd3ae851670be495ed10f131d5ee9c977",
+      "idDigest": "a10eb50278a7f9a9eedcf5b10333773a30a7829aec8f295daded610f1d914d97",
       "name": "_agentPayWindowOpen",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #107 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:B44UbO9hh-UV1M5F6BngfsYPAs43qIrL_BmTCevfNVU. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:obD-Jn8dv8MXaaZNY4Ydmt99-aKOxwTf8hBPfNFkVhI, detector divide-before-multiply, site src/modules/USDCTreasuryAccountingModule.sol:_agentPayWindowOpen. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #107 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:B44UbO9hh-UV1M5F6BngfsYPAs43qIrL_BmTCevfNVU. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:obD-Jn8dv8MXaaZNY4Ydmt99-aKOxwTf8hBPfNFkVhI, detector divide-before-multiply, site src/modules/USDCTreasuryAccountingModule.sol:_agentPayWindowOpen. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-28 after the OPEN-121 patch moved USDCTreasuryProfitPolicyModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -2716,11 +2716,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/USDCTreasuryProfitPolicyModule.sol",
-      "idDigest": "ba4a2f985e7292e94e8aca512eec6681b359e87bd4afba4529415206c1ea268c",
+      "idDigest": "94c61f19a7fbad973092ed9c13631b84ab2bbb514c094d12f68c45a844570acf",
       "name": "_agentPayWindowOpen",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed C22g exact row disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY, raw#147, identity SHA-256 base64url:UPESjlLLk-zMPdlRJA0WA-a4pvZh7KKKzsovsguNpsc. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Current source site src/modules/USDCTreasuryAccountingModule.sol:[480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491]. Static-only evidence.",
+      "rationale": "Reviewed C22g exact row disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY, raw#147, identity SHA-256 base64url:UPESjlLLk-zMPdlRJA0WA-a4pvZh7KKKzsovsguNpsc. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Current source site src/modules/USDCTreasuryAccountingModule.sol:[480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491]. Static-only evidence. Rebound on 2026-10-28 after the OPEN-121 patch moved USDCTreasuryProfitPolicyModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3286,11 +3286,11 @@
     {
       "detector": "controlled-delegatecall",
       "file": "src/USDCTreasury.sol",
-      "idDigest": "05d207231dd5adc2eabb7d911e6f35700981e7b4b301ae5a96c713a645195f0b",
+      "idDigest": "42a20ac30b689c84d63bc59f59ea34489ddc8e6fd1eebb487163a04fa22064b9",
       "name": "_delegateAccountingModule",
       "created": "2026-10-08",
       "expires": "2027-04-06",
-      "rationale": "Reviewed disposition JUSTIFIED_EXACT_CURRENT_SOURCE_BEHAVIOUR: contracts/audits/static-triage/c22l.json Slither row #1; current id SHA-256 base64url:KRC0f0vvyhdeLfQWZCNQU4lp0udpEr5v6d1qBKDbeAo; exact source identity SHA-256 base64url:3t3wTvWsnFDnlOFv7Bx9lYSdnykX5tS4ppRfS0kUcM0. The module pointer is installed by the fresh-only initializer and checked by _requireAccountingModuleReady for nonzero address and code. The private delegate helper receives locally encoded fixed selectors from typed host paths; the call bytes are not caller-controlled. Delegatecall failures bubble. The exact dispatcher has no external entry point. Static evidence only; no deployment, runtime, security-clearance, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_EXACT_CURRENT_SOURCE_BEHAVIOUR: contracts/audits/static-triage/c22l.json Slither row #1; current id SHA-256 base64url:KRC0f0vvyhdeLfQWZCNQU4lp0udpEr5v6d1qBKDbeAo; exact source identity SHA-256 base64url:3t3wTvWsnFDnlOFv7Bx9lYSdnykX5tS4ppRfS0kUcM0. The module pointer is installed by the fresh-only initializer and checked by _requireAccountingModuleReady for nonzero address and code. The private delegate helper receives locally encoded fixed selectors from typed host paths; the call bytes are not caller-controlled. Delegatecall failures bubble. The exact dispatcher has no external entry point. Static evidence only; no deployment, runtime, security-clearance, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-141 patch moved USDCTreasury.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3306,11 +3306,11 @@
     {
       "detector": "reentrancy-balance",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "eecf31d7badc3f7c19b9cb27a1aa9132dc414614e944f5d6675ffd65e151a1f7",
+      "idDigest": "ba2bef17a3c7c0a3193487cc8828ccae63fd890465542fab3e7d4eb66cfc8a59",
       "name": "deployToHyperLiquid",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_HOST_NONREENTRANT_BALANCE_CHECK: C22f static-triage row #5 JUSTIFIED_HOST_NONREENTRANT_BALANCE_CHECK; exact source identity SHA-256 base64url:mdpskjA3F-NroRqE8kRvidHp26m-nRyXZIP-ql6LAHU. No Solidity source edit in this static evidence packet. The external balance-changing host entry point is guarded by nonReentrant before the recorded token balance check and external vault interaction. Exact host body and raw call line are attached. Exact current Slither row Slither-row-SHA-256-base64url:Low51D4ydKkGuxnZ1RmO5IjGNsIAydjXe5FR6gA5qyY, detector reentrancy-balance, site src/hyperliquid/HLTradingBridge.sol:deployToHyperLiquid. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_HOST_NONREENTRANT_BALANCE_CHECK: C22f static-triage row #5 JUSTIFIED_HOST_NONREENTRANT_BALANCE_CHECK; exact source identity SHA-256 base64url:mdpskjA3F-NroRqE8kRvidHp26m-nRyXZIP-ql6LAHU. No Solidity source edit in this static evidence packet. The external balance-changing host entry point is guarded by nonReentrant before the recorded token balance check and external vault interaction. Exact host body and raw call line are attached. Exact current Slither row Slither-row-SHA-256-base64url:Low51D4ydKkGuxnZ1RmO5IjGNsIAydjXe5FR6gA5qyY, detector reentrancy-balance, site src/hyperliquid/HLTradingBridge.sol:deployToHyperLiquid. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3548,31 +3548,31 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "0347808f9159487aeed2db54657e9f6af092ae00fee3885b92937a9257e6f621",
+      "idDigest": "af8674deadb15a2cb5985d872b8947218183e330ef13dac9c54cd9dd6bbe21a4",
       "name": "initialize",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #105 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:5Djwxe3MyKOkh_BcwDSL-w_QizMOG-Yg8O-O36mZwv8. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:e0uKlHTfjAvUxlcr-j1yO4uFPBc3Cc85U1TkCRJrYls, detector divide-before-multiply, site src/hyperliquid/HLTradingBridge.sol:initialize. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #105 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:5Djwxe3MyKOkh_BcwDSL-w_QizMOG-Yg8O-O36mZwv8. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:e0uKlHTfjAvUxlcr-j1yO4uFPBc3Cc85U1TkCRJrYls, detector divide-before-multiply, site src/hyperliquid/HLTradingBridge.sol:initialize. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "1102b466c8cf0659fe0ccf86485840c659742ea63eaa244cdf0f5931883fba7f",
+      "idDigest": "3990c6d0dc9bc741ae49a7ee629195a9e6ff269f632d84ba5b901696bccc8aa5",
       "name": "_syncWeeklyMintWindow",
       "created": "2026-10-08",
       "expires": "2027-04-06",
-      "rationale": "Reviewed disposition JUSTIFIED_EXACT_CURRENT_SOURCE_BEHAVIOUR: contracts/audits/static-triage/c22l.json Slither row #119; current id SHA-256 base64url:d43nzNz9GR0XAbZJrqxjGYeZcckB7gisqA7TL1lnfk4; exact source identity SHA-256 base64url:sJ1Q09Kw90NZaB3Uxm1iWnAFOHNvorgNwnTlrLxwZuQ. The exact division then multiplication floors elapsed time to a fixed daily/weekly window boundary; the result is used only to align window start/elapsed counters. No value-bearing arithmetic is rounded by this predicate. Prior identities this row replaces or carries: SHA-256 base64url:ijiQIulxt4RLI18_8RSdQc_FJ3bE-gmTcshbf3t33R4. Static evidence only; no deployment, runtime, security-clearance, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_EXACT_CURRENT_SOURCE_BEHAVIOUR: contracts/audits/static-triage/c22l.json Slither row #119; current id SHA-256 base64url:d43nzNz9GR0XAbZJrqxjGYeZcckB7gisqA7TL1lnfk4; exact source identity SHA-256 base64url:sJ1Q09Kw90NZaB3Uxm1iWnAFOHNvorgNwnTlrLxwZuQ. The exact division then multiplication floors elapsed time to a fixed daily/weekly window boundary; the result is used only to align window start/elapsed counters. No value-bearing arithmetic is rounded by this predicate. Prior identities this row replaces or carries: SHA-256 base64url:ijiQIulxt4RLI18_8RSdQc_FJ3bE-gmTcshbf3t33R4. Static evidence only; no deployment, runtime, security-clearance, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "1520fe5a31d92d8605feedadb7dc12ed6060478f2add8ea4b05d33f0c2a2a0ca",
+      "idDigest": "85ec06a07744fa94a33d52dac6af40f839eb0c33c8ffbfde5106f824a52145c3",
       "name": "enforceDeployCaps",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #113 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:TT5dTVW2D1MvXdAkyzf9DMjg5lH_JtrM4Hf-0smFSLY. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:lnqL7XKJRoSQMLG31nflIPE4PmY3WXKaXrd54WXh_OE, detector divide-before-multiply, site src/hyperliquid/HLTradingBridge.sol:enforceDeployCaps. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #113 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:TT5dTVW2D1MvXdAkyzf9DMjg5lH_JtrM4Hf-0smFSLY. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:lnqL7XKJRoSQMLG31nflIPE4PmY3WXKaXrd54WXh_OE, detector divide-before-multiply, site src/hyperliquid/HLTradingBridge.sol:enforceDeployCaps. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3598,31 +3598,31 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "447e2592b7a933ece27982514a0555b304d81c9dbb90b85f7cd79265bf51f19f",
+      "idDigest": "28469a62623cc27ad82c65175cc9315eb8176dce70a3b55429df890611a11d81",
       "name": "_enforceDailyRedemptionCap",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #100 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:MAAxUB7WI0y-SVgO5pkgnca7pLABNL_dfg3-yySez54. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:NiUtO7VwkGRit1pwOrSyKNbMNhhx28_NsMhecYpVXo0, detector divide-before-multiply, site src/RISKUSDVault.sol:_enforceDailyRedemptionCap. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #100 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:MAAxUB7WI0y-SVgO5pkgnca7pLABNL_dfg3-yySez54. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:NiUtO7VwkGRit1pwOrSyKNbMNhhx28_NsMhecYpVXo0, detector divide-before-multiply, site src/RISKUSDVault.sol:_enforceDailyRedemptionCap. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "5deae89cf90d7fedb4148ab14dbb95617bdb57c3b2919befb589bda795f12b06",
+      "idDigest": "c341ea307cb1ddf7ec2711ada0c2b2434adc4c213236ed843cb140f7aabbd98c",
       "name": "_redemptionWindowStart",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #102 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:iopgZ1rIr5GX4xwfOgeBpH75cAxZDT8UpyvMoESKQPI. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:Zico6RffHWhOmYUlXWf0ajj8neVAl-Gy_z2GCyDLEAw, detector divide-before-multiply, site src/RISKUSDVault.sol:_redemptionWindowStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #102 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:iopgZ1rIr5GX4xwfOgeBpH75cAxZDT8UpyvMoESKQPI. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:Zico6RffHWhOmYUlXWf0ajj8neVAl-Gy_z2GCyDLEAw, detector divide-before-multiply, site src/RISKUSDVault.sol:_redemptionWindowStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "9a58819f0907d757a8ed832a653fda6e313c6346ee1bb61f6748a2b743b7c4e6",
+      "idDigest": "c0c1eace1fddcee38f502a499c247d58e01547cbd20d343ff13f3fa838b82f95",
       "name": "dailyMintUsed",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #112 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:NEbFQLhFCqI7PauMywbcZo1mWYhwDq0VoV-5mQCyG3I. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:Bg5NBIy9_WQ3gfTx-BhwhCOxsdvS4RtGWTjQOpNGj7U, detector divide-before-multiply, site src/RISKUSDVault.sol:dailyMintUsed. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #112 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:NEbFQLhFCqI7PauMywbcZo1mWYhwDq0VoV-5mQCyG3I. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:Bg5NBIy9_WQ3gfTx-BhwhCOxsdvS4RtGWTjQOpNGj7U, detector divide-before-multiply, site src/RISKUSDVault.sol:dailyMintUsed. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3638,21 +3638,21 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "a9e454d7e04061fe60172ed92cd76d42e05ee8a57d8f72ab1a587993052bfa9f",
+      "idDigest": "f2dae00b530029f97d77987a8e8f37375b22313cfea71fdcd8621fc41640f409",
       "name": "dailyMintRemaining",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #97 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:QBU7zsTjyIshl9xDtca5pm4kizwTa4E5olVU9eUEJdE. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:tmFPRLFXb2DSH0RTcT4nwv1XBVR6unZKfiFAJKKQsKg, detector divide-before-multiply, site src/RISKUSDVault.sol:dailyMintRemaining. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #97 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:QBU7zsTjyIshl9xDtca5pm4kizwTa4E5olVU9eUEJdE. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:tmFPRLFXb2DSH0RTcT4nwv1XBVR6unZKfiFAJKKQsKg, detector divide-before-multiply, site src/RISKUSDVault.sol:dailyMintRemaining. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "b838083f312ab24e23a57827b83c9f301f0887a2a5a00da9b564f0e55420d8d3",
+      "idDigest": "1ee00dfc028f4351a814bae28860eb61897b654602e2d4348bc9eb5b6905b299",
       "name": "_enforceWeeklyCap",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #111 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:etOomiY5Sjw0Udb38r-nzyhB8ZsYkDvCtoLER0Gr-hk. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:-8gYoTX-0Y93KJN2IvoRcyuLWBBAIf1StPLACBJ9w84, detector divide-before-multiply, site src/RISKUSDVault.sol:_enforceWeeklyCap. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #111 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:etOomiY5Sjw0Udb38r-nzyhB8ZsYkDvCtoLER0Gr-hk. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:-8gYoTX-0Y93KJN2IvoRcyuLWBBAIf1StPLACBJ9w84, detector divide-before-multiply, site src/RISKUSDVault.sol:_enforceWeeklyCap. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3668,21 +3668,21 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "c636abb4ab4400966de62354443144f8320c5f2f7640cab8f1b278ade8fe0ff3",
+      "idDigest": "4d3c72e80a18bddc7279354e2b56081a4adab999bf43952131d4a682094e97db",
       "name": "_syncDailyMintWindow",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #101 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:ClE3-nL6c_cAIuYQBXVp1ACkqy1y3s-SX9Dq2dln2Xc. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:z5nrn8u1TdAgDmuQJLIn7nHLRT-7UxvAJbHa_WtGir0, detector divide-before-multiply, site src/RISKUSDVault.sol:_syncDailyMintWindow. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #101 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:ClE3-nL6c_cAIuYQBXVp1ACkqy1y3s-SX9Dq2dln2Xc. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:z5nrn8u1TdAgDmuQJLIn7nHLRT-7UxvAJbHa_WtGir0, detector divide-before-multiply, site src/RISKUSDVault.sol:_syncDailyMintWindow. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "e247193502d78e6e5c424df5455adacc07a8eff736d808a21b232d4064e9a995",
+      "idDigest": "f1b23e984dddec9323d7736853321a7a963b577491b5068e7af1833f2d939bcf",
       "name": "_dayStartDepositSupply",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #98 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:zE19MFWAvU14snMFJGhu7Xqu4cJmowJc6qS08togVpQ. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:lQW5g8ff2CLgVp-XUTvj4514tXWJ_jW1i9aO0aTabqA, detector divide-before-multiply, site src/RISKUSDVault.sol:_dayStartDepositSupply. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #98 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:zE19MFWAvU14snMFJGhu7Xqu4cJmowJc6qS08togVpQ. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:lQW5g8ff2CLgVp-XUTvj4514tXWJ_jW1i9aO0aTabqA, detector divide-before-multiply, site src/RISKUSDVault.sol:_dayStartDepositSupply. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3698,21 +3698,21 @@
     {
       "detector": "divide-before-multiply",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "fc3fe3b6f69cb82d0c580f0fedf6773487cf6aa8382e6d9127df719323b4ad96",
+      "idDigest": "cc4329ba27add07d889d9711a144962499381d04a0f480c963d8fb480649202f",
       "name": "dailyMintWindowStart",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #106 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:X6ifs2fP87PxSU031ZCjUjzd2UnxPndE9iAt2L4eHho. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:ce1PcOj0fsYv15Gq_42ciZ4Byicx_2EcfOQvvKTSY5A, detector divide-before-multiply, site src/RISKUSDVault.sol:dailyMintWindowStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22f static-triage row #106 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; exact source identity SHA-256 base64url:X6ifs2fP87PxSU031ZCjUjzd2UnxPndE9iAt2L4eHho. No Solidity source edit in this static evidence packet. The division and multiplication intentionally round a timestamp/elapsed period down to a daily, weekly, or calendar boundary; this is not fractional payout or asset valuation arithmetic. Exact expression source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:ce1PcOj0fsYv15Gq_42ciZ4Byicx_2EcfOQvvKTSY5A, detector divide-before-multiply, site src/RISKUSDVault.sol:dailyMintWindowStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "00ddf23046e836d3c9d80a34a2d9584dca508cc3b43d3473165d9f4196ae5056",
+      "idDigest": "4151de4d8343f5a22f03dd19996291b81617bb3cd3095fa11ee3c94344de5e48",
       "name": "mintUsedThisBlock",
       "created": "2026-09-27",
       "expires": "2027-03-26",
-      "rationale": "This compares the current block with the per-block counter marker; it is a time-state sentinel, not an amount equivalence. Exact source binding: pkt-0313 raw#78; the current file bytes, full ID, detector, and call site match the reviewed row. This is source-only evidence, not deployment, runtime, old-proxy, or finding-closure proof. C12 exact-ID rebind pkt-0737: current raw ID sha256:7fdda9d7:99b46e27:8ad943ac:f2b1513c:b240e068:7dc168aa:d5e59e6f:38e21fe7 at contracts/src/RISKUSDVault.sol:958,959,960; contracts/src/RISKUSDVault.sol:959; current normalized detector/function/element identity sha256:940bca8f:187d7466:7c825c0d:75d17ab9:ac3af4f5:7f2a17b6:79accfa4:c616b961 and current function body SHA-256 sha256:2ff8c550:0c50e493:1fd4fa14:930fb65f:08b942cf:d8983b58:5a4619fd:bcea20e3 bind this exact current body. The retained source rationale applies to this unchanged normalized finding; this is not a detector/name/line rekey. Source-only; no deployment, old-proxy, runtime, or Octane closure is implied. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "This compares the current block with the per-block counter marker; it is a time-state sentinel, not an amount equivalence. Exact source binding: pkt-0313 raw#78; the current file bytes, full ID, detector, and call site match the reviewed row. This is source-only evidence, not deployment, runtime, old-proxy, or finding-closure proof. C12 exact-ID rebind pkt-0737: current raw ID sha256:7fdda9d7:99b46e27:8ad943ac:f2b1513c:b240e068:7dc168aa:d5e59e6f:38e21fe7 at contracts/src/RISKUSDVault.sol:958,959,960; contracts/src/RISKUSDVault.sol:959; current normalized detector/function/element identity sha256:940bca8f:187d7466:7c825c0d:75d17ab9:ac3af4f5:7f2a17b6:79accfa4:c616b961 and current function body SHA-256 sha256:2ff8c550:0c50e493:1fd4fa14:930fb65f:08b942cf:d8983b58:5a4619fd:bcea20e3 bind this exact current body. The retained source rationale applies to this unchanged normalized finding; this is not a detector/name/line rekey. Source-only; no deployment, old-proxy, runtime, or Octane closure is implied. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3758,11 +3758,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "17e6b98b2762e887e5e3687f3d5ace41338f345e22b85f73853cb028f7fabb8a",
+      "idDigest": "c4d78e12c3d08e4abd813cd6fc240a03a619343df9cfb5288ba310710733e47b",
       "name": "_requestWithdrawalIntent",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22g static-triage row #149 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; current source identity SHA-256 base64url:NKXCc6DqVPYlkjf2oZtzTYU_gcGzUHw9xKgH8cNSGYk. The equality rejects a zero intent digest or an occupied intent key before writing intent state. This is collision and sentinel protection, not value or balance equality. Exact current Slither row Slither-row-SHA-256-base64url:q-l4ftYhC3h2yrViBCkMr00l-ucRq-ol5TfPJ7dHlPA, detector incorrect-equality, site src/hyperliquid/HLTradingBridge.sol:_requestWithdrawalIntent. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22g static-triage row #149 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; current source identity SHA-256 base64url:NKXCc6DqVPYlkjf2oZtzTYU_gcGzUHw9xKgH8cNSGYk. The equality rejects a zero intent digest or an occupied intent key before writing intent state. This is collision and sentinel protection, not value or balance equality. Exact current Slither row Slither-row-SHA-256-base64url:q-l4ftYhC3h2yrViBCkMr00l-ucRq-ol5TfPJ7dHlPA, detector incorrect-equality, site src/hyperliquid/HLTradingBridge.sol:_requestWithdrawalIntent. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3828,11 +3828,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "3a5714ed02b3db21cdb51f2bd12c675397ea2c1819ab9703ecf68f5bcb9fd779",
+      "idDigest": "cb9052628161069a9042a34cdc2d90f04bcfc8b088b4ee0dbdd907db1d38332b",
       "name": "dailyMintWindowStart",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22f static-triage row #136 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; exact source identity SHA-256 base64url:ttSJDlOEBE1JoR9glFhywM_L5vMJp7tsNLR0Z9KopEs. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:gfsx0MNHDvR4hpJdcHk5aoN9zAFoVFrJspW2Dnqe0tA, detector incorrect-equality, site src/RISKUSDVault.sol:dailyMintWindowStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22f static-triage row #136 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; exact source identity SHA-256 base64url:ttSJDlOEBE1JoR9glFhywM_L5vMJp7tsNLR0Z9KopEs. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:gfsx0MNHDvR4hpJdcHk5aoN9zAFoVFrJspW2Dnqe0tA, detector incorrect-equality, site src/RISKUSDVault.sol:dailyMintWindowStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3918,21 +3918,21 @@
     {
       "detector": "incorrect-equality",
       "file": "src/USDCTreasury.sol",
-      "idDigest": "719fb0d6c0232f6057fb21cf20bbd4cb56f73da426c5954289568a3a9fb50438",
+      "idDigest": "916df95f063f51ac1202aad381057f1ba06d6de4c5da45546833358b11698008",
       "name": "_resetEarmarkWindowIfExpired",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #154 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:lD6zBCC5-UgslAcACmnoQaTeMk3mx6nJPsvktyhNJ_k. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:-fnrkd1OB6ymLNITWGxpWRFZ-mVnrj1mwcL5xdblgVc, detector incorrect-equality, site src/USDCTreasury.sol:_resetEarmarkWindowIfExpired. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #154 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:lD6zBCC5-UgslAcACmnoQaTeMk3mx6nJPsvktyhNJ_k. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:-fnrkd1OB6ymLNITWGxpWRFZ-mVnrj1mwcL5xdblgVc, detector incorrect-equality, site src/USDCTreasury.sol:_resetEarmarkWindowIfExpired. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-141 patch moved USDCTreasury.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "72f46ebaf0a50411b04070e6b57b6bddcff80cfdf2b799b1b57180bd4f26b786",
+      "idDigest": "849e3f2578457362852a3895c6986d82fae5b17cdb9fd848eb12b9f045c4b4b7",
       "name": "_dailyRedemptionMintAmount",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #159 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:eZEHD-hMjl5gQGVciOxK96aCG1NQNyFFMXKiVx1e0r0. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:9a6wjp6zfkEX65t6ZSqpwp50xB4lewdLAC53Ww4e50U, detector incorrect-equality, site src/RISKUSDVault.sol:_dailyRedemptionMintAmount. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #159 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:eZEHD-hMjl5gQGVciOxK96aCG1NQNyFFMXKiVx1e0r0. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:9a6wjp6zfkEX65t6ZSqpwp50xB4lewdLAC53Ww4e50U, detector incorrect-equality, site src/RISKUSDVault.sol:_dailyRedemptionMintAmount. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3968,11 +3968,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "9cf8c3a41bc49caf0d6e12f10755e47ed44bbf1568c870b8877df63552c24294",
+      "idDigest": "ac065b5e7f9ffcd773d8119d468e8d7d45a2fa314a9e1be3e91ecea23e054649",
       "name": "_syncDailyMintWindow",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22f static-triage row #125 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; exact source identity SHA-256 base64url:VnSPD3Y8dYl9TjhSYO_omyF0_mKAebDSK4o0tJiSLpM. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:0nIDpj0KLQQpobWK3nPipIXkFir5-7KqIpiEypdrWJs, detector incorrect-equality, site src/RISKUSDVault.sol:_syncDailyMintWindow. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22f static-triage row #125 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; exact source identity SHA-256 base64url:VnSPD3Y8dYl9TjhSYO_omyF0_mKAebDSK4o0tJiSLpM. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:0nIDpj0KLQQpobWK3nPipIXkFir5-7KqIpiEypdrWJs, detector incorrect-equality, site src/RISKUSDVault.sol:_syncDailyMintWindow. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3988,11 +3988,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "b066e784584af28f1debf021a12aaac24fbeb2a6ea6e107111550e459b827805",
+      "idDigest": "e1bd6b40af23b18d6330adaa48f3f369317e4e90667333711e9fa6add2131832",
       "name": "_weeklyRedemptionMintAmount",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #149 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:PUq2ARbb78WINUSWOQ7399EK4KCMxTHWcocgH1w6VmM. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:Jcrtu5nWcwEhDCMpqTrNgdN-QNAUo7OYwY7AIm8lsSU, detector incorrect-equality, site src/RISKUSDVault.sol:_weeklyRedemptionMintAmount. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #149 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:PUq2ARbb78WINUSWOQ7399EK4KCMxTHWcocgH1w6VmM. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:Jcrtu5nWcwEhDCMpqTrNgdN-QNAUo7OYwY7AIm8lsSU, detector incorrect-equality, site src/RISKUSDVault.sol:_weeklyRedemptionMintAmount. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4018,11 +4018,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "bbc68d817f402ec34963d52a1ed75496a2ec808a88c0967ce8ae51a328cdfd9b",
+      "idDigest": "09c6c78c8a451384c255add01e03331de39d7233ae0a7111208c1a24609e93cf",
       "name": "_creditUnassignedWithdrawalArrival",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_ZERO_AMOUNT_GUARD: C22g static-triage row #156 JUSTIFIED_ZERO_AMOUNT_GUARD; current source identity SHA-256 base64url:fKIyjN40KY9uCdm9vnjt-zMCtSt8f4Qw1wkBSU-Zhzc. The equality to zero rejects an empty arrival before checking the actual unreconciled USDC balance; the following amount bound prevents credit above measured unassigned funds. Exact current Slither row Slither-row-SHA-256-base64url:ykxFI2hY2EZ4z3KLijFqGVXo2V8j59EEBYLxF-bkzzk, detector incorrect-equality, site src/hyperliquid/HLTradingBridge.sol:_creditUnassignedWithdrawalArrival. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_ZERO_AMOUNT_GUARD: C22g static-triage row #156 JUSTIFIED_ZERO_AMOUNT_GUARD; current source identity SHA-256 base64url:fKIyjN40KY9uCdm9vnjt-zMCtSt8f4Qw1wkBSU-Zhzc. The equality to zero rejects an empty arrival before checking the actual unreconciled USDC balance; the following amount bound prevents credit above measured unassigned funds. Exact current Slither row Slither-row-SHA-256-base64url:ykxFI2hY2EZ4z3KLijFqGVXo2V8j59EEBYLxF-bkzzk, detector incorrect-equality, site src/hyperliquid/HLTradingBridge.sol:_creditUnassignedWithdrawalArrival. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4118,21 +4118,21 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/USDCTreasury.sol",
-      "idDigest": "0c413502c6e3cf24879281568f2f757ad85b3d1fca021ba952e765f5f8d10ee2",
+      "idDigest": "d5ad623de02e012be4999e6379c4b8c39e5ad672c28a7fca4db89e56556ac516",
       "name": "recognizePnL",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #177 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:6aAvE8_vRZGVBF6-VMfL8oZNhx_1DOMyxAPBPjvyU24. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:B7n9LJ_fBJklBP06Ns82HRaSdJVG1NuqMmGTYxpGsTk, detector reentrancy-no-eth, site src/USDCTreasury.sol:recognizePnL. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #177 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:6aAvE8_vRZGVBF6-VMfL8oZNhx_1DOMyxAPBPjvyU24. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:B7n9LJ_fBJklBP06Ns82HRaSdJVG1NuqMmGTYxpGsTk, detector reentrancy-no-eth, site src/USDCTreasury.sol:recognizePnL. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-141 patch moved USDCTreasury.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/USDCTreasury.sol",
-      "idDigest": "10f101f2cccea74a12d818299aef8a6ac7ffb1d00f7d64c09cb312d59f6dae70",
+      "idDigest": "10d36205ab56a3bba9119e23ca8c87c0958586337f3ad826c6f1da0a7a295b84",
       "name": "_accrueTierYield",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #163 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:KhVMBgNQShtb3dAbdLPpdEi0NEp7mrFOwDeagHJWZFc. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:M0rns8Q32k3YbkJQBSh4huWEuZgLRByoPJk7BXsMB68, detector reentrancy-no-eth, site src/USDCTreasury.sol:_accrueTierYield. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #163 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:KhVMBgNQShtb3dAbdLPpdEi0NEp7mrFOwDeagHJWZFc. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:M0rns8Q32k3YbkJQBSh4huWEuZgLRByoPJk7BXsMB68, detector reentrancy-no-eth, site src/USDCTreasury.sol:_accrueTierYield. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-141 patch moved USDCTreasury.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4158,11 +4158,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "3d171f0283af609bc94bc2dfd44b8338839c11550719d8a9db072df5cef3183f",
+      "idDigest": "37e4b3a2b398f1c48c3300c2ac48f3be16c662a95d73e0c54d54a6916b00b0b5",
       "name": "_returnPrincipalUSDC",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "HLTradingBridge._returnPrincipalUSDC at contracts/src/hyperliquid/HLTradingBridge.sol:786-793 is reachable through returnPrincipalUSDC at :757-761, returnPrincipalUSDCWithNAVBasis at :763-772, and returnZeroPrincipalUSDC at :774-784; each entry is nonReentrant. The internal path checks pause/executor/blocklist and return caps before accounting. _returnPrincipalUSDCWithoutCaps updates principal, NAV basis, pending principal, reconciled liquidity, and custody records at :795-817 before vault and treasury calls at :818-822; callback entry remains guarded. No pending loss or stale pointer can use reentrancy to evade settlement. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "HLTradingBridge._returnPrincipalUSDC at contracts/src/hyperliquid/HLTradingBridge.sol:786-793 is reachable through returnPrincipalUSDC at :757-761, returnPrincipalUSDCWithNAVBasis at :763-772, and returnZeroPrincipalUSDC at :774-784; each entry is nonReentrant. The internal path checks pause/executor/blocklist and return caps before accounting. _returnPrincipalUSDCWithoutCaps updates principal, NAV basis, pending principal, reconciled liquidity, and custody records at :795-817 before vault and treasury calls at :818-822; callback entry remains guarded. No pending loss or stale pointer can use reentrancy to evade settlement. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4198,21 +4198,21 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "5413a9a464a00adaeafd3137ea94b11c939942d17a3fe13d02dd7b997978e400",
+      "idDigest": "a37dde49951850fee1a31b79cf18ae284c8c9047bd65aad7f34ff543f90139f2",
       "name": "recordLossWriteDown",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #170 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:QzA31701q1kED4zwlbNlyWTWiumW_ykFKbO56kC7AXU. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:_kgSgVB0rSi-yGuZlaKHUSCjvWkkImzRrPAPWAKkKYM, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:recordLossWriteDown. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #170 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:QzA31701q1kED4zwlbNlyWTWiumW_ykFKbO56kC7AXU. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:_kgSgVB0rSi-yGuZlaKHUSCjvWkkImzRrPAPWAKkKYM, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:recordLossWriteDown. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/RISKUSDVault.sol",
-      "idDigest": "5d0a3ffd3fb90b6b62b089e0632d2ce67866c0b1828a8e90d0d3f43ee25343f9",
+      "idDigest": "0fd1bfb8465e7d0f532aa4e0c311af25a86c839f9abd41cf3684a3dc9af39f02",
       "name": "redeem",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22g static-triage row #176 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; current source identity SHA-256 base64url:3-Cxx7ubb1ini25juoodWUuXcResqzSyZc91HmAS8Yo. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Current successor body is source-bound by SHA-256 base64url:rokSVR5gdmBfCr2vxuTTRldGAnjt3qKspYOXXC1B9Gc at src/RISKUSDVault.sol:[448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 460, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499]; the exact current finding remains within the cited reviewed predicate. Exact current Slither row Slither-row-SHA-256-base64url:Lll2F00qpL__4v24jYNDV1dqyTqUvY85iSZahj7Axx0, detector reentrancy-no-eth, site src/RISKUSDVault.sol:redeem. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22g static-triage row #176 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; current source identity SHA-256 base64url:3-Cxx7ubb1ini25juoodWUuXcResqzSyZc91HmAS8Yo. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Current successor body is source-bound by SHA-256 base64url:rokSVR5gdmBfCr2vxuTTRldGAnjt3qKspYOXXC1B9Gc at src/RISKUSDVault.sol:[448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 460, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499]; the exact current finding remains within the cited reviewed predicate. Exact current Slither row Slither-row-SHA-256-base64url:Lll2F00qpL__4v24jYNDV1dqyTqUvY85iSZahj7Axx0, detector reentrancy-no-eth, site src/RISKUSDVault.sol:redeem. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the A15-H1 patch moved RISKUSDVault source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4228,11 +4228,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "6dea5beb70115e89efe727bdd59ba6b534b650ca86c07d8469317bb10e6b48ac",
+      "idDigest": "c28d6b8dce728d79353eab292e25f9df4385319c3c2ff3c8774288d3b75805bc",
       "name": "recordLossWriteDown",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #185 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:a5A98z_gA4W0ycrDJLEjy9Tgk1feobniGg9LrlKZX8E. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:Iwrw7RbAd_XGQjNuwR-yChCt3BqRdFEZ0yuE5Mn2uvE, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:recordLossWriteDown. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #185 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:a5A98z_gA4W0ycrDJLEjy9Tgk1feobniGg9LrlKZX8E. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:Iwrw7RbAd_XGQjNuwR-yChCt3BqRdFEZ0yuE5Mn2uvE, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:recordLossWriteDown. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4278,31 +4278,31 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/USDCTreasury.sol",
-      "idDigest": "c35caaada95905a4616c70b468829681d770f152f477fe3062c5c5c2b7efde40",
+      "idDigest": "cca451c02d8f91da40d86d29d9533c193917b0b4b2985b38d967694ab3a21ab2",
       "name": "deliverVaultTopUp",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #164 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:KThb2L21hAyQWa3LmgmjlAYbJQoh7KfoDGBTxiAlZRY. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:F9Hd_wB235nx6PZTWgObBvT9XXEEvGBh65ivA5OP6l0, detector reentrancy-no-eth, site src/USDCTreasury.sol:deliverVaultTopUp. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #164 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:KThb2L21hAyQWa3LmgmjlAYbJQoh7KfoDGBTxiAlZRY. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:F9Hd_wB235nx6PZTWgObBvT9XXEEvGBh65ivA5OP6l0, detector reentrancy-no-eth, site src/USDCTreasury.sol:deliverVaultTopUp. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-141 patch moved USDCTreasury.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "ce1601b70d8c8e15b40dd3356b6b40fe2c7e6f0c27b942e39c86694a3bdad6b6",
+      "idDigest": "8d8b526efd9acd0476b3b8f52ff8f652c683b365d6d061c5aa460ed5b5655b08",
       "name": "settleLoss",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22g static-triage row #194 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; current source identity SHA-256 base64url:iTi_JXbSWU2nUp8ehlLLLvMEyfdY8jMGmjQrpEPF0HU. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Current successor body is source-bound by SHA-256 base64url:zm1fx2NKQHWgXZXvIzLVzF-zu_jpGwz3N6H8YgaXZQ4 at src/hyperliquid/HLTradingBridge.sol:[864, 865, 866, 867, 868, 869, 870, 871, 872, 873, 874, 875, 876, 877, 878, 879, 880, 881, 882, 883, 884, 885, 886]; the exact current finding remains within the cited reviewed predicate. Exact current Slither row Slither-row-SHA-256-base64url:fiTh1pB8G8yxBlpbeZlqfmum0S0j5ndjVMUiNyLv7LA, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:settleLoss. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22g static-triage row #194 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; current source identity SHA-256 base64url:iTi_JXbSWU2nUp8ehlLLLvMEyfdY8jMGmjQrpEPF0HU. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Current successor body is source-bound by SHA-256 base64url:zm1fx2NKQHWgXZXvIzLVzF-zu_jpGwz3N6H8YgaXZQ4 at src/hyperliquid/HLTradingBridge.sol:[864, 865, 866, 867, 868, 869, 870, 871, 872, 873, 874, 875, 876, 877, 878, 879, 880, 881, 882, 883, 884, 885, 886]; the exact current finding remains within the cited reviewed predicate. Exact current Slither row Slither-row-SHA-256-base64url:fiTh1pB8G8yxBlpbeZlqfmum0S0j5ndjVMUiNyLv7LA, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:settleLoss. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "src/USDCTreasury.sol",
-      "idDigest": "cfe5e4438cad9c4bd0639adaf6d82b68e2ef7a4eef992e4e18513f438034c3df",
+      "idDigest": "70faf9d84cd8d3bfd5b25e40f50bb3438f917dc43f312e21dff2160865c85319",
       "name": "_writeDownUnpaidClaims",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #192 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:x6QgplQf-xONVHzTy2QL9DlqYvF2GZ9kTK7-LnMrL9I. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:fRUfsxY8JxROtFtLRrHCKxLaqANIipL6kntkKy5lMu8, detector reentrancy-no-eth, site src/USDCTreasury.sol:_writeDownUnpaidClaims. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed on 2026-10-28 for the OPEN-141 patch. The patch makes _writeDownUnpaidClaims read pendingVaultTopUp before the tier-vault calls, so Slither now also lists the pendingVaultTopUp write in _reconcilePendingVaultTopUp after those calls. The calls go only to the vault's registered tier vaults (atRISKUSD); their writeDownUnpaidProfit requires the Treasury as caller and only reads the Treasury back, without a state-changing call into it. The only entry point, recognizePnL, is nonReentrant and attestor-only. After the patch the reconcile write cannot run on this path, because the write-down never exceeds the claim minus the pending top-up. Earlier reviewed reason, kept for the record: Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #192 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:x6QgplQf-xONVHzTy2QL9DlqYvF2GZ9kTK7-LnMrL9I. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:fRUfsxY8JxROtFtLRrHCKxLaqANIipL6kntkKy5lMu8, detector reentrancy-no-eth, site src/USDCTreasury.sol:_writeDownUnpaidClaims. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4358,11 +4358,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/hyperliquid/HLTradingBridge.sol",
-      "idDigest": "f44f56754086ad3dbad82a63a4f904eb7767c793265ed63bf3fd35a66ad53b3b",
+      "idDigest": "df80c309bd4ebc5a2512067405b747d52feee5978a30b3217e4a86971588b2a6",
       "name": "deployToHyperLiquid",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #187 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:9CVg_Yoic0CWXyaN7BwxLAQPeM8PkyToCg6SCXJkSjM. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:WD0a5UEMnQANMdDY5DPtu6h8e2-6U-FGW0Twp-znrws, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:deployToHyperLiquid. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #187 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:9CVg_Yoic0CWXyaN7BwxLAQPeM8PkyToCg6SCXJkSjM. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:WD0a5UEMnQANMdDY5DPtu6h8e2-6U-FGW0Twp-znrws, detector reentrancy-no-eth, site src/hyperliquid/HLTradingBridge.sol:deployToHyperLiquid. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-28 after the OPEN-150 patch moved HLTradingBridge.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -5369,6 +5369,16 @@
       "created": "2026-10-28",
       "expires": "2027-04-26",
       "rationale": "Reviewed disposition JUSTIFIED_INTENTIONAL_SERIALIZATION_OR_DERIVED_RETURN: C22f static-triage row #309 JUSTIFIED_INTENTIONAL_SERIALIZATION_OR_DERIVED_RETURN; exact source identity SHA-256 base64url:sJEg8ipASfOa_P_hvrUMyQOu1wdcWvLV5_0GhpmHTSA. No Solidity source edit in this static evidence packet. Deploy vm.serialize* calls mutate the named JSON root and their returned root is intentionally ignored in the stateful serialization chain; non-Deploy rows are the reviewed timestamp/proposal-ID derivations where the canonical value is already held by the caller. Exact call line is attached. Exact current Slither row Slither-row-SHA-256-base64url:CJlwoWZqcSUfufoweU5EFnnKsdZARjRTj5kXwG2a6vI, detector unused-return, site script/Deploy.s.sol:_emitAndWriteManifest. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Same finding class and element as this reviewed row; octane-golive's module split or edit added this instance.",
+      "owner": "OpenForage security"
+    },
+    {
+      "detector": "uninitialized-state",
+      "file": "src/hyperliquid/HLTradingBridge.sol",
+      "idDigest": "d619a1a491fabf9d35bc209aee288d8362e14d1c35c009fa3f9e158e923eb075",
+      "name": "_reconciledReturnLiquidity",
+      "created": "2026-10-28",
+      "expires": "2027-04-26",
+      "rationale": "Reviewed on 2026-10-28 for the OPEN-150 patch. HLTradingBridgeCapitalModule.postNAV now reads _reconciledReturnLiquidity. The module runs only by delegatecall from HLTradingBridge (onlyDelegateCall), so the read is of the bridge's own storage, which the bridge raises in reconcileWithdrawalArrival and lowers in the principal and PnL return paths. In the module's own storage the value is never used. Zero is the correct starting state: no returned cash is waiting, so no NAV report is refused.",
       "owner": "OpenForage security"
     }
   ]

@@ -2547,6 +2547,17 @@
   },
   {
     "type": "error",
+    "name": "ReconciledReturnPending",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
