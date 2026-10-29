@@ -4108,11 +4108,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "0a70f2e5242ff0becc5ed82393571f768dad58d2fa002609c69c043b1ea02e86",
+      "idDigest": "335c326f9218ff25ae4cfb00eb64d14ceeae43f731bd9d7194e164de86f31c8e",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:09d4dcc4:f21e6213:49611fe3:a5a1f848:57b51366:e7f622e0:d484ae8b:b94ed74f, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _approveOperator(allowlist,vm.envAddress(string.concat(GUARDIAN_,vm.toString(i)))) (script/RegisterAllowlist.s.sol#50) | - ++ sendCount (script/RegisterAllowlist.s.sol#137) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:09d4dcc4:f21e6213:49611fe3:a5a1f848:57b51366:e7f622e0:d484ae8b:b94ed74f, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _approveOperator(allowlist,vm.envAddress(string.concat(GUARDIAN_,vm.toString(i)))) (script/RegisterAllowlist.s.sol#50) | - ++ sendCount (script/RegisterAllowlist.s.sol#137) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4148,11 +4148,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "1c0f59bd20d4b3eb25ec3414eb8ee34c60bd16f3cb847d5c615202f935ce9062",
+      "idDigest": "b220d29193d918393e783267af41e4fc96264562e6b70be663e8aab1c42e6c01",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:67bba51a:7f1b5b90:9e12d17d:8ad44812:24a2023c:8fe18a08:a0bc7454:31d9bb17, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _registerSystemAccount(allowlist,distributor) (script/RegisterAllowlist.s.sol#47) | - ++ sendCount (script/RegisterAllowlist.s.sol#126) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:67bba51a:7f1b5b90:9e12d17d:8ad44812:24a2023c:8fe18a08:a0bc7454:31d9bb17, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _registerSystemAccount(allowlist,distributor) (script/RegisterAllowlist.s.sol#47) | - ++ sendCount (script/RegisterAllowlist.s.sol#126) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4238,41 +4238,41 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "9523b719537eee9ab2bb14cdbdc8332f30a893452ea3722636c98f6a6db3c6b7",
+      "idDigest": "73850566c9e3faebab2353a61a5841deefb66154687fad1644ae96aed6e1c096",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:6e09cd30:f90be775:60a18411:2b5d7e42:a3261bd9:a3794769:9da3516c:066b785a, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- acceptUSDCTreasury = _setDistributor(usdcTreasury,distributor) (script/RegisterAllowlist.s.sol#55) | - ++ sendCount (script/RegisterAllowlist.s.sol#148) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:6e09cd30:f90be775:60a18411:2b5d7e42:a3261bd9:a3794769:9da3516c:066b785a, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- acceptUSDCTreasury = _setDistributor(usdcTreasury,distributor) (script/RegisterAllowlist.s.sol#55) | - ++ sendCount (script/RegisterAllowlist.s.sol#148) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "9ade24429afc16a8cd1563cfdd785595c2e9d976ca723fcc077a465633963288",
+      "idDigest": "b0f1f469b9be18619a6fab1cb19149ed63b574223075cea948d397dc9da1c3e1",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:7768279d:ce859d34:77a146e1:c2714772:2917650d:c3e3d461:519f3ab7:caf327cb, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _acceptDistributor(forageTreasury,distributor) (script/RegisterAllowlist.s.sol#58) | - ++ sendCount (script/RegisterAllowlist.s.sol#168) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:7768279d:ce859d34:77a146e1:c2714772:2917650d:c3e3d461:519f3ab7:caf327cb, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _acceptDistributor(forageTreasury,distributor) (script/RegisterAllowlist.s.sol#58) | - ++ sendCount (script/RegisterAllowlist.s.sol#168) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "c1ca9214bd26e82f208749eeab5d55f831ef9431967e01c6bec59cdfa08b0e84",
+      "idDigest": "90419aed3c378e6f47fef76395ba7b6063d5f043a0250a1586221be5b975d56a",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:7a323f05:93a6a6af:a6a0ccd0:5a677a0a:b75242f9:d74f5dce:d25e4911:7381ac31, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _acceptDistributor(usdcTreasury,distributor) (script/RegisterAllowlist.s.sol#59) | - ++ manualCount (script/RegisterAllowlist.s.sol#159) | RegisterAllowlist.manualCount (script/RegisterAllowlist.s.sol#27) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:7a323f05:93a6a6af:a6a0ccd0:5a677a0a:b75242f9:d74f5dce:d25e4911:7381ac31, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _acceptDistributor(usdcTreasury,distributor) (script/RegisterAllowlist.s.sol#59) | - ++ manualCount (script/RegisterAllowlist.s.sol#159) | RegisterAllowlist.manualCount (script/RegisterAllowlist.s.sol#27) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "c1e4f2d060aa5a0da1a3b2f3a96867f13ca75a08a2081c5c68d0e14753699819",
+      "idDigest": "22e9464ae90e636c1e26765c21bc95a4d257518c5b6ff9a5368976207947a455",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:8dadc31d:e5db25ee:138c52ad:ca2e8ff2:e2a171df:78c4164f:1d5b4058:097cc680, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _registerSystemAccount(allowlist,launchVotingDelegate) (script/RegisterAllowlist.s.sol#48) | - ++ sendCount (script/RegisterAllowlist.s.sol#126) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:8dadc31d:e5db25ee:138c52ad:ca2e8ff2:e2a171df:78c4164f:1d5b4058:097cc680, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _registerSystemAccount(allowlist,launchVotingDelegate) (script/RegisterAllowlist.s.sol#48) | - ++ sendCount (script/RegisterAllowlist.s.sol#126) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4318,11 +4318,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "d8180afce49fc28bc0b382500ef2c4d2a868f930062ae0fdeeee9782342c25f9",
+      "idDigest": "98b912a67be312d3018231f6d4e38876d8b6372d106b6fd25d63fdc7cf1fabc2",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:902b0d71:3faa4d04:7bdc2aca:31dc3c83:df571781:9b7b5a53:7ccb9a3c:7d38a257, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _approveOperator(allowlist,launchVotingDelegate) (script/RegisterAllowlist.s.sol#53) | - ++ sendCount (script/RegisterAllowlist.s.sol#137) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:902b0d71:3faa4d04:7bdc2aca:31dc3c83:df571781:9b7b5a53:7ccb9a3c:7d38a257, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _approveOperator(allowlist,launchVotingDelegate) (script/RegisterAllowlist.s.sol#53) | - ++ sendCount (script/RegisterAllowlist.s.sol#137) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4338,11 +4338,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "e47894656a5399fb525bc3184b0bceac5158d9898c9efb55fbc228a41e292e6f",
+      "idDigest": "33f9d48ce136021665616acbc1ab76acb0503ce2c6fe763a306020905b257560",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:c5011511:fa578fb4:db35c327:e1d1ead9:3fab504a:4e131146:f5e44e0e:5a5f2a21, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _finalizeSystemRegistrar(allowlist,forageTreasury) (script/RegisterAllowlist.s.sol#46) | - ++ sendCount (script/RegisterAllowlist.s.sol#101) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:c5011511:fa578fb4:db35c327:e1d1ead9:3fab504a:4e131146:f5e44e0e:5a5f2a21, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _finalizeSystemRegistrar(allowlist,forageTreasury) (script/RegisterAllowlist.s.sol#46) | - ++ sendCount (script/RegisterAllowlist.s.sol#101) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4368,11 +4368,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "f4651b1f346b8ed262e715320b4749c476be51da355572b006737960f0eccb08",
+      "idDigest": "f12cb1908f962203d55b7a5d8a230cae9d175a9516564e4f1d88612b47d77301",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:d3147e2f:7dfcff1e:fda85d4f:5653efa2:0f6656c4:6b6ebfa3:a0d73fca:49854457, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- acceptForageTreasury = _setDistributor(forageTreasury,distributor) (script/RegisterAllowlist.s.sol#54) | - ++ sendCount (script/RegisterAllowlist.s.sol#148) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:d3147e2f:7dfcff1e:fda85d4f:5653efa2:0f6656c4:6b6ebfa3:a0d73fca:49854457, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- acceptForageTreasury = _setDistributor(forageTreasury,distributor) (script/RegisterAllowlist.s.sol#54) | - ++ sendCount (script/RegisterAllowlist.s.sol#148) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4388,11 +4388,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "script/RegisterAllowlist.s.sol",
-      "idDigest": "f9bbe75c3c23cca55144283057f7f48d9ae3465c8394413458a68505593ad3c7",
+      "idDigest": "f0e34fb6caea2e9f686de64e098a6b2e09e0c778c10e2ab641ee397fcdca91a1",
       "name": "run",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Exact fresh Slither 0.11.6 row sha256:e7df89b1:daf9586e:1debcf4e:2cd4b2d6:5350170c:14d14a87:c062e51c:26918c33, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _approveOperator(allowlist,custodianExecutor) (script/RegisterAllowlist.s.sol#52) | - ++ sendCount (script/RegisterAllowlist.s.sol#137) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Exact fresh Slither 0.11.6 row sha256:e7df89b1:daf9586e:1debcf4e:2cd4b2d6:5350170c:14d14a87:c062e51c:26918c33, RegisterAllowlist.run() at contracts/script/RegisterAllowlist.s.sol:30-63. Its raw call/state sequence includes `- _approveOperator(allowlist,custodianExecutor) (script/RegisterAllowlist.s.sol#52) | - ++ sendCount (script/RegisterAllowlist.s.sol#137) | RegisterAllowlist.sendCount (script/RegisterAllowlist.s.sol#24) can be used in cross function reentrancies:`. `RegisterAllowlist is Script` at :18; run brackets owner-broadcast target calls with vm.startBroadcast/vm.stopBroadcast at :44-56. This is a Foundry operator script, not an on-chain deployed callback target; send/skip/manual counters are local script bookkeeping, so this row does not expose persistent deployed state to reentrancy. No script execution/broadcast is claimed; no source fix is warranted for this exact row. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-29 after the OPEN-220 patch moved RegisterAllowlist.s.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {

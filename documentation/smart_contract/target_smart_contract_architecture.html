@@ -372,7 +372,7 @@
       <div class="meta-row"><strong>Drafted</strong><span>2026-06-05</span></div>
       <div class="meta-row"><strong>Audience</strong><span>Executive / internal</span></div>
       <div class="meta-row"><strong>Scope</strong><span>14 target contracts — all on Arbitrum (0 HyperEVM)</span></div>
-      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div>
+      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div><div class="meta-row"><strong>Corrected</strong><span>2026-10-29 — outflow caps, payout wallets and blocked-tier behaviour now match the code (last scan before deployment)</span></div>
       <div class="meta-row"><strong>Companion</strong><span>smart_contract_architecture.html (historical as-is baseline)</span></div>
     </aside>
   </section>
@@ -698,9 +698,9 @@
       via a cold account and a fund-less key), <em>how</em> value comes back (a keeper posts
       the NAV instead of a cross-chain message), and that the treasury now <em>separates</em>
       recognising PnL (accounting, step 6) from moving the cash (returns and disbursement, step 7) —
-      not the limits that contain it. <strong>Every USDC exit — vault redemption, the protocol-retained
-      withdrawal, the Foundation disbursement, and agent pay — additionally carries a rolling-24-hour cash
-      cap</strong>, so no single day can drain any of them.</p>
+      not the limits that contain it. <strong>Three USDC exits also carry a one-day cash cap</strong> — vault
+      redemption, the protocol-retained withdrawal and the Foundation disbursement — counted over a fixed one-day window, not a rolling 24 hours, so up to about twice a day's cap can leave across a window boundary.
+      <strong>Agent pay has no per-payment or daily cap</strong>: the quarterly payment window and the agent pay already credited bound it.</p>
     </div>
 
     <h3 style="margin-top:22px">The eight steps in words</h3>
@@ -738,8 +738,8 @@
         <strong>5% weekly cap</strong> (fixed at week-start) and the conservative
         <code>min(book, NAV)</code> rule keep redemptions bounded and backed until it arrives.</li>
       <li><strong>8 · Redeem.</strong> A depositor hands back the receipt and gets USDC out —
-        no more than <strong>5% of the total</strong> per week (and no more than <strong>~2%</strong> in any
-        rolling 24 hours), so a panic cannot drain the vault faster than capital can be recalled.</li>
+        no more than <strong>5% of the total</strong> per week (and no more than <strong>~2%</strong> in each
+        one-day window, also fixed at its start), so a panic cannot drain the vault faster than capital can be recalled.</li>
     </ul>
   </section>
 
@@ -1241,10 +1241,10 @@
           Vault to refresh redemption liquidity, while returned profit is earmarked four ways —
           depositor/vault, agents, the Foundation's cut of the protocol share, and the
           protocol-retained remainder — and a generic <code>disburse</code> pays each earmark to
-          its allowed destination (the Vault, any agent wallet, or an allow-listed
-          protocol/foundation wallet with a failover backup). It preserves the on-chain settlement
-          resilience that matters: a blocklisted tier or recipient never blocks the rest. Folding
-          in the former funding treasury, agent pay keeps its per-payment and rolling-24-hour caps.</p>
+          its allowed destination (the Vault, any agent wallet, or the configured protocol/Foundation primary
+          wallet with a pre-set backup; neither wallet is checked against the Allowlist). A payout to a blocked wallet is refused (an agent batch that contains one is refused whole and resent without it), and the protocol and Foundation payouts fall back to the backup.
+          A blocked tier contract or a blocked RISKUSDVault is different: it stalls vault top-up delivery and loss settlement for every tier until governance unblocks it, so the protocol's own contracts must never be blocked. Folding
+          in the former funding treasury, agent pay is bounded by its quarterly payment window and the pay already credited; it has no per-payment or daily cap.</p>
         <div class="tags"><span class="tag good">treasury</span><span class="tag good">implemented · merges 2</span></div>
       </div>
       <div class="ccard">
@@ -1255,8 +1255,8 @@
           agents (<strong>30M</strong>), claim-by-proof airdrops to RISKUSD depositors
           (<strong>10M</strong>), and governance-controlled direct distribution for partnership
           deals (<strong>40M</strong>) to governance-chosen recipients — in practice each
-          partner's separately deployed vesting wallet. It keeps the solvency accounting,
-          outflow caps, cooldowns, and voting delegation the three pools have today.</p>
+          partner's separately deployed vesting wallet. It keeps voting delegation; its outflow limits are
+          the three lifetime programme caps, a one-day claim cooldown per agent, and a 1M-a-day cap on agent claims made through the distributor.</p>
         <div class="tags"><span class="tag good">treasury</span><span class="tag good">implemented · merges 3</span></div>
       </div>
       <div class="ccard">
@@ -1486,8 +1486,8 @@
         <tr><td><strong>Crystallise (PnL accounting)</strong></td><td>Recognising a period's profit or loss as internal accounting on the USDCTreasury when the keeper attests NAV — marking the tier shares up or down and recording the agent / protocol / Foundation amounts. No USDC moves at this step.</td></tr>
         <tr><td><strong>Earmark</strong></td><td>A per-purpose balance of USDC the treasury has actually received and reserved for one destination (vault top-up, agents, protocol, Foundation). A disbursement can never exceed the earmark's balance.</td></tr>
         <tr><td><strong>returnPrincipalUSDC / returnPnLUSDC</strong></td><td>The two functions the custodian uses to send USDC back to the treasury: principal goes 100% to the Vault (refreshing redemption liquidity); realised profit is split into the four earmarks. Principal is never split to agents, protocol, or Foundation.</td></tr>
-        <tr><td><strong>disburse (purpose-keyed)</strong></td><td>The generic treasury function that pays an earmark out to its allowed destination — the Vault, any agent wallet, or an allow-listed protocol / Foundation wallet — never exceeding the earmark balance.</td></tr>
-        <tr><td><strong>Failover backup wallet</strong></td><td>A pre-set second destination for the protocol-spender and Foundation earmarks, usable only when the allow-listed primary is blocked or unavailable. Governance rotates both under the timelock.</td></tr>
+        <tr><td><strong>disburse (purpose-keyed)</strong></td><td>The generic treasury function that pays an earmark out to its allowed destination — the Vault, any agent wallet, or the configured protocol / Foundation primary or backup wallet (not checked against the Allowlist) — never exceeding the earmark balance.</td></tr>
+        <tr><td><strong>Failover backup wallet</strong></td><td>A pre-set second destination for the protocol-retained and Foundation earmarks. The dedicated payout functions use it when the primary is blocked; the owner's generic <code>disburse</code> may name it at any time. Governance can rotate the Foundation primary (two steps, 2-day delay); the backups and the protocol primary are fixed at initialisation.</td></tr>
       </tbody>
     </table>
   </section>
@@ -1773,10 +1773,10 @@
         hold USDC that has actually been returned.</p>
       <p><strong>③ Disbursement — a generic, purpose-keyed <code>disburse</code>.</strong> It pays an earmark
         out to its allowed destination and can never exceed the balance on hand: the Vault top-up goes to the
-        RISKUSDVault; agent pay goes to any (non-blocked) agent wallet under per-payment and rolling-24-hour
-        caps; the protocol and Foundation earmarks go only to an allow-listed primary wallet, each with a
-        pre-set <em>failover</em> backup usable only when the primary is blocked or unavailable — and each is
-        itself bounded by a <strong>rolling-24-hour cash cap</strong>, so no single day can drain it.</p>
+        RISKUSDVault; agent pay goes to any (non-blocked) agent wallet inside the quarterly payment window and
+        up to the pay already credited, with no per-payment or daily cap; the protocol and Foundation earmarks go only to their configured primary wallet or its
+        pre-set <em>failover</em> backup (neither is checked against the Allowlist), and each is bounded by a <strong>one-day cash cap counted over a fixed window</strong>
+        ($1M a day for the protocol, 10% of the earmark a day for the Foundation), so up to about twice that cap can leave across a window boundary.</p>
       <p><strong>The depositor mark-up is not double-counted.</strong> Step ① raises the tier share value and
         <em>defines</em> the depositor's redemption claim; the step-② Vault top-up only <em>funds</em> the cash
         to honour it — it never raises share value a second time. A principal return refreshes redemption
@@ -1806,9 +1806,9 @@
         <li><strong>Take a principal return</strong> via <code>returnPrincipalUSDC</code>, routed 100% to the Vault <span class="who">— the custodian; refreshes redemption liquidity, never split.</span></li>
         <li><strong>Take a profit return</strong> via <code>returnPnLUSDC</code> and earmark it four ways (vault top-up / agent / protocol / Foundation) <span class="who">— the custodian; earmarks hold only returned cash.</span></li>
         <li><strong>Disburse an earmark</strong> by purpose — vault top-up, agent pay, protocol spend, Foundation — never exceeding its balance <span class="who">— an authorised caller; blocklist + caps gate every send.</span></li>
-        <li><strong>Survive a blocked recipient</strong> — a blocklisted tier or agent never blocks the rest <span class="who">— automatic.</span></li>
+        <li><strong>Survive a blocked recipient</strong> — a payout to a blocked wallet is refused (an agent batch that contains one is refused whole and resent without it), and the protocol and Foundation payouts fall back to the backup; a blocked tier contract or RISKUSDVault stalls top-up delivery and loss settlement for every tier until governance unblocks it <span class="who">— the payer; governance unblocks a contract.</span></li>
         <li><strong>Absorb a loss</strong> pro-rata across the four tiers, then from the retained buffer <span class="who">— the keeper / bridge.</span></li>
-        <li><strong>Adjust the splits, caps, and allow-listed wallets, rotate a backup under timelock, and pause</strong> <span class="who">— owner / governance; a guardian can pause.</span></li>
+        <li><strong>Adjust the splits and caps, rotate the Foundation primary wallet under a 2-day delay, and pause</strong> <span class="who">— owner / governance; a guardian can pause.</span></li>
       </ul>
 
       <h4>The numbers</h4>
@@ -1817,22 +1817,22 @@
         <tr><td>Agent funding fee (by tier)</td><td class="val">20 / 15 / 10 / 5%</td><td>of gross profit; to the agent-payment lane</td></tr>
         <tr><td>Protocol share</td><td class="val">flat 30%</td><td>of profit — the remainder once depositor + agent (always 70%) are taken</td></tr>
         <tr><td>Foundation share</td><td class="val">50%</td><td>of the protocol share (15% of profit); 50% is also the hard cap — never higher</td></tr>
-        <tr><td>Protocol-retained</td><td class="val">the other 50%</td><td>the other half of the protocol share (15% of profit), plus any skipped / failed-transfer amount</td></tr>
+        <tr><td>Protocol-retained</td><td class="val">the other 50%</td><td>the other half of the protocol share (15% of profit)</td></tr>
         <tr><td>Return functions</td><td class="val">2</td><td><code>returnPrincipalUSDC</code> → Vault (100%); <code>returnPnLUSDC</code> → the four earmark balances</td></tr>
-        <tr><td>Disburse destinations</td><td class="val">by purpose</td><td>vault top-up → RISKUSDVault; agent → any wallet; protocol / Foundation → allow-listed primary + failover backup</td></tr>
+        <tr><td>Disburse destinations</td><td class="val">by purpose</td><td>vault top-up → RISKUSDVault; agent → any wallet; protocol / Foundation → configured primary + pre-set backup (not checked against the Allowlist)</td></tr>
         <tr><td>Loss sharing</td><td class="val">equal % across all 4</td><td>then the retained buffer absorbs anything beyond the tiers</td></tr>
         <tr><td>Loss-rate cap</td><td class="val">10% / day</td><td>of tier assets — bounds how fast a loss can be applied</td></tr>
         <tr><td>Profit accepted per block</td><td class="val">≤ $10M</td><td>per-block settlement ceiling</td></tr>
-        <tr><td>Retained-balance withdrawal</td><td class="val">≤ $1M / day</td><td>1-day cooldown (max 30), 10-minute Sepolia / 2-day production finalize — the protocol wallet's rolling-24h cash cap</td></tr>
-        <tr><td>Foundation disbursement cap</td><td class="val">~10% / 24h</td><td>of the Foundation earmark per rolling 24h — bounds Foundation cash outflow (target; governance-set)</td></tr>
-        <tr><td>Agent payment cap</td><td class="val">10%</td><td>of balance per payment <em>and</em> per rolling 24h</td></tr>
+        <tr><td>Retained-balance withdrawal</td><td class="val">≤ $1M / day</td><td>per fixed one-day window (a new window opens with the first payout after the last one ends); paid by the owner to the protocol primary, or to its backup when the primary is blocked</td></tr>
+        <tr><td>Foundation disbursement cap</td><td class="val">10% / day</td><td>of the Foundation earmark per fixed one-day window (a new window opens with the first payout after the last one ends), so up to about 19% can leave across a window boundary; fixed in code</td></tr>
+        <tr><td>Agent payment cap</td><td class="val">none</td><td>no per-payment or daily cap: agent pay is bounded by the quarterly payment window (the first 14 days of January, April, July and October) and by the pay already credited</td></tr>
         <tr><td>Agent batch size</td><td class="val">≤ 100</td><td>recipients per batch</td></tr>
       </tbody></table>
 
       <h4>Who controls it</h4>
-      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the per-block and loss-rate caps, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating an allow-listed protocol / Foundation wallet or its backup, are two-step, time-delayed changes. A guardian can pause and shrink the loss-rate cap. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
+      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the per-block and loss-rate caps, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating the Foundation primary wallet (a 2-day delay in production), are two-step, time-delayed changes; the backups and the protocol primary are fixed at initialisation. A guardian can pause and shrink the loss-rate cap. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
 
-      <div class="why-line"><span class="glabel">Grounded in</span><strong>Implemented target redesign.</strong> <span class="mono">USDCTreasury.sol</span> is the current source: foundation re-based to <em>50% of the protocol share</em> (15% of profit); PnL recognised as accounting at attestation, cash separated into <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code>, and a purpose-keyed <code>disburse</code> with failover-backup allow-lists. The removed <code>ProtocolTreasury</code> / <code>FundingTreasury</code> code remains historical context only.</div>
+      <div class="why-line"><span class="glabel">Grounded in</span><strong>Implemented target redesign.</strong> <span class="mono">USDCTreasury.sol</span> is the current source: foundation re-based to <em>50% of the protocol share</em> (15% of profit); PnL recognised as accounting at attestation, cash separated into <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code>, and a purpose-keyed <code>disburse</code> with primary and failover-backup destinations. The removed <code>ProtocolTreasury</code> / <code>FundingTreasury</code> code remains historical context only.</div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 2 · redesigned</span></div>
     </article>
 
@@ -1845,31 +1845,31 @@
       <p>One contract holds the <strong>80M of non-team FORAGE</strong> and runs three programmes: claim-by-proof
         ("Merkle") airdrops to agents, claim-by-proof airdrops to RISKUSD depositors, and governance-controlled
         distribution for partnership deals (in practice, each partner's own separately-deployed vesting wallet).
-        It keeps every protection the three pools carry now — per-round and rolling outflow caps with cooldowns,
-        solvency accounting that will not promise tokens it does not hold, a one-time-only token setter, and the
-        ability to delegate the treasury's own voting power.</p>
+        It keeps a one-time-only token setter and the ability to delegate the treasury's own voting power. Its outflow limits are the three lifetime programme caps, checked on every claim and distribution;
+        a new round is checked against its lane's cap on its own, so rounds together can promise more than the lane can pay, and the last claims then fail. Agents may claim once a day, and agent claims made
+        through the distributor also count against a 1M-a-day cap. There is no per-round or other daily cap.</p>
 
       <h4>What it can do</h4>
       <ul>
         <li><strong>Publish an airdrop round</strong> (a Merkle root + total) for agents or depositors <span class="who">— owner / governance.</span></li>
         <li><strong>Let a claimer pull their share</strong> with a valid proof <span class="who">— anyone in the published tree.</span></li>
-        <li><strong>Distribute partnership FORAGE</strong> by single or batch transfer <span class="who">— owner / governance, under outflow caps.</span></li>
-        <li><strong>Sweep an expired round's unclaimed tokens</strong> back to the treasury <span class="who">— owner.</span></li>
+        <li><strong>Distribute partnership FORAGE</strong>, one partner vesting wallet per call <span class="who">— owner / governance, under the 40M lifetime cap.</span></li>
+        <li><strong>Sweep an expired round's unclaimed tokens</strong> to a recipient the owner names; the sweep is not counted against the lane's lifetime cap <span class="who">— owner.</span></li>
         <li><strong>Delegate the treasury's voting power</strong> <span class="who">— owner / governance.</span></li>
       </ul>
 
       <h4>The numbers</h4>
       <table class="numbers"><tbody>
         <tr><td>Total FORAGE held</td><td class="val">80,000,000</td><td>the non-team supply</td></tr>
-        <tr><td>Agent rewards</td><td class="val">30M</td><td>Merkle claim · 90-day rounds · ≤ 1M / round outflow cap</td></tr>
-        <tr><td>Depositor airdrop</td><td class="val">10M</td><td>Merkle claim · 1-day outflow window · ≤ 1M cap · 30-day max cooldown</td></tr>
-        <tr><td>Partnerships</td><td class="val">40M</td><td>owner-gated single / batch (≤ 100) · 1-day window · ≤ 1M cap</td></tr>
+        <tr><td>Agent rewards</td><td class="val">30M</td><td>Merkle claim · the owner sets each round's deadline · one claim per agent a day · claims through the distributor ≤ 1M a day · no per-round cap</td></tr>
+        <tr><td>Depositor airdrop</td><td class="val">10M</td><td>Merkle claim · no daily cap and no cooldown</td></tr>
+        <tr><td>Partnerships</td><td class="val">40M</td><td>owner-gated, one vesting wallet per call · no daily window or cap</td></tr>
         <tr><td>Partner vesting</td><td class="val">per-partner</td><td>each via its own DelegatingVestingWallet</td></tr>
         <tr><td>Token setter</td><td class="val">one-time</td><td>the FORAGE address can be set once, never rewritten</td></tr>
       </tbody></table>
 
       <h4>Who controls it</h4>
-      <p class="who">Owner / governance publish rounds, distribute partnership FORAGE, sweep expired rounds, and delegate votes — all under the outflow caps. Claimers pull their own share with a proof. (Historical note: the removed RewardPool and DepositorPool comment headers misstated their sizes as 40M and 20M; the target allocations are 30M and 10M.)</p>
+      <p class="who">Owner / governance publish rounds, distribute partnership FORAGE, sweep expired rounds, and delegate votes — under the lifetime programme caps, which sweeps do not count against. Claimers pull their own share with a proof. (Historical note: the removed RewardPool and DepositorPool comment headers misstated their sizes as 40M and 20M; the target allocations are 30M and 10M.)</p>
 
       <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">FORAGETreasury.sol</span> and <span class="mono">ForageToken.sol</span>: 30M agent rewards, 10M depositor airdrop, 40M partnerships, 80M treasury total, self-claim Merkle rounds, partnership distributions, sweeps, and delegation.</div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 3</span></div>

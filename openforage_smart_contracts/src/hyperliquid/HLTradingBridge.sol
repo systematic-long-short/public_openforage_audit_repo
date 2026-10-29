@@ -267,7 +267,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         if (msg.sender != _keeper) revert UnauthorizedKeeper();
         _requireNotBlocked(msg.sender);
         if (_lossSettlementInProgress) revert LossSettlementInProgress();
-        if (observedAt < _lastNAVObservedAt) revert StaleNAV();
+        if (observedAt <= _lastNAVObservedAt) revert StaleNAV();
         if (_principalBookKnownSince == 0) revert PrincipalBookAnchorUnavailable();
         if (observedAt <= _principalBookKnownSince || bookValue != _deployedPrincipal) revert StaleNAV();
         uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_deployedPrincipal, _lastNAVBookValue, _appliedNAV);
