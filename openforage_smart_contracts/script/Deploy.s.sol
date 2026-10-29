@@ -971,6 +971,9 @@ contract Deploy is Script {
         _registerPausableTarget(deployedAtRiskTier3);
         _registerPausableTarget(deployedHLTradingBridge);
         _registerPausableTarget(deployedCustodianRegistry);
+        // The treasuries have no pause; they are listed so guardians can tighten their caps (OPEN-200).
+        _registerPausableTarget(deployedUSDCTreasury);
+        _registerPausableTarget(deployedFORAGETreasury);
     }
 
     function _wireModules() internal {
