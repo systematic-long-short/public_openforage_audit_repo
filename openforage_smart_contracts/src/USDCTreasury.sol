@@ -152,6 +152,7 @@ contract USDCTreasury is
     error AttestedLossPending();
     error UnauthorizedLossCapShrinker(address caller);
     error VaultTopUpAmountMismatch(uint256 provided, uint256 pending);
+    error VaultTopUpPending(uint256 vaultId, uint256 pending);
     error SettlementValueMismatch(address account, uint256 expected, uint256 actual);
     error TierVaultUnavailable(address tierVault);
     error ZeroSupplyTier(address tierVault, uint256 amount);
@@ -397,6 +398,10 @@ contract USDCTreasury is
             IUSDCTreasuryNAVSource(riskusdVault).lastAttestationTimestamp();
         if (amount >= 0) {
             uint256 profit = SignedMath.abs(amount);
+            // OPEN-173: cash returned for earlier claims is delivered before a new cohort is recognised;
+            // a zero answer creates no claims and stays allowed.
+            uint256 pendingTopUp = pendingVaultTopUp[vaultId];
+            if (profit != 0 && pendingTopUp != 0) revert VaultTopUpPending(vaultId, pendingTopUp);
             _delegateProfitPolicyModule(profit, unreturnedRecognizedProfit[vaultId], PNL_POLICY_RECOGNITION);
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
             _validateYieldClaimProjection(vaultId, config);
@@ -589,13 +594,9 @@ contract USDCTreasury is
         emit PnLReturned(vaultId, amount);
     }
 
-    function deliverVaultTopUp(uint256 vaultId, uint256 amount)
-        external
-        freshOnly
-        onlyAllowedCaller
-        onlyOwner
-        nonReentrant
-    {
+    function deliverVaultTopUp(uint256 vaultId, uint256 amount) external freshOnly onlyAllowedCaller nonReentrant {
+        // OPEN-173: the PnL attestor may deliver too, so a top-up never waits on a governance proposal.
+        if (msg.sender != owner() && msg.sender != pnlAttestor) revert UnauthorizedAttestor();
         if (_hasOpenAttestedLoss()) revert AttestedLossPending();
         VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
         uint256[4] memory allocations = _prepareVaultTopUp(vaultId, amount, config);

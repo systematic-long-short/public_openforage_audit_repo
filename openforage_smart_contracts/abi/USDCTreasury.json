@@ -2328,6 +2328,22 @@
   },
   {
     "type": "error",
+    "name": "VaultTopUpPending",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "pending",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "YieldClaimInvariant",
     "inputs": [
       {
