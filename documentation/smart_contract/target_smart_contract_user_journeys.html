@@ -374,7 +374,7 @@
         <li><strong>The headline.</strong> Of <strong>77 on-chain journeys</strong> the protocol needs, the
           implemented target now <strong>fully covers 74</strong>, with <strong>2 PARTIAL</strong> (X-2,
           off-chain trading auditability, accepted; T-5, a blocked tier contract stalls settlement, corrected 2026-10-29) and <strong>1 deliberate NONE</strong> (K-7, the removed per-instruction
-          trading gate). Every design gap was solved on 2026-06-08, and the former build gaps were
+          trading gate). Every design gap then known was solved on 2026-06-08 (T-5's came to light on 2026-10-29), and the former build gaps were
           closed in the June 2026 target-gap buildout: <code>USDCTreasury</code>, <code>FORAGETreasury</code>,
           the slimmed <code>HLTradingBridge</code>, the 4-of-7 guardian machinery, the successor registry,
           and directional freeze are now implemented and proven on Arbitrum Sepolia.</li>
@@ -450,9 +450,9 @@
       registry, the directional freeze), reconciling the depositor-mechanics rows to the code, and giving
       the custody control an honest design plus a Bridge2-only bridge. The 2026-06-09 target-gap buildout
       then implemented and Sepolia-proved the target machinery (USDCTreasury / FORAGETreasury / slimmed
-      bridge / the 4-of-7 guardian); see §14. The only rows still short of FULL are <strong>one accepted PARTIAL</strong> (X-2 —
+      bridge / the 4-of-7 guardian); see §14. The rows still short of FULL are <strong>one accepted PARTIAL</strong> (X-2 —
       trading auditability is off-chain by design) and <strong>one deliberate NONE</strong> (K-7 — the removed
-      on-chain per-instruction trading gate); both are accepted owner decisions, not open gaps. The 2026-10-29 correction adds T-5 (PARTIAL: a blocked tier contract stalls settlement until it is unblocked; its fix is left for after deployment).</p>
+      on-chain per-instruction trading gate), both accepted owner decisions, not open gaps, and, since the 2026-10-29 correction, T-5 (PARTIAL: a blocked tier contract stalls settlement until it is unblocked; its fix is left for after deployment).</p>
     <p class="small">Separately, the <strong>OpenForage Library / contributor</strong> block (§11) is
       <strong>off-chain adjacent</strong> — <strong>excluded from the 77 above</strong>: 6 rows, of which 2
       are server-mediated PARTIAL (an agent's <em>address</em> is paid on-chain) and 4 are NONE (off-chain by
