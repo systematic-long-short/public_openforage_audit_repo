@@ -63,7 +63,6 @@ interface IRISKUSDVaultLossSettlement {
 }
 
 interface IUSDCTreasuryBridgeState {
-    function deployedPrincipal() external view returns (uint256);
     function reconciledReturnLiquidity() external view returns (uint256);
 }
 
@@ -159,7 +158,7 @@ contract USDCTreasury is
     error VaultTopUpAmountMismatch(uint256 provided, uint256 pending);
     error VaultTopUpPending(uint256 vaultId, uint256 pending);
     error RecognizedProfitUnreturned(uint256 vaultId, uint256 unreturned);
-    error ZeroPrincipalReturnPending(uint256 waiting);
+    error ReconciledReturnPending(uint256 waiting);
     error SettlementValueMismatch(address account, uint256 expected, uint256 actual);
     error TierVaultUnavailable(address tierVault);
     error ZeroSupplyTier(address tierVault, uint256 amount);
@@ -422,8 +421,8 @@ contract USDCTreasury is
             _validateYieldClaimProjection(vaultId, config);
         } else {
             uint256 loss = SignedMath.abs(amount);
-            // OPEN-390: with no principal deployed, profit cash waiting in the bridge is returned before a loss.
-            _requireNoZeroPrincipalReturnPending();
+            // OPEN-390, OPEN-425: cash waiting in the bridge is returned before a loss is recognised, at any principal.
+            _requireNoReconciledReturnPending();
             _delegateProfitPolicyModule(loss, unreturnedRecognizedProfit[vaultId], PNL_POLICY_LOSS);
             if (_hasOpenAttestedLoss()) revert AttestedLossPending();
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
@@ -911,11 +910,11 @@ contract USDCTreasury is
         }
     }
 
-    function _requireNoZeroPrincipalReturnPending() private view {
+    function _requireNoReconciledReturnPending() private view {
         address bridge = hlTradingBridge;
-        if (bridge.code.length == 0 || IUSDCTreasuryBridgeState(bridge).deployedPrincipal() != 0) return;
+        if (bridge.code.length == 0) return;
         uint256 waiting = IUSDCTreasuryBridgeState(bridge).reconciledReturnLiquidity();
-        if (waiting != 0) revert ZeroPrincipalReturnPending(waiting);
+        if (waiting != 0) revert ReconciledReturnPending(waiting);
     }
 
     function _writeDownUnpaidClaims(uint256 vaultId, uint256 amount, VaultConfig memory config)

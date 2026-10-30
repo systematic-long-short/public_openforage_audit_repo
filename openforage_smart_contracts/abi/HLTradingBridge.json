@@ -2531,6 +2531,17 @@
   },
   {
     "type": "error",
+    "name": "RecognitionWindowOpen",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReconciledBalanceExceedsBalance",
     "inputs": [
       {

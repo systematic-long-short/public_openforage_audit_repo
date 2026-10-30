@@ -514,6 +514,7 @@ interface IUSDCTreasuryReturnPort {
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external;
     function settleBridgeSurplus(uint256 vaultId, uint256 amount) external;
     function unreturnedRecognizedProfit(uint256 vaultId) external view returns (uint256);
+    function recognitionWindowOpen(uint256 vaultId) external view returns (bool);
 }
 
 interface IRISKUSDVaultCustodyPort {
@@ -595,6 +596,7 @@ contract HLTradingBridge is
     error WithdrawalIntentNotExpired();
     error NonZeroPrincipal(uint256 principal);
     error UnreturnedProfitPending(uint256 vaultId, uint256 unreturned);
+    error RecognitionWindowOpen(uint256 vaultId);
     error SequencerUptimeFeedUnavailable(address feed);
     error SequencerDown();
     error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
@@ -981,6 +983,8 @@ contract HLTradingBridge is
         // OPEN-390: cash that recognised profit still claims leaves through returnPnLUSDC, never into the held earmark.
         uint256 unreturned = IUSDCTreasuryReturnPort(usdcTreasury).unreturnedRecognizedProfit(vaultId);
         if (unreturned != 0) revert UnreturnedProfitPending(vaultId, unreturned);
+        // OPEN-447, OPEN-451: profit that a fresh NAV report still shows is answered before its cash can be swept.
+        if (IUSDCTreasuryReturnPort(usdcTreasury).recognitionWindowOpen(vaultId)) revert RecognitionWindowOpen(vaultId);
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);

@@ -2137,6 +2137,17 @@
   },
   {
     "type": "error",
+    "name": "ReconciledReturnPending",
+    "inputs": [
+      {
+        "name": "waiting",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -2388,17 +2399,6 @@
     "type": "error",
     "name": "ZeroAmount",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ZeroPrincipalReturnPending",
-    "inputs": [
-      {
-        "name": "waiting",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
   },
   {
     "type": "error",
