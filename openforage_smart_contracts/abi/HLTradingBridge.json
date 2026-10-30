@@ -2706,6 +2706,22 @@
   },
   {
     "type": "error",
+    "name": "UnreturnedProfitPending",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unreturned",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "VaultPrincipalMismatch",
     "inputs": [
       {

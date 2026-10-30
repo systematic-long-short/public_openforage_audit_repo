@@ -753,6 +753,8 @@ contract ForageToken is
     }
 
     function setAllowlist(address allowlist_) external freshInventoryReady onlyOwner {
+        // OPEN-336: queued vote-sync tasks replay before an Allowlist change writes newer vote checkpoints.
+        if (_voteEligibilitySyncCount != 0) revert VoteEligibilitySyncPending(_voteEligibilitySyncTimepoint);
         address oldAllowlist = allowlist();
         if (oldAllowlist != address(0)) _checkAllowedCaller();
         if (oldAllowlist != address(0) && oldAllowlist == allowlist_) {

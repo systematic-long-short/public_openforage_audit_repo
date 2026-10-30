@@ -137,7 +137,13 @@ contract USDCTreasuryProfitPolicyModule {
                 sstore(aggregateSlot, aggregateUnreturned)
             }
         } else if (mode == PNL_POLICY_RETURN) {
-            available = navExcess > reportCashOut ? navExcess - reportCashOut : 0;
+            // OPEN-390: with no principal deployed, returned cash can only be profit or surplus, and a NAV observed
+            // after it left custody no longer shows it, so unreturned recognised profit bounds the return.
+            if (principal == 0) {
+                available = aggregateUnreturned;
+            } else {
+                available = navExcess > reportCashOut ? navExcess - reportCashOut : 0;
+            }
             if (amount > available) revert PnLReturnExceedsNAVHeadroom(amount, available);
             if (amount > aggregateUnreturned) {
                 revert SettlementValueMismatch(vault, amount, aggregateUnreturned);

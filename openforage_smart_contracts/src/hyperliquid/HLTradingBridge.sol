@@ -594,6 +594,7 @@ contract HLTradingBridge is
     error UnauthorizedVault(address caller);
     error WithdrawalIntentNotExpired();
     error NonZeroPrincipal(uint256 principal);
+    error UnreturnedProfitPending(uint256 vaultId, uint256 unreturned);
     error SequencerUptimeFeedUnavailable(address feed);
     error SequencerDown();
     error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
@@ -977,6 +978,9 @@ contract HLTradingBridge is
         _delegateCapitalModule(abi.encodeCall(HLTradingBridgeCapitalModule.requireCanonicalVaultId, (vaultId)));
         if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
         if (amount == 0) revert ZeroAmount();
+        // OPEN-390: cash that recognised profit still claims leaves through returnPnLUSDC, never into the held earmark.
+        uint256 unreturned = IUSDCTreasuryReturnPort(usdcTreasury).unreturnedRecognizedProfit(vaultId);
+        if (unreturned != 0) revert UnreturnedProfitPending(vaultId, unreturned);
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);

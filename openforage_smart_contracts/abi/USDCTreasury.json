@@ -2121,6 +2121,22 @@
   },
   {
     "type": "error",
+    "name": "RecognizedProfitUnreturned",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unreturned",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -2372,6 +2388,17 @@
     "type": "error",
     "name": "ZeroAmount",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroPrincipalReturnPending",
+    "inputs": [
+      {
+        "name": "waiting",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

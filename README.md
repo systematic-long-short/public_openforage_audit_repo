@@ -13,9 +13,9 @@ The post-scan and pre-scan pages report the static evidence and its limits. They
 Only fresh deployments are supported. New code must refuse pre-fresh state before changing it. No legacy migration engine is supported. In the Blocklist, the legacy importer and interval-translation path are removed; fresh initialization sets the layout version and every state-changing entrypoint checks it before effects. The historical checkpoint lookup uses `wasBlockedAt`; the retained pre-checkpoint mapping is inert and remains only for layout. An independent source review accepts this Blocklist repair within a source-only bound; it proves no old-proxy or deployed-state behavior. The first upgrade still uses the authorizer in the implementation already installed. These rules do not prove every deployed proxy or upgrade path.
 Profit belongs to the holders at recognition. Unpaid profit stays a separate claim and is paid only when cash arrives. Withdrawals use cash-backed share value and available cash; they promise no payment date. A reported custodian loss belongs to holders at report time. Transfers and exits that could avoid that loss stay frozen through settlement.
 The distributor is the trusted payer, not the recipient. Payment grants no system-account status or restricted-call permission.
-Since the 2026-10-28 update, a tier deposit waits while a fresh profit attestation is not yet recognised, and any recognition, including zero, reopens admissions. Each queue entry is at least 100 RISKUSD, and a depositor holds at most 8 open entries. A holder whose allowlist approval lapsed may cancel its own queue entry and collect funded profit to an allowlisted recipient. Neither Treasury is guardian-pausable; both are on the guardian emergency target list so the reserved guardian can tighten their caps, and a pause call on either fails.
+Since the 2026-10-28 update, a tier deposit waits while a fresh profit attestation is not yet recognised, and any recognition, including zero, reopens admissions. Each queue entry is at least 100 RISKUSD, and a depositor holds at most 8 open entries. A holder whose allowlist approval lapsed may cancel its own queue entry and collect funded profit to an allowlisted recipient. Neither Treasury is guardian-pausable; both are on the guardian emergency target list so the reserved guardian can tighten their caps, and a pause call on either fails. Since the 2026-10-30 update, a new positive profit recognition waits until earlier recognised profit has come back and been delivered. With no principal deployed, returned profit is not held back by NAV headroom, the zero-principal sweep refuses cash that recognised profit still claims, and a loss is not recognised while profit cash waits in the bridge. The token's Allowlist is not changed while a vote-sync task is queued. A loss on recognised profit that has not come back is charged to the holders' unpaid claim first, and agent pay is the residual of what returns. A Blocklist block stops an account's FORAGE reward claims; a round that expires during the block is not reopened, and an unblocked account's entitlement may be published again in a later round. The Allowlist gates entry and exit: deposits, queue joins, withdrawals, redemptions and the profit recipient; tier shares and RISKUSD move between any accounts that are not blocked.
 ## Build and verification limits
-Forge 1.3.5 and Solc 0.8.24 compiled 138 public source inputs in each offline profile with the test tree skipped. Default had zero compiler errors and its size check exited 1 on ten EIP-170 overages: atRISKUSD initcode 49,266 bytes (114 over); ForageGovernor runtime 28,053 bytes (3,477 over) and initcode 49,546 bytes (394 over); ForageGovernorTimelockMigrationGuard runtime 24,790 bytes (214 over); ForageToken runtime 24,710 bytes (134 over); ForageTokenStateModule runtime 25,169 bytes (593 over); GuardianModule runtime 24,672 bytes (96 over); HLTradingBridge runtime 24,803 bytes (227 over); RISKUSDVaultModule runtime 24,978 bytes (402 over); StakingQueue runtime 27,992 bytes (3,416 over); USDCTreasury runtime 26,065 bytes (1,489 over). Default is not the deployed build. Deploy exited 0 and all 43 first-party runtime/initcode artifacts fit; ForageToken has the tightest runtime margin at 499 bytes. Every size equals OpenForage's private build of the same source.
+Forge 1.3.5 and Solc 0.8.24 compiled 138 public source inputs in each offline profile with the test tree skipped. Default had zero compiler errors and its size check exited 1 on ten EIP-170 overages: atRISKUSD initcode 49,266 bytes (114 over); ForageGovernor runtime 28,053 bytes (3,477 over) and initcode 49,546 bytes (394 over); ForageGovernorTimelockMigrationGuard runtime 24,790 bytes (214 over); ForageToken runtime 24,757 bytes (181 over); ForageTokenStateModule runtime 25,169 bytes (593 over); GuardianModule runtime 24,672 bytes (96 over); HLTradingBridge runtime 25,017 bytes (441 over); RISKUSDVaultModule runtime 24,978 bytes (402 over); StakingQueue runtime 27,992 bytes (3,416 over); USDCTreasury runtime 26,581 bytes (2,005 over). Default is not the deployed build. Deploy exited 0 and all 43 first-party runtime/initcode artifacts fit; ForageToken has the tightest runtime margin at 434 bytes. Every size equals OpenForage's private build of the same source.
 | Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
 | Allowlist | 15,058 / 15,314 (+9,518 / +33,838) | 13,303 / 13,513 (+11,273 / +35,639) |
@@ -31,7 +31,7 @@ Forge 1.3.5 and Solc 0.8.24 compiled 138 public source inputs in each offline pr
 | ForageGovernor | 28,053 / 49,546 (-3,477 / -394) | 23,853 / 43,313 (+723 / +5,839) |
 | ForageGovernorTimelockGuard | 20,819 / 21,041 (+3,757 / +28,111) | 18,885 / 19,075 (+5,691 / +30,077) |
 | ForageGovernorTimelockMigrationGuard | 24,790 / 24,843 (-214 / +24,309) | 22,113 / 22,146 (+2,463 / +27,006) |
-| ForageToken | 24,710 / 25,143 (-134 / +24,009) | 24,077 / 24,438 (+499 / +24,714) |
+| ForageToken | 24,757 / 25,190 (-181 / +23,962) | 24,142 / 24,503 (+434 / +24,649) |
 | ForageTokenSourceVerificationStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | ForageTokenStateModule | 25,169 / 40,943 (-593 / +8,209) | 22,809 / 38,137 (+1,767 / +11,015) |
 | ForageTokenVoteEligibilitySyncQueue | 9,044 / 15,436 (+15,532 / +33,716) | 8,094 / 14,993 (+16,482 / +34,159) |
@@ -42,22 +42,22 @@ Forge 1.3.5 and Solc 0.8.24 compiled 138 public source inputs in each offline pr
 | GuardianAuthorityClassifier | 12,784 / 12,837 (+11,792 / +36,315) | 10,807 / 10,840 (+13,769 / +38,312) |
 | GuardianEmergencyPrincipalLane | 2,656 / 2,987 (+21,920 / +46,165) | 2,385 / 2,671 (+22,191 / +46,481) |
 | GuardianModule | 24,672 / 24,928 (-96 / +24,224) | 20,094 / 20,308 (+4,482 / +28,844) |
-| HLTradingBridge | 24,803 / 34,464 (-227 / +14,688) | 23,369 / 31,814 (+1,207 / +17,338) |
-| HLTradingBridgeCapitalModule | 9,172 / 9,272 (+15,404 / +39,880) | 7,997 / 8,093 (+16,579 / +41,059) |
+| HLTradingBridge | 25,017 / 34,731 (-441 / +14,421) | 23,555 / 32,052 (+1,021 / +17,100) |
+| HLTradingBridgeCapitalModule | 9,225 / 9,325 (+15,351 / +39,827) | 8,049 / 8,145 (+16,527 / +41,007) |
 | HLTradingBridgeCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsHostStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsModule | 1,930 / 1,973 (+22,646 / +47,179) | 1,583 / 1,622 (+22,993 / +47,530) |
 | HLTradingBridgeReturnCapsModuleStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | RISKUSD | 12,324 / 12,616 (+12,252 / +36,536) | 10,418 / 10,663 (+14,158 / +38,489) |
-| RISKUSDVault | 22,525 / 22,817 (+2,051 / +26,335) | 19,083 / 19,333 (+5,493 / +29,819) |
+| RISKUSDVault | 22,607 / 22,899 (+1,969 / +26,253) | 19,147 / 19,397 (+5,429 / +29,755) |
 | RISKUSDVaultModule | 24,978 / 25,443 (-402 / +23,709) | 20,951 / 21,404 (+3,625 / +27,748) |
 | RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | StakingQueue | 27,992 / 28,284 (-3,416 / +20,868) | 23,964 / 24,214 (+612 / +24,938) |
 | StakingQueueLockupModule | 12,437 / 12,523 (+12,139 / +36,629) | 11,157 / 11,239 (+13,419 / +37,913) |
 | StakingQueueModule | 19,018 / 19,278 (+5,558 / +29,874) | 19,088 / 19,321 (+5,488 / +29,831) |
-| USDCTreasury | 26,065 / 30,605 (-1,489 / +18,547) | 23,499 / 27,244 (+1,077 / +21,908) |
+| USDCTreasury | 26,581 / 31,259 (-2,005 / +17,893) | 23,992 / 27,870 (+584 / +21,282) |
 | USDCTreasuryAccountingModule | 14,631 / 14,717 (+9,945 / +34,435) | 12,403 / 12,485 (+12,173 / +36,667) |
-| USDCTreasuryProfitPolicyModule | 4,121 / 4,165 (+20,455 / +44,987) | 3,353 / 3,392 (+21,223 / +45,760) |
+| USDCTreasuryProfitPolicyModule | 4,259 / 4,303 (+20,317 / +44,849) | 3,486 / 3,525 (+21,090 / +45,627) |
 | USDCTreasuryRecognitionStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | VaultRegistry | 21,894 / 22,150 (+2,682 / +27,002) | 19,373 / 19,587 (+5,203 / +29,565) |
 | VaultRegistryTierAssetEpochStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |

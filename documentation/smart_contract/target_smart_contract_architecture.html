@@ -1808,7 +1808,7 @@
         <li><strong>Disburse an earmark</strong> by purpose — vault top-up, agent pay, protocol spend, Foundation — never exceeding its balance <span class="who">— an authorised caller; blocklist + caps gate every send.</span></li>
         <li><strong>Survive a blocked recipient</strong> — a payout to a blocked wallet is refused (an agent batch that contains one is refused whole and resent without it), and the protocol and Foundation payouts fall back to the backup; a blocked tier contract or RISKUSDVault stalls top-up delivery and loss settlement for every tier until governance unblocks it <span class="who">— the payer; governance unblocks a contract.</span></li>
         <li><strong>Absorb a loss</strong> pro-rata across the four tiers, then from the retained buffer <span class="who">— the keeper / bridge.</span></li>
-        <li><strong>Adjust the splits and caps, rotate the Foundation primary wallet under a 2-day delay, and pause</strong> <span class="who">— owner / governance; a guardian can pause.</span></li>
+        <li><strong>Adjust the splits and caps, and rotate the Foundation primary wallet under a 2-day delay</strong> <span class="who">— owner / governance; a guardian can shrink the loss-rate cap. The Treasury cannot be paused.</span></li>
       </ul>
 
       <h4>The numbers</h4>
@@ -1830,7 +1830,7 @@
       </tbody></table>
 
       <h4>Who controls it</h4>
-      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the per-block and loss-rate caps, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating the Foundation primary wallet (a 2-day delay in production), are two-step, time-delayed changes; the backups and the protocol primary are fixed at initialisation. A guardian can pause and shrink the loss-rate cap. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
+      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the per-block and loss-rate caps, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating the Foundation primary wallet (a 2-day delay in production), are two-step, time-delayed changes; the backups and the protocol primary are fixed at initialisation. A guardian can shrink the loss-rate cap; the Treasury cannot be paused. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
 
       <div class="why-line"><span class="glabel">Grounded in</span><strong>Implemented target redesign.</strong> <span class="mono">USDCTreasury.sol</span> is the current source: foundation re-based to <em>50% of the protocol share</em> (15% of profit); PnL recognised as accounting at attestation, cash separated into <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code>, and a purpose-keyed <code>disburse</code> with primary and failover-backup destinations. The removed <code>ProtocolTreasury</code> / <code>FundingTreasury</code> code remains historical context only.</div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 2 · redesigned</span></div>
@@ -2021,7 +2021,7 @@
         <li><strong>Accept a proposal</strong> from a holder above the threshold <span class="who">— or a guardian with the propose permission.</span></li>
         <li><strong>Run a vote</strong> with a snapshotted quorum <span class="who">— FORAGE holders, by delegated weight.</span></li>
         <li><strong>Queue and execute</strong> an approved proposal after the timelock <span class="who">— via the TimelockController.</span></li>
-        <li><strong>Relay a pause</strong> to the Vault and treasury <span class="who">— the Governor cannot pause itself.</span></li>
+        <li><strong>Relay a pause</strong> to the Vault (neither Treasury can be paused) <span class="who">— the Governor cannot pause itself.</span></li>
         <li><strong>Adjust its own thresholds</strong> within the ceiling <span class="who">— by governance vote.</span></li>
       </ul>
 
