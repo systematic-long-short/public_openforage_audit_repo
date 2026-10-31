@@ -385,7 +385,8 @@ contract AtRiskUSDStateModule is
         _requireNoLossPending();
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(depositor);
-        _requireAllowedBeneficiary(depositor);
+        // OPEN-529, OPEN-534: moving a holder's own expired position to Tier 0 is neither entry nor exit, so a lapsed
+        // Allowlist approval no longer keeps it in the higher tier.
         uint256 backingPerShareBefore = _backingPerShareRay();
         assets = previewRedeem(shares);
         if (assets == 0) revert ZeroRedemptionOutput();
@@ -1041,6 +1042,14 @@ contract AtRiskUSDStateModule is
                 if (
                     _lockupPeriod > 0 && to != address(this) && _autoRenewDisabled[from]
                         && block.timestamp >= lockExpiry
+                ) {
+                    revert ExpiredAutoRenewDisabledLockup();
+                }
+                // OPEN-591: shares cannot land in an opted-out account whose lock has expired, where they would wait in
+                // the higher tier until the next expiry run.
+                if (
+                    _lockupPeriod > 0 && to != address(this) && to != _stakingQueue && _autoRenewDisabled[to]
+                        && block.timestamp >= _lockExpiry[to]
                 ) {
                     revert ExpiredAutoRenewDisabledLockup();
                 }
