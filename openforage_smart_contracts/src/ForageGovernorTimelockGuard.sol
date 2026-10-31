@@ -444,7 +444,7 @@ interface IForageGovernorMigrationProposals {
 }
 
 interface IForageGovernorMigrationHost {
-    function executor() external view returns (address);
+    function timelock() external view returns (address);
 
     function allowlist() external view returns (address);
 }
@@ -498,6 +498,7 @@ library ForageGovernorTimelockMigrationGuard {
     error TimelockCandidateNotSystemAccount(address candidate);
     error TimelockAllowlistUnavailable(address allowlistAddress);
     error TimelockDelayBelowMinimum(uint256 requested, uint256 minimum);
+    error TimelockDelayAboveMaximum(uint256 requested, uint256 maximum);
     error QueuedProposalBlocksTimelockUpdate(uint256 queuedCount, uint256 proposalId);
     error ActiveProposalListExceedsCap(uint256 observed, uint256 maximum);
     error CanonicalRegistryOwnerUnavailable(address registry);
@@ -567,6 +568,8 @@ library ForageGovernorTimelockMigrationGuard {
     bytes32 private constant _TIMELOCK_MIGRATION_SALT_DOMAIN =
         keccak256("openforage.forager.governor.timelock-migration.v1");
     uint256 private constant _MIN_TIMELOCK_DELAY = 1 days;
+    /// @dev Equal to DeployMainnet.PRODUCTION_MIN_DELAY, so a migration can never raise the delay past launch's.
+    uint256 private constant _MAX_TIMELOCK_DELAY = 8 days;
 
     event TimelockMigrationCandidatePrepared(
         address indexed governor,
@@ -592,6 +595,7 @@ library ForageGovernorTimelockMigrationGuard {
         returns (address candidate)
     {
         if (minDelay < _MIN_TIMELOCK_DELAY) revert TimelockDelayBelowMinimum(minDelay, _MIN_TIMELOCK_DELAY);
+        if (minDelay > _MAX_TIMELOCK_DELAY) revert TimelockDelayAboveMaximum(minDelay, _MAX_TIMELOCK_DELAY);
         bytes32 salt = _timelockMigrationSalt(governor, currentTimelock, minDelay);
         candidate = _predictTimelockAddress(governor, salt, minDelay);
         if (candidate.code.length != 0) revert TimelockCandidateAlreadyExists(candidate);
@@ -955,12 +959,13 @@ library ForageGovernorTimelockMigrationGuard {
     }
 
     function _validateConstructionProof(address newTimelock, address governor) private view {
-        address currentTimelock = IForageGovernorMigrationHost(governor).executor();
+        address currentTimelock = IForageGovernorMigrationHost(governor).timelock();
         if (address(this) != governor) revert TimelockMigrationContextMismatch(governor, address(this));
         if (msg.sender != currentTimelock) revert TimelockMigrationContextMismatch(currentTimelock, msg.sender);
         if (newTimelock.code.length == 0) revert TimelockCandidateMissingCode(newTimelock);
         uint256 minDelay = IForageGovernorMigrationTimelock(newTimelock).getMinDelay();
         if (minDelay < _MIN_TIMELOCK_DELAY) revert TimelockDelayBelowMinimum(minDelay, _MIN_TIMELOCK_DELAY);
+        if (minDelay > _MAX_TIMELOCK_DELAY) revert TimelockDelayAboveMaximum(minDelay, _MAX_TIMELOCK_DELAY);
         bytes32 salt = _timelockMigrationSalt(governor, currentTimelock, minDelay);
         address expected = _predictTimelockAddress(governor, salt, minDelay);
         if (newTimelock != expected) revert TimelockCandidateAddressMismatch(newTimelock, expected);
@@ -974,7 +979,7 @@ library ForageGovernorTimelockMigrationGuard {
     }
 
     function _requireGovernorSelfCall(address governor, address currentTimelock) private view {
-        address actualTimelock = IForageGovernorMigrationHost(governor).executor();
+        address actualTimelock = IForageGovernorMigrationHost(governor).timelock();
         if (address(this) != governor) revert TimelockMigrationContextMismatch(governor, address(this));
         if (msg.sender != governor) revert TimelockMigrationContextMismatch(governor, msg.sender);
         if (currentTimelock != actualTimelock) revert TimelockMigrationContextMismatch(currentTimelock, actualTimelock);
@@ -1202,6 +1207,7 @@ library ForageGovernorTimelockMigrationGuard {
 contract ForageGovernorTimelockGuard {
     error MalformedTimelockCalldata();
     error TimelockDelayBelowMinimum(uint256 requested, uint256 minimum);
+    error TimelockDelayAboveMaximum(uint256 requested, uint256 maximum);
     error TimelockSelfProposerGrant();
     error TimelockExternalProposerGrant(address account);
     error TimelockExternalRoleGrant(bytes32 role, address account);
@@ -1218,6 +1224,8 @@ contract ForageGovernorTimelockGuard {
     error TimelockDirectExecuteUnsupported();
 
     bytes4 private constant _GUARDIAN_PROPOSE_TIMELOCK_SELECTOR = bytes4(keccak256("proposeTimelock(address)"));
+    /// @dev Equal to DeployMainnet.PRODUCTION_MIN_DELAY: no proposal may set the Timelock delay above launch's.
+    uint256 private constant _MAX_TIMELOCK_DELAY = 8 days;
     bytes4 private constant _GUARDIAN_UPGRADE_SELECTOR = bytes4(keccak256("upgradeToAndCall(address,bytes)"));
     bytes4 private constant _TIMELOCK_REVOKE_ROLE_SELECTOR = bytes4(keccak256("revokeRole(bytes32,address)"));
     bytes4 private constant _TIMELOCK_RENOUNCE_ROLE_SELECTOR = bytes4(keccak256("renounceRole(bytes32,address)"));
@@ -2326,7 +2334,7 @@ contract ForageGovernorTimelockGuard {
     ) private pure {
         for (uint256 i; i < policies.length; ++i) {
             TimelockPolicy memory policy = policies.entries[i];
-            if (policy.kind == PolicyKind.Delay) _revertIfDelayBelowFloor(policy.delay, delayFloor);
+            if (policy.kind == PolicyKind.Delay) _revertIfDelayOutOfBounds(policy.delay, delayFloor);
         }
         bytes32 proposerRole = _timelockProposerRole();
         for (uint256 i; i < policies.length; ++i) {
@@ -2423,9 +2431,12 @@ contract ForageGovernorTimelockGuard {
         }
     }
 
-    function _revertIfDelayBelowFloor(uint256 newDelay, uint256 delayFloor) private pure {
+    function _revertIfDelayOutOfBounds(uint256 newDelay, uint256 delayFloor) private pure {
         if (newDelay < delayFloor) {
             revert TimelockDelayBelowMinimum(newDelay, delayFloor);
+        }
+        if (newDelay > _MAX_TIMELOCK_DELAY) {
+            revert TimelockDelayAboveMaximum(newDelay, _MAX_TIMELOCK_DELAY);
         }
     }
 

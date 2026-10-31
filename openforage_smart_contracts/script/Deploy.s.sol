@@ -26,6 +26,7 @@ import "../src/hyperliquid/HLTradingBridge.sol";
 import {ForageTokenRotationStatus, ForageTokenStateModule} from "../src/modules/ForageTokenStateModule.sol";
 import "../src/modules/RISKUSDVaultModule.sol";
 import "../src/modules/StakingQueueModule.sol";
+import "../src/modules/StakingQueueLockupModule.sol";
 import "../src/modules/AtRiskUSDProfitModule.sol";
 import "../src/modules/USDCTreasuryAccountingModule.sol";
 import {IAllowlistSettable} from "./interfaces/IAllowlistSettable.sol";
@@ -60,6 +61,8 @@ interface IModuleWiredTarget {
 contract Deploy is Script {
     error WrongDeployChain(uint256 chainId);
     error ExpectedDeployChainMismatch(uint256 expectedChainId, uint256 actualChainId);
+    error BlocklistRotationNoProgress(uint256 cursor, uint256 processed, uint256 dirty);
+    error BlocklistRotationDidNotSettle(uint256 cursor, uint256 inventoryLength, uint256 processed, uint256 dirty);
     error SharedBlocklistNotWired(address target, address expected, address actual);
     error SharedAllowlistNotWired(address target, address expected, address actual);
     error SequencerUptimePolicyNotWired(address target, address expected, address actual);
@@ -84,6 +87,8 @@ contract Deploy is Script {
     );
 
     uint256 public constant LOCAL_CHAIN_ID = 31337;
+    uint256 private constant DEPLOY_ROTATION_PAGE_LIMIT = 128;
+    bytes4 private constant DEPLOY_NO_PENDING_VOTE_SYNC = bytes4(keccak256("NoPendingVoteEligibilitySync(address)"));
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
     uint256 private constant _GUARDIAN_COUNT = 7;
     uint256 public constant MIN_DELAY = 0;
@@ -98,27 +103,27 @@ contract Deploy is Script {
     address private constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     bytes32 private constant MIGRATION_GUARD_SALT =
         keccak256("openforage:octane-remediation:ForageGovernorTimelockMigrationGuard:v1");
-    address private constant MIGRATION_GUARD_ADDRESS = 0x15104D103992c9790bC506eBe96F98F2570e7c9f;
+    address private constant MIGRATION_GUARD_ADDRESS = 0x46d318EB6A8C2635599E5B61E07A81c15A11381e;
     bytes32 private constant MIGRATION_GUARD_INIT_CODE_HASH = bytes32(
-        (uint256(0x34eb051e1fac7b71) << 192) | (uint256(0x872b97a93da9289c) << 128)
-            | (uint256(0xffc9ea1aede8f8e5) << 64) | uint256(0xa73eb2d763c77c25)
+        (uint256(0xba7f4583c2f888b4) << 192) | (uint256(0xdfa6905728968121) << 128)
+            | (uint256(0xca6f4394b19dc6bd) << 64) | uint256(0x82c642a69a9dc3f9)
     );
-    uint256 private constant MIGRATION_GUARD_RUNTIME_LENGTH = 22_027;
+    uint256 private constant MIGRATION_GUARD_RUNTIME_LENGTH = 22_113;
     bytes32 private constant MIGRATION_GUARD_RUNTIME_HASH = bytes32(
-        (uint256(0xe8e7b9018e4b3997) << 192) | (uint256(0x838dc97d5def8c4c) << 128)
-            | (uint256(0x7b1865d1bfc74b66) << 64) | uint256(0xbcb17977fd318580)
+        (uint256(0x502c29387b3b9641) << 192) | (uint256(0x4ae2820568cc7ece) << 128)
+            | (uint256(0x7db6bf24e5b0ba37) << 64) | uint256(0x8878fb9d8d2eea8e)
     );
     bytes32 private constant AUTHORITY_CLASSIFIER_SALT =
         keccak256("openforage:octane-remediation:GuardianAuthorityClassifier:v1");
-    address private constant AUTHORITY_CLASSIFIER_ADDRESS = 0xD194A279dDC19BC479592bA4C677A2961992D8Eb;
+    address private constant AUTHORITY_CLASSIFIER_ADDRESS = 0xc0ddDAF64759A4C6EC95869B928fB133d4fD300C;
     bytes32 private constant AUTHORITY_CLASSIFIER_INIT_CODE_HASH = bytes32(
-        (uint256(0x72ad03938d5d470d) << 192) | (uint256(0xf413e9c823f7252c) << 128)
-            | (uint256(0xe4eab3864071f57a) << 64) | uint256(0x5023bc41f37b553c)
+        (uint256(0xb12113b1af28e8be) << 192) | (uint256(0x21c784aa91e405db) << 128)
+            | (uint256(0x63968a4d4431946d) << 64) | uint256(0xed4c98c6ee501dff)
     );
-    uint256 private constant AUTHORITY_CLASSIFIER_RUNTIME_LENGTH = 10_855;
+    uint256 private constant AUTHORITY_CLASSIFIER_RUNTIME_LENGTH = 10_807;
     bytes32 private constant AUTHORITY_CLASSIFIER_RUNTIME_HASH = bytes32(
-        (uint256(0x69258272cffe1c4f) << 192) | (uint256(0x07cbc520957a3000) << 128)
-            | (uint256(0xadd86e667c4a2d54) << 64) | uint256(0x4943fb9ab490f39b)
+        (uint256(0x4226d3b575eae8b2) << 192) | (uint256(0x36bed5546142331d) << 128)
+            | (uint256(0xcac6f4904aa9929a) << 64) | uint256(0x6d3772c57c44e570)
     );
     uint256 private constant CUSTODIAN_REGISTRY_NONCE_OFFSET = 9;
     uint256 private constant FORAGE_GOVERNOR_GUARD_NONCE = 1;
@@ -190,6 +195,7 @@ contract Deploy is Script {
     uint64 public cfgWithdrawalChainSelector;
     bool public cfgRequireExplicitGuardians;
     address private _reservedProposalGuardian;
+    address public implStakingQueueLockupModule;
 
     event AllowlistDeployed(address allowlist);
 
@@ -596,7 +602,8 @@ contract Deploy is Script {
         implAtRiskUSDProfitModule = address(new AtRiskUSDProfitModule());
         implAtRiskUSD = address(new atRISKUSD(implAtRiskUSDProfitModule));
         implStakingQueue = address(new StakingQueue());
-        implStakingQueueModule = address(new StakingQueueModule());
+        implStakingQueueLockupModule = address(new StakingQueueLockupModule());
+        implStakingQueueModule = address(new StakingQueueModule(implStakingQueueLockupModule));
         implUSDCTreasuryAccountingModule = address(new USDCTreasuryAccountingModule());
         implUSDCTreasury = address(new USDCTreasury());
         implHLTradingBridgeReturnCapsModule = address(new HLTradingBridgeReturnCapsModule());
@@ -869,15 +876,21 @@ contract Deploy is Script {
         ForageToken forageToken = ForageToken(deployedForageToken);
         forageToken.setBlocklist(deployedBlocklist);
         ForageTokenRotationStatus memory rotation = forageToken.blocklistRotationStatus();
-        while (
-            rotation.rotationActive
-                && (
-                    rotation.cursor < rotation.inventoryLength || rotation.processed < rotation.inventoryLength
-                        || rotation.dirty != 0
-                )
-        ) {
+        // R-DEPLOY-ROT-01: queued vote sync is drained after every page, and a page that moves nothing stops the run.
+        for (uint256 page; page < DEPLOY_ROTATION_PAGE_LIMIT && _deployRotationNeedsWork(rotation); ++page) {
             forageToken.processBlocklistRotation();
-            rotation = forageToken.blocklistRotationStatus();
+            _drainDeployVestingVoteSync(forageToken);
+            ForageTokenRotationStatus memory next = forageToken.blocklistRotationStatus();
+            if (next.cursor == rotation.cursor && next.processed == rotation.processed && next.dirty == rotation.dirty)
+            {
+                revert BlocklistRotationNoProgress(next.cursor, next.processed, next.dirty);
+            }
+            rotation = next;
+        }
+        if (_deployRotationNeedsWork(rotation)) {
+            revert BlocklistRotationDidNotSettle(
+                rotation.cursor, rotation.inventoryLength, rotation.processed, rotation.dirty
+            );
         }
         if (rotation.rotationActive) forageToken.activateBlocklistRotation();
 
@@ -958,8 +971,9 @@ contract Deploy is Script {
         _registerPausableTarget(deployedAtRiskTier3);
         _registerPausableTarget(deployedHLTradingBridge);
         _registerPausableTarget(deployedCustodianRegistry);
-        _registerPausableTarget(deployedFORAGETreasury);
+        // The treasuries have no pause; they are listed so guardians can tighten their caps (OPEN-200).
         _registerPausableTarget(deployedUSDCTreasury);
+        _registerPausableTarget(deployedFORAGETreasury);
     }
 
     function _wireModules() internal {
@@ -1106,6 +1120,10 @@ contract Deploy is Script {
         address queueModule = implStakingQueueModule;
         if (queueModule == address(0)) revert ModuleNotWired(address(0), queueModule, address(0));
         _requireQueueModule(deployedStakingQueue, queueModule);
+        address lockupModule = StakingQueueModule(queueModule).lockupModule();
+        if (lockupModule != implStakingQueueLockupModule || lockupModule.code.length == 0) {
+            revert ModuleNotWired(queueModule, implStakingQueueLockupModule, lockupModule);
+        }
     }
 
     function _requireVaultModule(address target, address expected) internal view {
@@ -1157,6 +1175,28 @@ contract Deploy is Script {
             IForageGovernorWiredTarget(targets[i]).finalizeForageGovernor();
             unchecked {
                 ++i;
+            }
+        }
+    }
+
+    function _deployRotationNeedsWork(ForageTokenRotationStatus memory status) private pure returns (bool) {
+        return status.rotationActive
+            && (status.cursor < status.inventoryLength || status.processed < status.inventoryLength || status.dirty != 0);
+    }
+
+    function _drainDeployVestingVoteSync(ForageToken forageToken) private {
+        try forageToken.syncVoteEligibility(deployedVestingWallet) {}
+        catch (bytes memory reason) {
+            bytes4 selector;
+            if (reason.length >= 4) {
+                assembly ("memory-safe") {
+                    selector := mload(add(reason, 32))
+                }
+            }
+            if (selector != DEPLOY_NO_PENDING_VOTE_SYNC) {
+                assembly ("memory-safe") {
+                    revert(add(reason, 32), mload(reason))
+                }
             }
         }
     }
@@ -1322,6 +1362,7 @@ contract Deploy is Script {
 
         console.log("implRiskusdVaultModule:", implRiskusdVaultModule);
         console.log("implStakingQueueModule:", implStakingQueueModule);
+        console.log("implStakingQueueLockupModule:", implStakingQueueLockupModule);
         console.log("implUSDCTreasuryAccountingModule:", implUSDCTreasuryAccountingModule);
         console.log("implHLTradingBridgeReturnCapsModule:", implHLTradingBridgeReturnCapsModule);
 
@@ -1351,6 +1392,7 @@ contract Deploy is Script {
         vm.serializeAddress(root, "guardianCancelWallets", _guardianCancelAddresses(cfgDeployer));
         vm.serializeAddress(root, "riskusdVaultModule", implRiskusdVaultModule);
         vm.serializeAddress(root, "stakingQueueModule", implStakingQueueModule);
+        vm.serializeAddress(root, "stakingQueueLockupModule", implStakingQueueLockupModule);
         vm.serializeAddress(root, "hlTradingBridgeReturnCapsModule", implHLTradingBridgeReturnCapsModule);
         address[] memory vestingWallets = new address[](1);
         vestingWallets[0] = deployedVestingWallet;

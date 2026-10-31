@@ -223,6 +223,19 @@
   },
   {
     "type": "function",
+    "name": "fundRetainedLossCover",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setBlocklist",
     "inputs": [
       {
@@ -551,6 +564,37 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "RetainedLossCoverFunded",
+    "inputs": [
+      {
+        "name": "lossNonce",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "funder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remainingShortfall",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "DelegateCallRequired",
     "inputs": []
@@ -639,6 +683,22 @@
     "type": "error",
     "name": "NoPendingLoss",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RetainedCoverExceedsShortfall",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "shortfall",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -776,6 +836,11 @@
   {
     "type": "error",
     "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
     "inputs": []
   }
 ]

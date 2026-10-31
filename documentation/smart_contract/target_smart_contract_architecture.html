@@ -363,8 +363,8 @@
         the repository and proven on Arbitrum Sepolia after two
         deliberate simplifications: the cross-chain HyperLiquid stack collapses from
         eight contracts to a single Arbitrum custodian (trading moves off-chain), and
-        the five separate treasuries consolidate into two. Same protections, fewer
-        moving parts. Written, like its companion, for a reader who does not read
+        the five separate treasuries consolidate into two. Fewer moving parts; the
+        treasury sections list the outflow caps the merged contracts keep. Written, like its companion, for a reader who does not read
         Solidity.
       </p>
     </div>
@@ -372,7 +372,7 @@
       <div class="meta-row"><strong>Drafted</strong><span>2026-06-05</span></div>
       <div class="meta-row"><strong>Audience</strong><span>Executive / internal</span></div>
       <div class="meta-row"><strong>Scope</strong><span>14 target contracts — all on Arbitrum (0 HyperEVM)</span></div>
-      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div>
+      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div><div class="meta-row"><strong>Corrected</strong><span>2026-10-29 — outflow caps, payout wallets and blocked-tier behaviour now match the code; 2026-10-31 — mint and deploy caps now match the code (last scan before deployment)</span></div>
       <div class="meta-row"><strong>Companion</strong><span>smart_contract_architecture.html (historical as-is baseline)</span></div>
     </aside>
   </section>
@@ -650,8 +650,8 @@
                     ┌────────────────────────────┐
   <b>1  DEPOSIT</b>         │   Depositor's USDC         │
                     └─────────────┬──────────────┘
-                                  │   1 USDC ──▶ 1 RISKUSD          <span class="h">cap: per-block 20% /</span>
-                                  ▼                                 <span class="h">daily 20% / weekly 200% mint</span>
+                                  │   1 USDC ──▶ 1 RISKUSD          <span class="h">cap: daily 10% /</span>
+                                  ▼                                 <span class="h">weekly 50% mint, floor $10M</span>
                     ┌────────────────────────────┐
   <b>2  THE VAULT</b>       │   RISKUSDVault             │   holds the cash, issues the receipt
                     └─────────────┬──────────────┘
@@ -668,7 +668,7 @@
   <b>4  DEPLOY</b>          │  HLTradingBridge (custodian)│   tracks capital, holds the caps
                     └─────────────┬──────────────┘
                                   │   sent to the COLD master account on HyperLiquid
-                                  ▼                              <span class="h">cap: per-block 1M / daily 5M USDC</span>
+                                  ▼                              <span class="h">cap: daily 10% of deposits</span>
                     ┌────────────────────────────┐
   <b>5  TRADE</b>           │  HyperLiquid (off-chain)   │   a fund-less HOT key trades; no on-chain tx per order
                     └─────────────┬──────────────┘
@@ -692,21 +692,21 @@
 
     <div class="callout info" style="margin-top:16px">
       <p><strong>The key idea is unchanged.</strong> At every hop a hard-coded cap limits how
-      fast money can move. The target keeps every one of those caps — including the
-      same deploy and return caps on the custodian that already bound the trading
+      fast money can move. The target keeps those caps (the per-block mint and deploy caps are retired) — including the
+      daily deploy cap and the return caps on the custodian that already bound the trading
       desk's exposure. What changed at steps 4–7 is <em>where</em> trading happens (off-chain,
       via a cold account and a fund-less key), <em>how</em> value comes back (a keeper posts
       the NAV instead of a cross-chain message), and that the treasury now <em>separates</em>
       recognising PnL (accounting, step 6) from moving the cash (returns and disbursement, step 7) —
-      not the limits that contain it. <strong>Every USDC exit — vault redemption, the protocol-retained
-      withdrawal, the Foundation disbursement, and agent pay — additionally carries a rolling-24-hour cash
-      cap</strong>, so no single day can drain any of them.</p>
+      not the limits that contain it. <strong>Three USDC exits also carry a one-day cash cap</strong> — vault
+      redemption, the protocol-retained withdrawal and the Foundation disbursement — counted over a fixed one-day window, not a rolling 24 hours, so up to about twice a day's cap can leave across a window boundary.
+      <strong>Agent pay has no per-payment or daily cap</strong>: the quarterly payment window and the agent pay already credited bound it.</p>
     </div>
 
     <h3 style="margin-top:22px">The eight steps in words</h3>
     <ul>
       <li><strong>1 · Deposit.</strong> A depositor sends USDC to the Vault and receives an
-        equal amount of RISKUSD, throttled per block, per day, and per week.</li>
+        equal amount of RISKUSD, throttled per day and per week.</li>
       <li><strong>2 · The Vault.</strong> The Vault holds the cash and keeps proving its
         solvency rule: cash on hand plus the conservative value of money out trading
         must always cover every receipt in existence.</li>
@@ -716,8 +716,8 @@
       <li><strong>4 · Deploy.</strong> The Vault sends up to <strong>95%</strong> of its capital to
         the custodian (<strong>HLTradingBridge</strong>), always keeping at least a
         <strong>5%</strong> buffer. The custodian forwards capital to the protocol's single
-        <strong>cold master account</strong> on HyperLiquid, within the per-block and per-day
-        deploy caps.</li>
+        <strong>cold master account</strong> on HyperLiquid, within the daily deploy caps
+        (at most 10% of the Vault's deposits at the start of each day).</li>
       <li><strong>5 · Trade.</strong> On HyperLiquid, a separate <strong>fund-less trading key</strong>
         places trades on the master account's behalf, signing orders <strong>off-chain</strong>
         on the native exchange. The trading key can trade but cannot withdraw — it
@@ -738,8 +738,8 @@
         <strong>5% weekly cap</strong> (fixed at week-start) and the conservative
         <code>min(book, NAV)</code> rule keep redemptions bounded and backed until it arrives.</li>
       <li><strong>8 · Redeem.</strong> A depositor hands back the receipt and gets USDC out —
-        no more than <strong>5% of the total</strong> per week (and no more than <strong>~2%</strong> in any
-        rolling 24 hours), so a panic cannot drain the vault faster than capital can be recalled.</li>
+        no more than <strong>5% of the total</strong> per week (and no more than <strong>~2%</strong> in each
+        one-day window, also fixed at its start), so a panic cannot drain the vault faster than capital can be recalled.</li>
     </ul>
   </section>
 
@@ -1084,8 +1084,8 @@
       </div>
       <div class="callout">
         <h3 style="color:var(--ink)">Bounded capital flow</h3>
-        <p>The custodian keeps the same hard caps as today: a per-block and per-day
-        ceiling on how much capital can be deployed, and a per-call and per-day ceiling
+        <p>The custodian keeps hard caps: a per-day ceiling on how much capital can be deployed
+        (10% of the Vault's deposits at the start of the day), and a per-call and per-day ceiling
         on how much can be returned. These are the limits that contain the off-chain
         desk's exposure.</p>
       </div>
@@ -1100,8 +1100,8 @@
         disallowed action. The target removes that on-chain, per-instruction gate.</p>
       <p style="margin-top:10px"><strong>What holds the line instead.</strong> The desk's exposure
         is bounded by the <strong>same Arbitrum caps</strong> that already limited it — how much
-        capital can be deployed to the account and how much can be pulled back, per block
-        and per day — together with the conservative NAV valuation, the Guardian's freeze,
+        capital can be deployed to the account and how much can be pulled back, each
+        day — together with the conservative NAV valuation, the Guardian's freeze,
         and the ability to rotate the account. The trading key is <strong>fund-less</strong>: it
         can trade the deployed capital but can never withdraw it. So a compromised trading
         key can lose, at most, what is already deployed (itself capped), and cannot exfiltrate
@@ -1111,7 +1111,7 @@
         the on-chain caps cannot physically force it to send only to the Vault — a compromise
         of the cold key can withdraw the capital currently deployed to it. What contains that:
         only a fraction of the vault is ever deployed (the ≥5% buffer stays on-chain), the
-        per-block and per-day deploy caps limit how fast capital can accumulate at the account,
+        daily deploy caps (10% of the Vault's deposits a day) limit how fast capital can accumulate at the account,
         conservative valuation surfaces any shortfall as a loss rather than hiding it, that loss
         is socialised pro-rata, a guardian can instantly freeze further deploys, and a 4-of-7
         guardian quorum can accelerate a vote-approved rotation to a fresh pre-committed account
@@ -1241,10 +1241,10 @@
           Vault to refresh redemption liquidity, while returned profit is earmarked four ways —
           depositor/vault, agents, the Foundation's cut of the protocol share, and the
           protocol-retained remainder — and a generic <code>disburse</code> pays each earmark to
-          its allowed destination (the Vault, any agent wallet, or an allow-listed
-          protocol/foundation wallet with a failover backup). It preserves the on-chain settlement
-          resilience that matters: a blocklisted tier or recipient never blocks the rest. Folding
-          in the former funding treasury, agent pay keeps its per-payment and rolling-24-hour caps.</p>
+          its allowed destination (the Vault, any agent wallet, or the configured protocol/Foundation primary
+          wallet with a pre-set backup; neither wallet is checked against the Allowlist). A payout to a blocked wallet is refused (an agent batch that contains one is refused whole and resent without it), and the protocol and Foundation payouts fall back to the backup.
+          A blocked tier contract or a blocked RISKUSDVault is different: it stalls vault top-up delivery and loss settlement for every tier until governance unblocks it, so the protocol's own contracts must never be blocked. Folding
+          in the former funding treasury, agent pay is bounded by its quarterly payment window and the pay already credited; it has no per-payment or daily cap.</p>
         <div class="tags"><span class="tag good">treasury</span><span class="tag good">implemented · merges 2</span></div>
       </div>
       <div class="ccard">
@@ -1255,8 +1255,8 @@
           agents (<strong>30M</strong>), claim-by-proof airdrops to RISKUSD depositors
           (<strong>10M</strong>), and governance-controlled direct distribution for partnership
           deals (<strong>40M</strong>) to governance-chosen recipients — in practice each
-          partner's separately deployed vesting wallet. It keeps the solvency accounting,
-          outflow caps, cooldowns, and voting delegation the three pools have today.</p>
+          partner's separately deployed vesting wallet. It keeps voting delegation; its outflow limits are
+          the three lifetime programme caps, a one-day claim cooldown per agent, and a 1M-a-day cap on agent claims made through the distributor.</p>
         <div class="tags"><span class="tag good">treasury</span><span class="tag good">implemented · merges 3</span></div>
       </div>
       <div class="ccard">
@@ -1356,8 +1356,8 @@
         <div class="sol">HLTradingBridge · Arbitrum</div>
         <p>The single remaining contract of the HyperLiquid stack, and it stays on
           <strong>Arbitrum</strong>. It is the Vault's trading "custodian": it holds the approved
-          cold-account address, sends capital out and brings it back within the per-block,
-          per-day, and per-return caps, accepts the keeper's NAV (applying the
+          cold-account address, sends capital out and brings it back within the daily deploy
+          cap and the return caps, accepts the keeper's NAV (applying the
           conservative valuation, the per-interval cap on upside moves — losses register
           immediately — the staleness check, and the Guardian's freeze), records the value
           into the Vault for the USDCTreasury to crystallise the profit or loss as accounting,
@@ -1486,8 +1486,8 @@
         <tr><td><strong>Crystallise (PnL accounting)</strong></td><td>Recognising a period's profit or loss as internal accounting on the USDCTreasury when the keeper attests NAV — marking the tier shares up or down and recording the agent / protocol / Foundation amounts. No USDC moves at this step.</td></tr>
         <tr><td><strong>Earmark</strong></td><td>A per-purpose balance of USDC the treasury has actually received and reserved for one destination (vault top-up, agents, protocol, Foundation). A disbursement can never exceed the earmark's balance.</td></tr>
         <tr><td><strong>returnPrincipalUSDC / returnPnLUSDC</strong></td><td>The two functions the custodian uses to send USDC back to the treasury: principal goes 100% to the Vault (refreshing redemption liquidity); realised profit is split into the four earmarks. Principal is never split to agents, protocol, or Foundation.</td></tr>
-        <tr><td><strong>disburse (purpose-keyed)</strong></td><td>The generic treasury function that pays an earmark out to its allowed destination — the Vault, any agent wallet, or an allow-listed protocol / Foundation wallet — never exceeding the earmark balance.</td></tr>
-        <tr><td><strong>Failover backup wallet</strong></td><td>A pre-set second destination for the protocol-spender and Foundation earmarks, usable only when the allow-listed primary is blocked or unavailable. Governance rotates both under the timelock.</td></tr>
+        <tr><td><strong>disburse (purpose-keyed)</strong></td><td>The generic treasury function that pays an earmark out to its allowed destination — the Vault, any agent wallet, or the configured protocol / Foundation primary or backup wallet (not checked against the Allowlist) — never exceeding the earmark balance.</td></tr>
+        <tr><td><strong>Failover backup wallet</strong></td><td>A pre-set second destination for the protocol-retained and Foundation earmarks. The dedicated payout functions use it when the primary is blocked; the owner's generic <code>disburse</code> may name it at any time. Governance can rotate the Foundation primary (two steps, 2-day delay); the backups and the protocol primary are fixed at initialisation.</td></tr>
       </tbody>
     </table>
   </section>
@@ -1519,7 +1519,7 @@
         <tr><td><strong>FORAGETreasury</strong> = former RewardPool + DepositorPool + Partnerships</td><td>Implemented in <code>openforage_smart_contracts/src/FORAGETreasury.sol</code>. It holds the 80M non-team FORAGE treasury and runs agent Merkle, depositor Merkle, partnership distribution, sweep, and delegation flows.</td></tr>
         <tr><td><strong>FORAGE allocations &amp; team-direct mint</strong> (80M → FORAGETreasury, 20M → team wallet)</td><td>Implemented through <code>ForageToken</code> and the target deployment manifest; Arbitrum Sepolia maps <code>forageTreasury</code> to <code>0xCc847C14d848057Ee6c89c62500a888DCb729eBb</code>.</td></tr>
         <tr><td><strong>HL 8 → 1; trading off-chain</strong></td><td>Implemented in <code>openforage_smart_contracts/src/hyperliquid/HLTradingBridge.sol</code>. The old <code>HLTradingVault</code>, modules, executor proxy, CCIP sender, and bridge adapter are absent from active production source.</td></tr>
-        <tr><td><strong>The caps that bound the off-chain desk (preserved)</strong></td><td><code>HLTradingBridge.sol</code> enforces $1M/block and $5M/day deploy caps, 10% NAV-upside clamp, 24h staleness, 10% return caps, arrival reconciliation, and directional freeze.</td></tr>
+        <tr><td><strong>The caps that bound the off-chain desk (preserved)</strong></td><td><code>HLTradingBridge.sol</code> enforces a daily deploy cap of 10% of the Vault's deposits at the start of the UTC day (no per-block cap), 10% NAV-upside clamp, 24h staleness, 10% return caps, arrival reconciliation, and directional freeze.</td></tr>
         <tr><td><strong>EOA custody is required (contract withdraw3 rejected)</strong></td><td><code>documentation/runbooks/hl_wet_eoa_custodian_authority.md</code> and project memory (HyperLiquid rejects contract-account <code>withdraw3</code>: "Vault may not perform this action").</td></tr>
         <tr><td><strong>4-of-7 guardian quorum</strong></td><td>Implemented in <code>GuardianModule.sol</code>: <code>preCommittedSuccessor</code>, <code>proposeAcceleratedRotation</code>, four guardian approvals, the 10-minute accelerated floor, routine 8-day rotation, and guardian-seat replacement are now production code.</td></tr>
         <tr><td><strong>Solvency rule preserved</strong></td><td><code>RISKUSDVault.sol:1363-1368</code> — <code>solvencyBackingAssets()</code> = vault USDC + <code>min(adjustedNav, bookValue)</code>; companion doc §7.</td></tr>
@@ -1709,7 +1709,7 @@
 
       <h4>What it can do</h4>
       <ul>
-        <li><strong>Take a deposit</strong> of USDC and mint RISKUSD 1:1 <span class="who">— any depositor, throttled per block / day / week.</span></li>
+        <li><strong>Take a deposit</strong> of USDC and mint RISKUSD 1:1 <span class="who">— any depositor, throttled per day / week.</span></li>
         <li><strong>Redeem</strong> RISKUSD for USDC within the weekly cap <span class="who">— any holder; a panic cannot drain it.</span></li>
         <li><strong>Deploy capital</strong> to the custodian, keeping the reserve <span class="who">— the custodian address only.</span></li>
         <li><strong>Record the value reported back (NAV)</strong> <span class="who">— the custodian / keeper; the USDCTreasury then recognises the profit or loss as accounting (§13).</span></li>
@@ -1722,9 +1722,9 @@
         <tr><td>Mint / redeem ratio</td><td class="val">1:1</td><td>USDC ↔ RISKUSD</td></tr>
         <tr><td>Weekly redemption cap</td><td class="val">5%</td><td>of supply per 7-day window — bounds a bank run</td></tr>
         <tr><td>24-hour redemption cap</td><td class="val">~2%</td><td>of supply per rolling 24h — bounds an intraday rush, sits under the weekly cap (target; governance-set)</td></tr>
-        <tr><td>Mint cap — per block</td><td class="val">20%</td><td>of supply, and never more than $10M in one block</td></tr>
-        <tr><td>Mint cap — per day</td><td class="val">20%</td><td>of the day's opening supply</td></tr>
-        <tr><td>Mint cap — per week</td><td class="val">200%</td><td>of the week's opening supply</td></tr>
+        <tr><td>Mint cap — per day</td><td class="val">10%</td><td>of the day's opening supply (UTC day)</td></tr>
+        <tr><td>Mint cap — per week</td><td class="val">50%</td><td>of the week's opening supply</td></tr>
+        <tr><td>Mint cap — floor</td><td class="val">$10M</td><td>while minting is open, neither cap is below $10M (a guardian can still shrink either cap to zero to halt deposits); there is no per-block mint cap</td></tr>
         <tr><td>Max deployed to trading</td><td class="val">95%</td><td>at most — the rest stays on-chain</td></tr>
         <tr><td>On-chain reserve buffer</td><td class="val">≥ 5%</td><td>kept liquid for redemptions</td></tr>
         <tr><td>Value-report interval</td><td class="val">1 day</td><td>expected NAV attestation cadence</td></tr>
@@ -1733,8 +1733,8 @@
       </tbody></table>
 
       <p class="small"><strong>Large positions.</strong> The caps are hard limits, not queues: a deposit or
-        redemption larger than the per-block / per-day / per-week room <strong>reverts</strong> rather than
-        partially filling, so a large depositor splits the amount across blocks (and, if needed, days or weeks) and
+        redemption larger than the per-day / per-week room <strong>reverts</strong> rather than
+        partially filling, so a large depositor splits the amount across days (and, if needed, weeks) and
         resubmits — there is deliberately no partial-fill or reservation path on the Vault itself. A large
         <em>stake</em> that exceeds a tier's remaining capacity is instead <strong>waitlisted</strong> in the
         staking queue (FIFO, skipped until capacity frees, cancellable for a full refund — see <em>StakingQueue</em>),
@@ -1744,7 +1744,7 @@
       <h4>Who controls it</h4>
       <p class="who">Owner / governance set every cap, wire the custodian and loss reporter (a two-step, time-delayed change), and can pause; the custodian alone moves capital; the treasury alone reports loss. The solvency check is unconditional — no role can switch it off.</p>
 
-      <div class="why-line"><span class="glabel">Grounded in</span>caps <span class="mono">RISKUSDVault.sol:267-274</span> (redemption 5%, deploy 95%, mint 200% / 20% / 20% + $10M, 5% buffer, 1-day interval); solvency <span class="mono">:1363-1368</span>; custodian-only deploy/return <span class="mono">:355-381</span>,<span class="mono">:385-399</span>; $10M capacity <span class="mono">Deploy.s.sol:71</span></div>
+      <div class="why-line"><span class="glabel">Grounded in</span>caps <span class="mono">RISKUSDVault.sol:388-394</span> (redemption 5%, deploy 95%, mint 50% a week / 10% a day, 5% buffer, 1-day interval); $10M mint-cap floor <span class="mono">:1551-1577</span>; per-block mint cap retired <span class="mono">:767-770</span>,<span class="mono">:797-804</span>; solvency <span class="mono">:1631-1642</span>; custodian-only deploy/return <span class="mono">:509-534</span>,<span class="mono">RISKUSDVaultModule.sol:301-303</span>; $10M capacity <span class="mono">Deploy.s.sol:102</span></div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">core</span><span class="tag good">live · unchanged</span></div>
     </article>
 
@@ -1773,10 +1773,10 @@
         hold USDC that has actually been returned.</p>
       <p><strong>③ Disbursement — a generic, purpose-keyed <code>disburse</code>.</strong> It pays an earmark
         out to its allowed destination and can never exceed the balance on hand: the Vault top-up goes to the
-        RISKUSDVault; agent pay goes to any (non-blocked) agent wallet under per-payment and rolling-24-hour
-        caps; the protocol and Foundation earmarks go only to an allow-listed primary wallet, each with a
-        pre-set <em>failover</em> backup usable only when the primary is blocked or unavailable — and each is
-        itself bounded by a <strong>rolling-24-hour cash cap</strong>, so no single day can drain it.</p>
+        RISKUSDVault; agent pay goes to any (non-blocked) agent wallet inside the quarterly payment window and
+        up to the pay already credited, with no per-payment or daily cap; the protocol and Foundation earmarks go only to their configured primary wallet or its
+        pre-set <em>failover</em> backup (neither is checked against the Allowlist), and each is bounded by a <strong>one-day cash cap counted over a fixed window</strong>
+        ($1M a day for the protocol, 10% of the earmark a day for the Foundation), so up to about twice that cap can leave across a window boundary.</p>
       <p><strong>The depositor mark-up is not double-counted.</strong> Step ① raises the tier share value and
         <em>defines</em> the depositor's redemption claim; the step-② Vault top-up only <em>funds</em> the cash
         to honour it — it never raises share value a second time. A principal return refreshes redemption
@@ -1806,9 +1806,9 @@
         <li><strong>Take a principal return</strong> via <code>returnPrincipalUSDC</code>, routed 100% to the Vault <span class="who">— the custodian; refreshes redemption liquidity, never split.</span></li>
         <li><strong>Take a profit return</strong> via <code>returnPnLUSDC</code> and earmark it four ways (vault top-up / agent / protocol / Foundation) <span class="who">— the custodian; earmarks hold only returned cash.</span></li>
         <li><strong>Disburse an earmark</strong> by purpose — vault top-up, agent pay, protocol spend, Foundation — never exceeding its balance <span class="who">— an authorised caller; blocklist + caps gate every send.</span></li>
-        <li><strong>Survive a blocked recipient</strong> — a blocklisted tier or agent never blocks the rest <span class="who">— automatic.</span></li>
+        <li><strong>Survive a blocked recipient</strong> — a payout to a blocked wallet is refused (an agent batch that contains one is refused whole and resent without it), and the protocol and Foundation payouts fall back to the backup; a blocked tier contract or RISKUSDVault stalls top-up delivery and loss settlement for every tier until governance unblocks it <span class="who">— the payer; governance unblocks a contract.</span></li>
         <li><strong>Absorb a loss</strong> pro-rata across the four tiers, then from the retained buffer <span class="who">— the keeper / bridge.</span></li>
-        <li><strong>Adjust the splits, caps, and allow-listed wallets, rotate a backup under timelock, and pause</strong> <span class="who">— owner / governance; a guardian can pause.</span></li>
+        <li><strong>Adjust the splits and caps, and rotate the Foundation primary wallet under a 2-day delay</strong> <span class="who">— owner / governance; a guardian can shrink the loss-rate cap. The Treasury cannot be paused.</span></li>
       </ul>
 
       <h4>The numbers</h4>
@@ -1817,22 +1817,22 @@
         <tr><td>Agent funding fee (by tier)</td><td class="val">20 / 15 / 10 / 5%</td><td>of gross profit; to the agent-payment lane</td></tr>
         <tr><td>Protocol share</td><td class="val">flat 30%</td><td>of profit — the remainder once depositor + agent (always 70%) are taken</td></tr>
         <tr><td>Foundation share</td><td class="val">50%</td><td>of the protocol share (15% of profit); 50% is also the hard cap — never higher</td></tr>
-        <tr><td>Protocol-retained</td><td class="val">the other 50%</td><td>the other half of the protocol share (15% of profit), plus any skipped / failed-transfer amount</td></tr>
+        <tr><td>Protocol-retained</td><td class="val">the other 50%</td><td>the other half of the protocol share (15% of profit)</td></tr>
         <tr><td>Return functions</td><td class="val">2</td><td><code>returnPrincipalUSDC</code> → Vault (100%); <code>returnPnLUSDC</code> → the four earmark balances</td></tr>
-        <tr><td>Disburse destinations</td><td class="val">by purpose</td><td>vault top-up → RISKUSDVault; agent → any wallet; protocol / Foundation → allow-listed primary + failover backup</td></tr>
+        <tr><td>Disburse destinations</td><td class="val">by purpose</td><td>vault top-up → RISKUSDVault; agent → any wallet; protocol / Foundation → configured primary + pre-set backup (not checked against the Allowlist)</td></tr>
         <tr><td>Loss sharing</td><td class="val">equal % across all 4</td><td>then the retained buffer absorbs anything beyond the tiers</td></tr>
         <tr><td>Loss-rate cap</td><td class="val">10% / day</td><td>of tier assets — bounds how fast a loss can be applied</td></tr>
-        <tr><td>Profit accepted per block</td><td class="val">≤ $10M</td><td>per-block settlement ceiling</td></tr>
-        <tr><td>Retained-balance withdrawal</td><td class="val">≤ $1M / day</td><td>1-day cooldown (max 30), 10-minute Sepolia / 2-day production finalize — the protocol wallet's rolling-24h cash cap</td></tr>
-        <tr><td>Foundation disbursement cap</td><td class="val">~10% / 24h</td><td>of the Foundation earmark per rolling 24h — bounds Foundation cash outflow (target; governance-set)</td></tr>
-        <tr><td>Agent payment cap</td><td class="val">10%</td><td>of balance per payment <em>and</em> per rolling 24h</td></tr>
+        <tr><td>Per-block profit ceiling</td><td class="val">none</td><td>there is no per-block settlement ceiling; the bridge clamps a reported gain to ≤ 10% per interval, and profit cash comes back under the bridge's return caps</td></tr>
+        <tr><td>Retained-balance withdrawal</td><td class="val">≤ $1M / day</td><td>per fixed one-day window (a new window opens with the first payout after the last one ends); paid by the owner to the protocol primary, or to its backup when the primary is blocked</td></tr>
+        <tr><td>Foundation disbursement cap</td><td class="val">10% / day</td><td>of the Foundation earmark per fixed one-day window (a new window opens with the first payout after the last one ends), so up to about 19% can leave across a window boundary; fixed in code</td></tr>
+        <tr><td>Agent payment cap</td><td class="val">none</td><td>no per-payment or daily cap: agent pay is bounded by the quarterly payment window (the first 14 days of January, April, July and October) and by the pay already credited</td></tr>
         <tr><td>Agent batch size</td><td class="val">≤ 100</td><td>recipients per batch</td></tr>
       </tbody></table>
 
       <h4>Who controls it</h4>
-      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the per-block and loss-rate caps, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating an allow-listed protocol / Foundation wallet or its backup, are two-step, time-delayed changes. A guardian can pause and shrink the loss-rate cap. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
+      <p class="who">Owner / governance set the foundation rate (≤ 50% cap), the tier and agent splits, the loss-rate cap, and the withdrawal limits — these economic setters take effect immediately; wiring a new depositor or vault, and rotating the Foundation primary wallet (a 2-day delay in production), are two-step, time-delayed changes; the backups and the protocol primary are fixed at initialisation. A guardian can shrink the loss-rate cap; the Treasury cannot be paused. The keeper / bridge is the only address that can crystallise a settlement; the custodian is the only address that can return USDC.</p>
 
-      <div class="why-line"><span class="glabel">Grounded in</span><strong>Implemented target redesign.</strong> <span class="mono">USDCTreasury.sol</span> is the current source: foundation re-based to <em>50% of the protocol share</em> (15% of profit); PnL recognised as accounting at attestation, cash separated into <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code>, and a purpose-keyed <code>disburse</code> with failover-backup allow-lists. The removed <code>ProtocolTreasury</code> / <code>FundingTreasury</code> code remains historical context only.</div>
+      <div class="why-line"><span class="glabel">Grounded in</span><strong>Implemented target redesign.</strong> <span class="mono">USDCTreasury.sol</span> is the current source: foundation re-based to <em>50% of the protocol share</em> (15% of profit); PnL recognised as accounting at attestation, cash separated into <code>returnPrincipalUSDC</code> / <code>returnPnLUSDC</code>, and a purpose-keyed <code>disburse</code> with primary and failover-backup destinations. The removed <code>ProtocolTreasury</code> / <code>FundingTreasury</code> code remains historical context only.</div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 2 · redesigned</span></div>
     </article>
 
@@ -1845,31 +1845,31 @@
       <p>One contract holds the <strong>80M of non-team FORAGE</strong> and runs three programmes: claim-by-proof
         ("Merkle") airdrops to agents, claim-by-proof airdrops to RISKUSD depositors, and governance-controlled
         distribution for partnership deals (in practice, each partner's own separately-deployed vesting wallet).
-        It keeps every protection the three pools carry now — per-round and rolling outflow caps with cooldowns,
-        solvency accounting that will not promise tokens it does not hold, a one-time-only token setter, and the
-        ability to delegate the treasury's own voting power.</p>
+        It keeps a one-time-only token setter and the ability to delegate the treasury's own voting power. Its outflow limits are the three lifetime programme caps, checked on every claim and distribution;
+        a new round is checked against its lane's cap on its own, so rounds together can promise more than the lane can pay, and the last claims then fail. Agents may claim once a day, and agent claims made
+        through the distributor also count against a 1M-a-day cap. There is no per-round or other daily cap.</p>
 
       <h4>What it can do</h4>
       <ul>
         <li><strong>Publish an airdrop round</strong> (a Merkle root + total) for agents or depositors <span class="who">— owner / governance.</span></li>
         <li><strong>Let a claimer pull their share</strong> with a valid proof <span class="who">— anyone in the published tree.</span></li>
-        <li><strong>Distribute partnership FORAGE</strong> by single or batch transfer <span class="who">— owner / governance, under outflow caps.</span></li>
-        <li><strong>Sweep an expired round's unclaimed tokens</strong> back to the treasury <span class="who">— owner.</span></li>
+        <li><strong>Distribute partnership FORAGE</strong>, one partner vesting wallet per call <span class="who">— owner / governance, under the 40M lifetime cap.</span></li>
+        <li><strong>Sweep an expired round's unclaimed tokens</strong> to a recipient the owner names; the sweep is not counted against the lane's lifetime cap <span class="who">— owner.</span></li>
         <li><strong>Delegate the treasury's voting power</strong> <span class="who">— owner / governance.</span></li>
       </ul>
 
       <h4>The numbers</h4>
       <table class="numbers"><tbody>
         <tr><td>Total FORAGE held</td><td class="val">80,000,000</td><td>the non-team supply</td></tr>
-        <tr><td>Agent rewards</td><td class="val">30M</td><td>Merkle claim · 90-day rounds · ≤ 1M / round outflow cap</td></tr>
-        <tr><td>Depositor airdrop</td><td class="val">10M</td><td>Merkle claim · 1-day outflow window · ≤ 1M cap · 30-day max cooldown</td></tr>
-        <tr><td>Partnerships</td><td class="val">40M</td><td>owner-gated single / batch (≤ 100) · 1-day window · ≤ 1M cap</td></tr>
+        <tr><td>Agent rewards</td><td class="val">30M</td><td>Merkle claim · the owner sets each round's deadline · one claim per agent a day · claims through the distributor ≤ 1M a day · no per-round cap</td></tr>
+        <tr><td>Depositor airdrop</td><td class="val">10M</td><td>Merkle claim · no daily cap and no cooldown</td></tr>
+        <tr><td>Partnerships</td><td class="val">40M</td><td>owner-gated, one vesting wallet per call · no daily window or cap</td></tr>
         <tr><td>Partner vesting</td><td class="val">per-partner</td><td>each via its own DelegatingVestingWallet</td></tr>
         <tr><td>Token setter</td><td class="val">one-time</td><td>the FORAGE address can be set once, never rewritten</td></tr>
       </tbody></table>
 
       <h4>Who controls it</h4>
-      <p class="who">Owner / governance publish rounds, distribute partnership FORAGE, sweep expired rounds, and delegate votes — all under the outflow caps. Claimers pull their own share with a proof. (Historical note: the removed RewardPool and DepositorPool comment headers misstated their sizes as 40M and 20M; the target allocations are 30M and 10M.)</p>
+      <p class="who">Owner / governance publish rounds, distribute partnership FORAGE, sweep expired rounds, and delegate votes — under the lifetime programme caps, which sweeps do not count against. Claimers pull their own share with a proof. (Historical note: the removed RewardPool and DepositorPool comment headers misstated their sizes as 40M and 20M; the target allocations are 30M and 10M.)</p>
 
       <div class="why-line"><span class="glabel">Grounded in</span><span class="mono">FORAGETreasury.sol</span> and <span class="mono">ForageToken.sol</span>: 30M agent rewards, 10M depositor airdrop, 40M partnerships, 80M treasury total, self-claim Merkle rounds, partnership distributions, sweeps, and delegation.</div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag good">treasury</span><span class="tag good">implemented · merges 3</span></div>
@@ -2021,7 +2021,7 @@
         <li><strong>Accept a proposal</strong> from a holder above the threshold <span class="who">— or a guardian with the propose permission.</span></li>
         <li><strong>Run a vote</strong> with a snapshotted quorum <span class="who">— FORAGE holders, by delegated weight.</span></li>
         <li><strong>Queue and execute</strong> an approved proposal after the timelock <span class="who">— via the TimelockController.</span></li>
-        <li><strong>Relay a pause</strong> to the Vault and treasury <span class="who">— the Governor cannot pause itself.</span></li>
+        <li><strong>Relay a pause</strong> to the Vault (neither Treasury can be paused) <span class="who">— the Governor cannot pause itself.</span></li>
         <li><strong>Adjust its own thresholds</strong> within the ceiling <span class="who">— by governance vote.</span></li>
       </ul>
 
@@ -2141,9 +2141,9 @@
 
       <h4>What it does</h4>
       <p>Capital can <strong>only ever flow to a registered destination</strong> — in the target, the slimmed
-        HLTradingBridge. Each entry carries that destination's own caps: a maximum deployed, per-block and
-        per-day deploy ceilings, the cap on how fast a value report may rise, and the per-call and per-day return
-        ceilings. It is venue-aware — it distinguishes HyperLiquid, Lighter, and generic kinds — so the same
+        HLTradingBridge. Each entry carries that destination's own caps: a maximum deployed, a per-day deploy
+        ceiling (a per-block deploy ceiling must be zero), the cap on how fast a value report may rise, and the per-call and per-day return
+        ceilings; all destinations together also take at most 10% of the Vault's deposits a day. It is venue-aware — it distinguishes HyperLiquid, Lighter, and generic kinds — so the same
         registry can hold a future second venue without re-architecting.</p>
 
       <h4>What it can do</h4>
@@ -2156,8 +2156,8 @@
 
       <h4>The numbers <span class="small" style="text-transform:none;letter-spacing:0;color:var(--soft)">— HyperLiquid launch entry</span></h4>
       <table class="numbers"><tbody>
-        <tr><td>Deploy ceiling — per block</td><td class="val">$1M</td><td>per registered destination</td></tr>
-        <tr><td>Deploy ceiling — per day</td><td class="val">$5M</td><td>per destination</td></tr>
+        <tr><td>Deploy ceiling — per block</td><td class="val">none</td><td>retired: the registry refuses any nonzero per-block cap</td></tr>
+        <tr><td>Deploy ceiling — per day</td><td class="val">$5M · 10%</td><td>$5M a day to this destination, and at most 10% of the Vault's deposits at the start of the UTC day across all destinations</td></tr>
         <tr><td>NAV-rise cap</td><td class="val">10% / interval</td><td>how fast a value report may climb</td></tr>
         <tr><td>Return ceiling — per call</td><td class="val">10%</td><td>target: set to match the bridge — the cap actually enforced on returns (see note)</td></tr>
         <tr><td>Return ceiling — per day</td><td class="val">10%</td><td>target: set to match the bridge (see note)</td></tr>
@@ -2175,7 +2175,7 @@
       <h4>Who controls it</h4>
       <p class="who">Governance alone adds a destination or changes its caps; the owner can pause one. The Vault physically cannot send capital anywhere not on this list.</p>
 
-      <div class="why-line"><span class="glabel">Grounded in</span>per-custodian kind + caps <span class="mono">CustodianRegistry.sol:13-77</span>; current HyperLiquid launch entry (deploy 1M / 5M, NAV 10%, return 10% / 10%) <span class="mono">:423-434</span>; bridge registry-return hook <span class="mono">HLTradingBridge.sol:617-624</span>; registry return-cap enforcement <span class="mono">CustodianRegistry.sol:631-645</span></div>
+      <div class="why-line"><span class="glabel">Grounded in</span>per-custodian kind + caps <span class="mono">CustodianRegistry.sol:32-64</span>; current HyperLiquid launch entry (deploy 0 per block / 5M per day, NAV 10%, return 10% / 10%) <span class="mono">:689-710</span>; nonzero per-block cap refused <span class="mono">:848</span>; deploy caps with the registry-wide 10% a day <span class="mono">CustodianRegistryCapitalModule.sol:495-522</span>; bridge registry hooks <span class="mono">HLTradingBridge.sol:1565-1574</span>; registry return-cap enforcement <span class="mono">CustodianRegistryCapitalModule.sol:581-587</span></div>
       <div class="tags"><span class="tag info">Arbitrum</span><span class="tag risk">safety</span><span class="tag warn">live · return entry reconciled to 10/10</span></div>
     </article>
 
@@ -2246,8 +2246,8 @@
 
       <h4>The numbers</h4>
       <table class="numbers"><tbody>
-        <tr><td>Deploy cap — per block</td><td class="val">$1M</td><td>out to the cold account</td></tr>
-        <tr><td>Deploy cap — per day</td><td class="val">$5M</td><td>out to the cold account</td></tr>
+        <tr><td>Deploy cap — per block</td><td class="val">none</td><td>retired: setting one reverts</td></tr>
+        <tr><td>Deploy cap — per day</td><td class="val">10%</td><td>of the Vault's deposits at the start of the UTC day, out to the cold account; fixed in code</td></tr>
         <tr><td>NAV rise per interval</td><td class="val">≤ 10%</td><td>a reported gain is clamped; a loss registers immediately and uncapped</td></tr>
         <tr><td>Stale-report rejection</td><td class="val">&gt; 24 hours</td><td>an old NAV report is refused</td></tr>
         <tr><td>Return cap</td><td class="val">≤ 10% / call &amp; / day</td><td>bridge-enforced from its own storage — the cap actually checked on returns; the registry entry is set to match (prev page)</td></tr>
@@ -2257,7 +2257,7 @@
       </tbody></table>
 
       <h4>Who controls it</h4>
-      <p class="who">Owner / governance set the caps and wire the executor and keeper and can pause; the executor moves capital within the caps; the keeper posts NAV. Capital can only go to the one approved cold account.</p>
+      <p class="who">Owner / governance set the return caps (the deploy cap is fixed in code) and wire the executor and keeper and can pause; the executor moves capital within the caps; the keeper posts NAV. Capital can only go to the one approved cold account.</p>
 
       <div class="why-line"><span class="glabel">Grounded in</span>current <span class="mono">HLTradingBridge.sol</span>: deploy / return caps, NAV upside clamp and downside immediacy, withdrawal intents, arrival reconciliation, two-step keeper wiring, and directional freeze. Removed HyperEVM/CCIP contracts are historical context only.</div>
       <div class="tags"><span class="tag info">custodian</span><span class="tag good">slimmed · implemented</span><span class="tag risk">caps + NAV + settle</span></div>
@@ -2336,7 +2336,7 @@
           force the off-chain step that bridges it; if the funds never arrive, the conservative NAV valuation surfaces
           the shortfall as a loss rather than hiding it. The <strong>irreducible residual</strong> — a compromised key
           signing a withdrawal the chain cannot veto — is what the rest contains: only a fraction is ever deployed
-          (the ≥5% buffer stays on-chain), the per-block / per-day caps bound how fast capital accumulates, losses are
+          (the ≥5% buffer stays on-chain), the daily deploy caps bound how fast capital accumulates, losses are
           socialised pro-rata, a guardian can instantly freeze deploys, and governance can rotate the account — a
           vote-approved rotation a 4-of-7 guardian quorum can accelerate to minutes (§6, §7).</p>
       </div>

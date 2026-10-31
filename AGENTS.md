@@ -27,6 +27,7 @@ Only these paths may be present in the public snapshot:
 - `documentation/smart_contract_audits/2026-06-09-audit/`, with private absolute paths scrubbed from retained logs
 - `documentation/smart_contract_audits/2026-06-12-external-audit/`, with external-audit triage and overlap analysis only
 - `documentation/smart_contract_audits/2026-06-17-external-audit/`, with public-safe assessments, fix attribution, acknowledgment worksheets, overlap analysis, and the public-safe Octane remediation status only
+- `documentation/smart_contract_audits/` dated disposition, review, and update pages (`YYYY-MM-DD-*.md`), public-safe only
 
 ## Never Export
 

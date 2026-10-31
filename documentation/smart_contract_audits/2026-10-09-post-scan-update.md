@@ -1,6 +1,7 @@
 # 2026-10-11 post-scan update
 
 Line references (note of 2026-10-11): the source-line ranges on this page were written for earlier commits. For the 2026-10-11 update, the ranges that point into the eight source files changed by that update were re-checked and the ones found stale were corrected. A range that was not found stale, or that points into another file, can still be a few lines away from the code it describes. The file identities in the source-pin table are exact. The two 2026-10-11 pages carry the checked ranges for the Analysis 14 changes.
+Line references (note of 2026-10-28): the 2026-10-28 update changed 22 source files and added one. Ranges on this page that point into those files were not re-checked and may have moved; the [2026-10-28 pre-scan review](2026-10-28-pre-scan-review.md) lists the changed files and carries checked ranges for its own changes.
 
 ## What this update says
 

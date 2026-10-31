@@ -2531,6 +2531,17 @@
   },
   {
     "type": "error",
+    "name": "RecognitionWindowOpen",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReconciledBalanceExceedsBalance",
     "inputs": [
       {
@@ -2540,6 +2551,17 @@
       },
       {
         "name": "reconciled",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReconciledReturnPending",
+    "inputs": [
+      {
+        "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2690,6 +2712,22 @@
         "name": "caller",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnreturnedProfitPending",
+    "inputs": [
+      {
+        "name": "vaultId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unreturned",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

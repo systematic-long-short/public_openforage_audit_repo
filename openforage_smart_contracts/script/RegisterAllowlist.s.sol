@@ -14,12 +14,18 @@ interface IDistributorTreasury {
 /// @notice Post-deploy operator checklist: finalizes the registrar, registers the system
 ///         accounts the deploy could not, grants the non-expiring operator approvals and
 ///         sets both treasuries' distributors. Every step is guarded by a current-state
-///         read, printed as a checklist line, and idempotent on a second run.
+///         read, printed as a checklist line, and idempotent on a second run. Off Arbitrum
+///         Sepolia and the local chain, DEPLOYMENT_MANIFEST_PATH must name the manifest.
 contract RegisterAllowlist is Script {
     error AllowlistNotDeployed(address target);
     error RegistrarFinalizeWaiting(bytes4 selector);
     error SystemRegistrarNotFinalized(address account);
     error DistributorKeyMismatch(address signer, address distributor);
+    error ExpectedChainMismatch(uint256 expectedChainId, uint256 actualChainId);
+    error ManifestPathRequired(uint256 chainId);
+
+    uint256 internal constant LOCAL_CHAIN_ID = 31337;
+    uint256 internal constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
 
     uint256 internal sendCount;
     uint256 internal skipCount;
@@ -28,9 +34,9 @@ contract RegisterAllowlist is Script {
     bytes4 internal waitSelector;
 
     function run() external {
-        string memory manifestPath =
-            vm.envOr("DEPLOYMENT_MANIFEST_PATH", string("deployments/arbitrum-sepolia/latest.json"));
-        string memory manifest = vm.readFile(manifestPath);
+        uint256 expectedChainId = vm.envUint("EXPECTED_CHAIN_ID");
+        if (expectedChainId != block.chainid) revert ExpectedChainMismatch(expectedChainId, block.chainid);
+        string memory manifest = vm.readFile(_manifestPath());
         address allowlist = _deployedAddress(manifest, ".allowlist");
         address forageTreasury = _deployedAddress(manifest, ".forageTreasury");
         address usdcTreasury = _deployedAddress(manifest, ".usdcTreasury");
@@ -60,6 +66,14 @@ contract RegisterAllowlist is Script {
 
         console.log(_checklistLine());
         if (waitCount != 0) revert RegistrarFinalizeWaiting(waitSelector);
+    }
+
+    function _manifestPath() internal view returns (string memory manifestPath) {
+        if (block.chainid == LOCAL_CHAIN_ID || block.chainid == ARBITRUM_SEPOLIA_CHAIN_ID) {
+            return vm.envOr("DEPLOYMENT_MANIFEST_PATH", string("deployments/arbitrum-sepolia/latest.json"));
+        }
+        manifestPath = vm.envOr("DEPLOYMENT_MANIFEST_PATH", string(""));
+        if (bytes(manifestPath).length == 0) revert ManifestPathRequired(block.chainid);
     }
 
     function _deployedAddress(string memory manifest, string memory key) internal view returns (address target) {

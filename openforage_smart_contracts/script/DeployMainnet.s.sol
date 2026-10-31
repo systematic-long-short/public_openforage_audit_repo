@@ -157,6 +157,7 @@ contract DeployMainnet is Deploy {
     }
 
     function _handoffToProductionGovernance() internal {
+        _finalizeAllowlistRegistrars();
         _transferOwnershipThroughTimelock(deployedBlocklist);
         _transferOwnershipThroughTimelock(deployedFORAGETreasury);
         _transferOwnershipThroughTimelock(deployedForageToken);
@@ -173,6 +174,24 @@ contract DeployMainnet is Deploy {
         Allowlist(deployedAllowlist).setSystemAccount(address(this), false);
         _transferOwnershipThroughTimelock(deployedAllowlist);
         _revokeDeployerTimelockRoles();
+    }
+
+    /// @notice OPEN-337: the deployer finalises the Allowlist's registrar and system registrar while it still owns
+    ///         and is allowed by the Allowlist. Proposals that are not yet ready or have expired are made again
+    ///         and finalised after the Allowlist's finalize delay; on mainnet the handoff waits for that delay.
+    function _finalizeAllowlistRegistrars() internal {
+        Allowlist registry = Allowlist(deployedAllowlist);
+        try registry.finalizeRegistrar() {
+            registry.finalizeSystemRegistrar();
+        } catch {
+            registry.proposeRegistrar(cfgKeeper);
+            registry.proposeSystemRegistrar(deployedFORAGETreasury, true);
+            vm.warp(block.timestamp + registry.FINALIZE_DELAY() + 1);
+            registry.finalizeRegistrar();
+            registry.finalizeSystemRegistrar();
+        }
+        require(registry.registrar() == cfgKeeper, "allowlist registrar not finalized");
+        require(registry.isSystemRegistrar(deployedFORAGETreasury), "allowlist system registrar not finalized");
     }
 
     function _transferOwnershipThroughTimelock(address target) internal {

@@ -1,10 +1,12 @@
 # 2026-10-07 pre-scan review: source changes and limits
 
 Line references (note of 2026-10-11): the source-line ranges on this page were written for earlier commits. For the 2026-10-11 update, the ranges that point into the eight source files changed by that update were re-checked and the ones found stale were corrected. A range that was not found stale, or that points into another file, can still be a few lines away from the code it describes. The file identities in the source-pin table are exact. The two 2026-10-11 pages carry the checked ranges for the Analysis 14 changes.
+Line references (note of 2026-10-28): the 2026-10-28 update changed 22 source files and added one. Ranges on this page that point into those files were not re-checked and may have moved; the [2026-10-28 pre-scan review](2026-10-28-pre-scan-review.md) lists the changed files and carries checked ranges for its own changes.
 
 The source-line citations in this historical record are re-pinned to the mapped public source blobs listed in the [2026-10-11 post-scan update](2026-10-11-post-scan-update.md). Their prior review statuses remain historical; current Analysis 9–13 status is recorded in the linked disposition documents.
 
 Dated snapshot note: this record predates the Analysis 13 scan. The 2026-10-11 post-scan update is the current public status; the earlier scan and commit identities below remain historical.
+Dated note (2026-10-28): the [2026-10-28 pre-scan review](2026-10-28-pre-scan-review.md) is now the current public status.
 
 This is OpenForage’s own 2026-10-07 source review of the public candidate before Analysis 13. It is not an Octane result, a finding-closure claim, deployment approval, or security-clearance statement. At that time the most recent full scan was Analysis 12 on `d075a36bebafd17ceace9fe4b0fb21aed81fe1ae`; Analysis 13 later scanned the head identified in the post-scan update. No Octane analysis has run on the current candidate.
 

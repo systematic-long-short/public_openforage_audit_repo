@@ -60,6 +60,7 @@ contract AtRiskUSDProfitModule {
     error ZeroSupplyYield();
 
     event UnpaidProfitClaimed(address indexed holder, uint256 amount);
+    event UnpaidProfitClaimedTo(address indexed holder, address indexed recipient, uint256 amount);
     event UnpaidProfitCatchUpProgress(address indexed account, uint64 nextEpoch, uint64 currentEpoch);
     event UnpaidProfitRecognized(uint256 amount, uint256 shares);
     event UnpaidProfitWrittenDown(uint256 amount, uint256 remaining);
@@ -497,7 +498,20 @@ contract AtRiskUSDProfitModule {
     }
 
     function claimUnpaidProfit() external onlyDelegateCall returns (uint256 amount) {
-        address holder = msg.sender;
+        amount = _claimUnpaidProfit(msg.sender, msg.sender);
+    }
+
+    /// @notice A14-08: pays the holder's funded profit to a recipient the host has already checked.
+    function claimUnpaidProfitFor(address holder, address recipient)
+        external
+        onlyDelegateCall
+        returns (uint256 amount)
+    {
+        _requireNotBlocked(recipient);
+        amount = _claimUnpaidProfit(holder, recipient);
+    }
+
+    function _claimUnpaidProfit(address holder, address recipient) private returns (uint256 amount) {
         _requireNotBlocked(holder);
         ProfitStorage storage state = _state();
         ProfitEntitlement storage entitlement = state.entitlements[holder];
@@ -510,8 +524,9 @@ contract AtRiskUSDProfitModule {
         if (amount == 0) revert NoFundedProfit();
         entitlement.paid += amount;
         state.fundedReserve -= amount;
-        IERC20(IAtRiskUSDProfitHost(address(this)).asset()).safeTransfer(holder, amount);
-        emit UnpaidProfitClaimed(holder, amount);
+        IERC20(IAtRiskUSDProfitHost(address(this)).asset()).safeTransfer(recipient, amount);
+        if (recipient == holder) emit UnpaidProfitClaimed(holder, amount);
+        else emit UnpaidProfitClaimedTo(holder, recipient, amount);
     }
 
     function update(address from, address to) external onlyDelegateCall {

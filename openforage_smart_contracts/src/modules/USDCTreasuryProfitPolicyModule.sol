@@ -34,6 +34,24 @@ interface IUSDCTreasuryProfitPolicyBlocklist {
     function isBlocked(address account) external view returns (bool);
 }
 
+/// @dev Cantina OPEN-121: the time of the last PnL cash-out, kept in its own namespace in the Treasury's storage.
+library USDCTreasuryPnLCashOutStorage {
+    struct Layout {
+        uint256 lastCashOutAt;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.USDCTreasuryPnLCashOut")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
+}
+
 contract USDCTreasuryProfitPolicyModule {
     uint256 private constant SECONDS_PER_DAY = 86_400;
     uint8 private constant PNL_POLICY_RECOGNITION = 0;
@@ -89,10 +107,15 @@ contract USDCTreasuryProfitPolicyModule {
         }
         if (storedReport != reportTimestamp) {
             storedReport = reportTimestamp;
-            reportCashOut = 0;
             assembly {
                 sstore(reportSlot, storedReport)
-                sstore(cashOutSlot, 0)
+            }
+            // OPEN-121: a report observed at or before the last cash-out has not seen it, so the cash-out stays consumed.
+            if (reportTimestamp > USDCTreasuryPnLCashOutStorage.layout().lastCashOutAt) {
+                reportCashOut = 0;
+                assembly {
+                    sstore(cashOutSlot, 0)
+                }
             }
         }
         uint256 navExcess = nav > principal ? nav - principal : 0;
@@ -114,13 +137,20 @@ contract USDCTreasuryProfitPolicyModule {
                 sstore(aggregateSlot, aggregateUnreturned)
             }
         } else if (mode == PNL_POLICY_RETURN) {
-            available = navExcess > reportCashOut ? navExcess - reportCashOut : 0;
+            // OPEN-390: with no principal deployed, returned cash can only be profit or surplus, and a NAV observed
+            // after it left custody no longer shows it, so unreturned recognised profit bounds the return.
+            if (principal == 0) {
+                available = aggregateUnreturned;
+            } else {
+                available = navExcess > reportCashOut ? navExcess - reportCashOut : 0;
+            }
             if (amount > available) revert PnLReturnExceedsNAVHeadroom(amount, available);
             if (amount > aggregateUnreturned) {
                 revert SettlementValueMismatch(vault, amount, aggregateUnreturned);
             }
             aggregateUnreturned -= amount;
             reportCashOut += amount;
+            USDCTreasuryPnLCashOutStorage.layout().lastCashOutAt = block.timestamp;
             assembly {
                 sstore(aggregateSlot, aggregateUnreturned)
                 sstore(cashOutSlot, reportCashOut)

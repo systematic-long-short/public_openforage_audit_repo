@@ -440,9 +440,12 @@ contract ForageToken is
     }
 
     function syncVoteEligibility(address account) external {
-        _checkAllowedCaller();
         ForageTokenRotationStatus memory status = _requireFreshInventory();
         address activeAllowlist = allowlist();
+        bool observer = msg.sender == activeAllowlist || msg.sender == _blocklist
+            || msg.sender == status.pendingBlocklist || msg.sender == status.pendingAllowlist;
+        // A14-H1: only observer callbacks need an allowlisted caller; anyone may drain queued sync work.
+        if (observer) _checkAllowedCaller();
         if (
             account != address(0)
                 && (
@@ -456,8 +459,6 @@ contract ForageToken is
                 _requireSystemAccount(account, status.pendingAllowlist);
             }
         }
-        bool observer = msg.sender == activeAllowlist || msg.sender == _blocklist
-            || msg.sender == status.pendingBlocklist || msg.sender == status.pendingAllowlist;
         if (observer) {
             _delegateStateModule(abi.encodeCall(ForageTokenStateModule.syncVoteEligibility, (account)));
             return;
@@ -752,6 +753,8 @@ contract ForageToken is
     }
 
     function setAllowlist(address allowlist_) external freshInventoryReady onlyOwner {
+        // OPEN-336: queued vote-sync tasks replay before an Allowlist change writes newer vote checkpoints.
+        if (_voteEligibilitySyncCount != 0) revert VoteEligibilitySyncPending(_voteEligibilitySyncTimepoint);
         address oldAllowlist = allowlist();
         if (oldAllowlist != address(0)) _checkAllowedCaller();
         if (oldAllowlist != address(0) && oldAllowlist == allowlist_) {
@@ -798,6 +801,14 @@ contract ForageToken is
         _unregisterAllowlistObserver(oldAllowlist);
         _transitionAllowlist(nextAllowlist);
         _delegateStateModule(abi.encodeCall(ForageTokenStateModule.activateAllowlistReindex, ()));
+    }
+
+    /// @notice A14-14 and R-0024-02: verifies vesting-source allowlist pointers in pages of at most `maxSources`.
+    ///         Activation needs a complete pass against the candidate allowlist, cancellation one against the active.
+    function verifyVestingSourceAllowlists(bool forCancellation, uint256 maxSources) external freshInventoryReady {
+        _delegateStateModule(
+            abi.encodeCall(ForageTokenStateModule.verifyVestingSourceAllowlists, (forCancellation, maxSources))
+        );
     }
 
     function cancelAllowlistReindex() external freshInventoryReady onlyAllowedCaller onlyOwner {

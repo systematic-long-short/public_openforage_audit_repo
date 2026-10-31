@@ -1,4 +1,5 @@
 # Analysis 14 dispositions — 2026-10-11
+Dated note (2026-10-28): this page records the 2026-10-11 dispositions. The [2026-10-28 pre-scan review](2026-10-28-pre-scan-review.md) fixes every finding below that is marked intended, a declared limit, or earlier behavior retained, and removes from the remaining bounds below the 40-epoch catch-up revert, the 1-9 raw-unit return-cap edge, the queue-cost limit, and the broad guardian-cancel protection. It is the current public status.
 
 Analysis 14 scanned the previously published PR #9 head `1c1085499239962b543dae724f041414a2d4eecd`. Its 17 visible findings and three separately listed automatically acknowledged findings are recorded below. The source lines refer to the public files in this update. Review status describes the latest completed independent review available for each item; it does not change Octane's status or prove deployed behavior.
 

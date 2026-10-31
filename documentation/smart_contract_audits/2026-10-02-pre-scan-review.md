@@ -1,6 +1,7 @@
 # Whole-source pre-scan review and proof limits
 
 Line references (note of 2026-10-11): the source-line ranges on this page were written for commit `01f4abe7768f03d2a21e6ab0a0221795d315d79b` and have not been maintained since; some of them do not match that commit either. They are kept as published. Use the two 2026-10-11 pages for current references.
+Line references (note of 2026-10-28): the 2026-10-28 update changed 22 source files and added one. Ranges on this page that point into those files were not re-checked and may have moved; the [2026-10-28 pre-scan review](2026-10-28-pre-scan-review.md) lists the changed files and carries checked ranges for its own changes.
 
 This is OpenForage's own source review of the public contract candidate. It is not an Octane result, an Octane finding closure, a deployment approval, or a security-clearance claim. No Octane scan or public write is part of this update.
 

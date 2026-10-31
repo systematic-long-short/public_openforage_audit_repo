@@ -15,6 +15,34 @@ interface IRISKUSDVaultLossQuery {
     function vaultRegistry() external view returns (address);
     function lossPending() external view returns (bool);
     function lossPendingVaultId() external view returns (uint256);
+    function custodian() external view returns (address);
+}
+
+interface ICustodianPrincipalQuery {
+    function deployedPrincipal() external view returns (uint256);
+}
+
+/// @dev A7-11: each vault's tier assets at the start of the current UTC day, rolled by the tier-asset hook.
+library VaultRegistryTierAssetEpochStorage {
+    struct Snapshot {
+        uint256 day;
+        uint256 assets;
+    }
+
+    struct Layout {
+        mapping(uint256 => Snapshot) snapshots;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.VaultRegistryTierAssetEpoch")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
 }
 
 interface ITierVaultAccountingQuery {
@@ -66,6 +94,7 @@ contract VaultRegistry is
     error RenounceOwnershipDisabled();
     error TierVaultsNotUsed();
     error LossPendingForVault(); // OF-14-001: cannot wind down vault with pending loss
+    error DeployedPrincipalOutstanding(uint256 deployedPrincipal);
     error LossCooldownActive(); // OF-16-002: cooldown after loss resolution
     error FinalizeDelayNotElapsed(); // OF-13-010
     error ProposalExpired(); // OF-13-010
@@ -410,6 +439,7 @@ contract VaultRegistry is
         string memory abbr = vault.abbreviation;
         bytes32 abbrHash = keccak256(bytes(abbr));
         if (_abbreviationToVaultId[abbrHash] != vaultId) revert AbbreviationAlreadyReleased();
+        _requireCapitalSettled();
 
         delete _abbreviationToVaultId[abbrHash];
 
@@ -621,6 +651,42 @@ contract VaultRegistry is
         return _activeRegisteredTierAssets;
     }
 
+    /// @notice A vault's registered tier assets as they stood when the current UTC day began.
+    function tierAssetsAtEpochStart(uint256 vaultId) external view freshOnly returns (uint256) {
+        VaultConfig storage vault = _vaults[vaultId];
+        if (vault.vaultId == 0) revert InvalidVaultId();
+        VaultRegistryTierAssetEpochStorage.Snapshot storage snapshot =
+            VaultRegistryTierAssetEpochStorage.layout().snapshots[vaultId];
+        if (snapshot.day == block.timestamp / 1 days) return snapshot.assets;
+        return _cachedVaultTierAssets(vault);
+    }
+
+    function _rollTierAssetEpoch(uint256 vaultId, VaultConfig storage vault) private {
+        VaultRegistryTierAssetEpochStorage.Snapshot storage snapshot =
+            VaultRegistryTierAssetEpochStorage.layout().snapshots[vaultId];
+        uint256 day = block.timestamp / 1 days;
+        if (snapshot.day == day) return;
+        snapshot.day = day;
+        snapshot.assets = _cachedVaultTierAssets(vault);
+    }
+
+    function _cachedVaultTierAssets(VaultConfig storage vault) private view returns (uint256 assets) {
+        for (uint256 i; i < 4; ++i) {
+            assets += _registeredTierVaultAssets[vault.tierVaults[i]].fundedAssets;
+        }
+    }
+
+    /// @dev VLT-WINDDOWN-DEPOSIT: an abbreviation is released only once no principal is deployed and no loss is pending.
+    function _requireCapitalSettled() private view {
+        if (_riskusdVault == address(0)) return;
+        IRISKUSDVaultLossQuery riskVault = IRISKUSDVaultLossQuery(_riskusdVault);
+        if (riskVault.lossPending()) revert LossPendingForVault();
+        address custodianBridge = riskVault.custodian();
+        if (custodianBridge == address(0)) return;
+        uint256 principal = ICustodianPrincipalQuery(custodianBridge).deployedPrincipal();
+        if (principal != 0) revert DeployedPrincipalOutstanding(principal);
+    }
+
     function vaultCount() external view freshOnly returns (uint256) {
         return _allVaultIds.length;
     }
@@ -698,6 +764,7 @@ contract VaultRegistry is
         uint256 previousF = cached.fundedAssets;
         uint256 currentF = _readTierVaultFundedAssets(msg.sender, tier);
         if (currentF == previousF) return;
+        _rollTierAssetEpoch(vaultId, vault);
         if (vault.status == VaultStatus.Active) {
             _activeRegisteredTierAssets = _replaceTierAssets(
                 msg.sender, _activeRegisteredTierAssets, previousF, currentF, uint8(VaultStatus.Active)

@@ -163,6 +163,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
     error EmergencyPrincipalLaneUnavailable(address lane);
     error EmergencyPrincipalLaneClosed();
     error UnauthorizedLaneGuardian(address account);
+    error StaleEmergencyPrincipalLane(address lane, address laneModule, address currentModule);
     error StaleNAV();
     error DirectionFrozen();
     error UnauthorizedKeeper();
@@ -170,6 +171,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
     error BlockedAddress(address account);
     error LossSettlementInProgress();
     error PrincipalBookAnchorUnavailable();
+    error ReconciledReturnPending(uint256 amount);
     error LossPending();
     error PrincipalBasisUnavailable();
     error SequencerUptimeFeedUnavailable(address feed);
@@ -265,7 +267,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         if (msg.sender != _keeper) revert UnauthorizedKeeper();
         _requireNotBlocked(msg.sender);
         if (_lossSettlementInProgress) revert LossSettlementInProgress();
-        if (observedAt < _lastNAVObservedAt) revert StaleNAV();
+        if (observedAt <= _lastNAVObservedAt) revert StaleNAV();
         if (_principalBookKnownSince == 0) revert PrincipalBookAnchorUnavailable();
         if (observedAt <= _principalBookKnownSince || bookValue != _deployedPrincipal) revert StaleNAV();
         uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_deployedPrincipal, _lastNAVBookValue, _appliedNAV);
@@ -283,6 +285,10 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         }
         if (applied > previousNAV) _requireNoUnresolvedLossNonce();
         if (applied >= _deployedPrincipal) _requireSequencerUp();
+        // OPEN-150: returned principal still held by the bridge is not a custody loss; return it before reporting one.
+        if (applied < _deployedPrincipal && _reconciledReturnLiquidity != 0) {
+            revert ReconciledReturnPending(_reconciledReturnLiquidity);
+        }
         _recordNAVIntervalBudget(applied, observedAt);
         _lastNAVBookValue = bookValue;
         _lastNAVRawValue = rawNav;
@@ -323,6 +329,10 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         if (lane.code.length == 0) revert EmergencyPrincipalLaneUnavailable(lane);
         IEmergencyPrincipalLane authority = IEmergencyPrincipalLane(lane);
         if (!authority.principalLaneOpen()) revert EmergencyPrincipalLaneClosed();
+        // G1: a lane built for an earlier guardian module gives no authority after the Governor rotates it.
+        address currentModule = ICustodianRegistryAccountingPort(custodianRegistry).guardianModule();
+        address laneModule = authority.guardianModule();
+        if (laneModule != currentModule) revert StaleEmergencyPrincipalLane(lane, laneModule, currentModule);
         if (!authority.isLaneGuardian(msg.sender)) revert UnauthorizedLaneGuardian(msg.sender);
         IHLTradingBridgeLaneReturnHost(address(this)).returnPrincipalUSDCWithNAVBasis(amount, false);
     }
@@ -394,8 +404,16 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         }
     }
 
+    /// @notice BRIDGE-NAV-SEQUENCER-BYPASS: lets the Bridge's manual NAV path apply the same sequencer check.
+    function requireSequencerUp(address feed) external view {
+        _requireSequencerUpFor(feed);
+    }
+
     function _requireSequencerUp() private view {
-        address feed = _sequencerUptimeFeed;
+        _requireSequencerUpFor(_sequencerUptimeFeed);
+    }
+
+    function _requireSequencerUpFor(address feed) private view {
         if (feed == address(0)) {
             if (block.chainid == ARBITRUM_ONE_CHAIN_ID) revert SequencerUptimeFeedUnavailable(feed);
             return;
@@ -496,6 +514,7 @@ interface IUSDCTreasuryReturnPort {
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external;
     function settleBridgeSurplus(uint256 vaultId, uint256 amount) external;
     function unreturnedRecognizedProfit(uint256 vaultId) external view returns (uint256);
+    function recognitionWindowOpen(uint256 vaultId) external view returns (bool);
 }
 
 interface IRISKUSDVaultCustodyPort {
@@ -576,6 +595,8 @@ contract HLTradingBridge is
     error UnauthorizedVault(address caller);
     error WithdrawalIntentNotExpired();
     error NonZeroPrincipal(uint256 principal);
+    error UnreturnedProfitPending(uint256 vaultId, uint256 unreturned);
+    error RecognitionWindowOpen(uint256 vaultId);
     error SequencerUptimeFeedUnavailable(address feed);
     error SequencerDown();
     error SequencerGracePeriodNotOver(uint256 startedAt, uint256 gracePeriod);
@@ -598,6 +619,7 @@ contract HLTradingBridge is
     error InvalidManualNAVObservation(uint256 observedAt, uint256 currentTimestamp);
     error VaultPrincipalMismatch(uint256 vaultPrincipal, uint256 bridgePrincipal);
     error PrincipalBookAnchorUnavailable();
+    error ReconciledReturnPending(uint256 amount);
     error ManualNAVObservationNotAfterPrincipalChange(uint256 observedAt, uint256 principalBookKnownSince);
     error PausedNAVIncrease(uint256 proposed, uint256 accepted);
     error BridgeRoleCollision(address account, address conflictingAccount);
@@ -958,6 +980,11 @@ contract HLTradingBridge is
         _delegateCapitalModule(abi.encodeCall(HLTradingBridgeCapitalModule.requireCanonicalVaultId, (vaultId)));
         if (_deployedPrincipal != 0) revert NonZeroPrincipal(_deployedPrincipal);
         if (amount == 0) revert ZeroAmount();
+        // OPEN-390: cash that recognised profit still claims leaves through returnPnLUSDC, never into the held earmark.
+        uint256 unreturned = IUSDCTreasuryReturnPort(usdcTreasury).unreturnedRecognizedProfit(vaultId);
+        if (unreturned != 0) revert UnreturnedProfitPending(vaultId, unreturned);
+        // OPEN-447, OPEN-451: profit that a fresh NAV report still shows is answered before its cash can be swept.
+        if (IUSDCTreasuryReturnPort(usdcTreasury).recognitionWindowOpen(vaultId)) revert RecognitionWindowOpen(vaultId);
         _requireNotBlocked(msg.sender);
         _requireNotBlocked(address(this));
         _requireNotBlocked(usdcTreasury);
@@ -1475,8 +1502,15 @@ contract HLTradingBridge is
         uint256 vaultPrincipal = manualVault.totalDeployed();
         if (vaultPrincipal != principal) revert VaultPrincipalMismatch(vaultPrincipal, principal);
         uint256 normalizedNav = _normalizeCustodianNAV(vaultId, principal, nav, observedAt, true);
+        if (normalizedNav >= principal) {
+            HLTradingBridgeCapitalModule(_capitalModule).requireSequencerUp(_sequencerUptimeFeed);
+        }
         uint256 previousNAV = _normalizeAppliedNAVToCurrentBook(_lastNAVBookValue, _appliedNAV);
         if (normalizedNav > previousNAV) _requireNoUnresolvedLossNonce(true);
+        // OPEN-150: returned principal still held by the bridge is not a custody loss; return it before reporting one.
+        if (lossNonce != 0 && normalizedNav < principal && _reconciledReturnLiquidity != 0) {
+            revert ReconciledReturnPending(_reconciledReturnLiquidity);
+        }
         bool shouldRecord = lossNonce != 0 || normalizedNav >= principal;
         return (shouldRecord, shouldRecord ? normalizedNav : 0);
     }

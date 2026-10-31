@@ -1197,6 +1197,32 @@ contract ForageTokenVoteEligibilitySyncQueue {
     }
 }
 
+/// @dev A14-14 and R-0024-02: progress of the paginated vesting-source allowlist verification, one cursor per
+///      expected allowlist, bound to the pending reindex generation.
+library ForageTokenSourceVerificationStorage {
+    struct Pass {
+        uint256 generation;
+        address expectedAllowlist;
+        uint256 cursor;
+    }
+
+    struct Layout {
+        Pass activation;
+        Pass cancellation;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.ForageTokenSourceVerification")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
+}
+
 contract ForageTokenStateModule {
     using Checkpoints for Checkpoints.Trace208;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -1230,6 +1256,7 @@ contract ForageTokenStateModule {
     error VoteEligibilitySyncPending(uint48 timepoint);
     error NoPendingVoteEligibilitySync(address account);
     error VestingSourceAllowlistHandoffIncomplete(uint256 pendingSources);
+    error VestingSourceVerificationIncomplete(uint256 verified, uint256 sources);
 
     event AuthorizedBurnerUpdated(address indexed burner, bool authorized);
     event AuthorizedLockerUpdated(address indexed locker, bool authorized);
@@ -1266,6 +1293,7 @@ contract ForageTokenStateModule {
         address indexed oldAllowlist, address indexed newAllowlist, uint256 indexed generation, uint48 activationTime
     );
     event AllowlistReindexCancelled(address indexed candidateAllowlist, uint256 indexed generation);
+    event VestingSourceAllowlistsVerified(address indexed expectedAllowlist, uint256 verified, uint256 sources);
     event VoteEligibilitySyncQueued(address indexed account, uint48 timepoint, uint256 pendingCount);
     event VoteEligibilitySyncProgress(address indexed account, uint256 remainingSources, bool complete);
 
@@ -1614,7 +1642,7 @@ contract ForageTokenStateModule {
         uint256 unscanned = state.sources.length - state.candidateAllowlistPointerCursor;
         uint256 pendingSources = candidate.vestingSourceAllowlistHandoffCount + unscanned;
         if (pendingSources != 0) revert VestingSourceAllowlistHandoffIncomplete(pendingSources);
-        _requireVestingSourceAllowlists(state, nextAllowlist);
+        _requireVerifiedVestingSources(state, ForageTokenSourceVerificationStorage.layout().activation, nextAllowlist);
         address previousAllowlist = state.generationAllowlists[state.activeGeneration];
         (uint256 generation, uint48 activationTime) = _activateProjection(state, _blocklist, nextAllowlist);
         emit AllowlistReindexActivated(previousAllowlist, nextAllowlist, generation, activationTime);
@@ -1625,7 +1653,9 @@ contract ForageTokenStateModule {
         address candidateAllowlist = state.pendingAllowlist;
         uint256 generation = state.pendingGeneration;
         if (candidateAllowlist == address(0)) revert AllowlistReindexUnavailable();
-        _requireVestingSourceAllowlists(state, allowlistAddress());
+        _requireVerifiedVestingSources(
+            state, ForageTokenSourceVerificationStorage.layout().cancellation, allowlistAddress()
+        );
         state.pendingBlocklist = address(0);
         state.pendingAllowlist = address(0);
         state.pendingGeneration = 0;
@@ -2372,18 +2402,45 @@ contract ForageTokenStateModule {
         }
     }
 
-    function _requireVestingSourceAllowlists(BlocklistRotationStorage storage state, address expectedAllowlist)
-        private
-        view
-    {
+    /// @notice Checks up to `maxSources` more vesting sources against the allowlist the next step needs; a source
+    ///         that still points elsewhere stops the pass at that source until its handoff is done.
+    function verifyVestingSourceAllowlists(bool forCancellation, uint256 maxSources) external onlyFreshDelegateCall {
+        BlocklistRotationStorage storage state = _blocklistRotationStorage();
+        address candidateAllowlist = state.pendingAllowlist;
+        if (candidateAllowlist == address(0)) revert AllowlistReindexUnavailable();
+        address expectedAllowlist = forCancellation ? allowlistAddress() : candidateAllowlist;
+        ForageTokenSourceVerificationStorage.Layout storage verification = ForageTokenSourceVerificationStorage.layout();
+        ForageTokenSourceVerificationStorage.Pass storage pass =
+            forCancellation ? verification.cancellation : verification.activation;
+        if (pass.generation != state.pendingGeneration || pass.expectedAllowlist != expectedAllowlist) {
+            pass.generation = state.pendingGeneration;
+            pass.expectedAllowlist = expectedAllowlist;
+            pass.cursor = 0;
+        }
         uint256 sourceCount = state.sources.length;
-        for (uint256 index; index < sourceCount; ++index) {
+        uint256 index = pass.cursor;
+        uint256 end = sourceCount - index > maxSources ? index + maxSources : sourceCount;
+        for (; index < end; ++index) {
             address source = state.sources[index];
             if (
                 _vestingBeneficiaryBySource[source] != address(0)
                     && _vestingSourceAllowlist(source) != expectedAllowlist
             ) revert VestingSourceAllowlistHandoffIncomplete(1);
         }
+        pass.cursor = end;
+        emit VestingSourceAllowlistsVerified(expectedAllowlist, end, sourceCount);
+    }
+
+    function _requireVerifiedVestingSources(
+        BlocklistRotationStorage storage state,
+        ForageTokenSourceVerificationStorage.Pass storage pass,
+        address expectedAllowlist
+    ) private view {
+        uint256 sourceCount = state.sources.length;
+        if (
+            pass.generation != state.pendingGeneration || pass.expectedAllowlist != expectedAllowlist
+                || pass.cursor != sourceCount
+        ) revert VestingSourceVerificationIncomplete(pass.cursor, sourceCount);
         if (_vestingSourceAllowlist(_initialTreasurySource) != expectedAllowlist) {
             revert VestingSourceAllowlistHandoffIncomplete(1);
         }

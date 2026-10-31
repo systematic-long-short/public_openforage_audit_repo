@@ -561,8 +561,8 @@
                     ┌────────────────────────────┐
   <b>1  DEPOSIT</b>         │   Depositor's USDC         │
                     └─────────────┬──────────────┘
-                                  │   1 USDC ──▶ 1 RISKUSD          <span class="h">cap: per-block 20% /</span>
-                                  ▼                                 <span class="h">daily 20% / weekly 200% mint</span>
+                                  │   1 USDC ──▶ 1 RISKUSD          <span class="h">cap: daily 10% /</span>
+                                  ▼                                 <span class="h">weekly 50% mint, floor $10M</span>
                     ┌────────────────────────────┐
   <b>2  THE VAULT</b>       │   RISKUSDVault             │   holds the cash, issues the receipt
                     └─────────────┬──────────────┘
@@ -609,7 +609,7 @@
     <ul>
       <li><strong>1 · Deposit.</strong> A depositor sends USDC to the Vault and receives an
         equal amount of RISKUSD. To stop a runaway or an exploit minting unlimited
-        receipts, the Vault throttles how much can be created per block, per day,
+        receipts, the Vault throttles how much can be created per day
         and per week.</li>
       <li><strong>2 · The Vault.</strong> The Vault is the cash reserve. It now holds the USDC
         and has issued matching RISKUSD, and from this moment it keeps proving a
@@ -794,8 +794,8 @@
       </div>
       <div class="callout">
         <h3 style="color:var(--ink)">Speed limits on creation</h3>
-        <p>New dollar-receipts can only be minted so fast — throttled per block, per
-        day, and per week. A bug or an attacker cannot conjure unlimited supply in
+        <p>New dollar-receipts can only be minted so fast — throttled per day and per
+        week. A bug or an attacker cannot conjure unlimited supply in
         one transaction; the throttle buys time for the brake to engage.</p>
       </div>
       <div class="callout">

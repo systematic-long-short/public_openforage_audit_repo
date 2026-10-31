@@ -57,6 +57,11 @@ contract GuardianEmergencyPrincipalLane {
         return _laneOpenUntil;
     }
 
+    /// @notice The guardian module whose pause guardians this lane counts.
+    function guardianModule() external view returns (address) {
+        return _guardianModule;
+    }
+
     function isLaneGuardian(address account) public view returns (bool) {
         IGuardianModuleEmergencyPrincipalLane module = IGuardianModuleEmergencyPrincipalLane(_guardianModule);
         if (!_currentAllowlist().isAllowed(account)) return false;

@@ -317,6 +317,7 @@ contract StakingQueue is
         mapping(uint256 => uint256) priorityNext;
         mapping(uint256 => bool) priorityActive;
         uint8 deferredFrontierVersion;
+        mapping(address => uint256) openEntryCount;
     }
 
     bytes32 private constant QUEUE_MODULE_STORAGE_LOCATION =
@@ -643,7 +644,9 @@ contract StakingQueue is
         _delegateToModule();
     }
 
-    function cancelQueue(uint256 queueId) external onlyFreshQueue onlyAllowedCaller nonReentrant {
+    /// @dev A14-07: a holder whose allowlist approval lapsed can still take back its own escrow; the module
+    ///      keeps the depositor check and refuses a blocklisted caller.
+    function cancelQueue(uint256 queueId) external onlyFreshQueue nonReentrant {
         _delegateToModule();
     }
 

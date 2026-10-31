@@ -396,6 +396,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         _requireGuardian(msg.sender);
         Rotation storage rotation = _rotations[operationId];
         if (!rotation.exists) revert InvalidParameter();
+        if (rotation.executed || _acceleratedRotationExpired(rotation)) revert RotationNotReady();
         if (_rotationApprovals[operationId][msg.sender]) return;
         _rotationApprovals[operationId][msg.sender] = true;
         _rotationApprovalCount[operationId] += 1;
@@ -577,7 +578,10 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     }
 
     function _acceleratedRotationExpired(Rotation storage rotation) private view returns (bool) {
-        return rotation.readyAt != 0 && block.timestamp > rotation.readyAt + PROPOSAL_EXPIRY;
+        if (!rotation.exists) return false;
+        // R-0024-01: a rotation that never reached its approvals expires from its proposal time.
+        uint256 start = rotation.readyAt != 0 ? rotation.readyAt : rotation.proposedAt;
+        return block.timestamp > start + PROPOSAL_EXPIRY;
     }
 
     function _acceleratedRotationTupleId(bytes32 slot, address current, address successor)
@@ -776,26 +780,6 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
         if (selector == IEmergencyAtRiskCaps.shrinkWeeklyWithdrawalCapBps.selector) {
             (uint256 bps) = abi.decode(data[4:], (uint256));
             try IEmergencyAtRiskCaps(target).shrinkWeeklyWithdrawalCapBps(bps) {
-                emit EmergencyCallSucceeded(target, selector);
-                return true;
-            } catch (bytes memory reason) {
-                emit EmergencyCallFailed(target, selector, reason);
-                return false;
-            }
-        }
-        if (selector == IEmergencyAllowlistCaps.revoke.selector) {
-            (address account) = abi.decode(data[4:], (address));
-            try IEmergencyAllowlistCaps(target).revoke(account) {
-                emit EmergencyCallSucceeded(target, selector);
-                return true;
-            } catch (bytes memory reason) {
-                emit EmergencyCallFailed(target, selector, reason);
-                return false;
-            }
-        }
-        if (selector == IEmergencyAllowlistCaps.shrinkApprovalsPerDayCap.selector) {
-            (uint32 newCap) = abi.decode(data[4:], (uint32));
-            try IEmergencyAllowlistCaps(target).shrinkApprovalsPerDayCap(newCap) {
                 emit EmergencyCallSucceeded(target, selector);
                 return true;
             } catch (bytes memory reason) {
@@ -1010,13 +994,19 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function _rotationCanExecuteAgain(bytes memory data) private view returns (bool) {
         Rotation storage rotation = _rotations[bytes32(_wordAt(data, 4))];
         if (!rotation.exists || rotation.successor == address(0)) return false;
-        return !rotation.executed && !_acceleratedRotationExpired(rotation);
+        if (rotation.executed || _acceleratedRotationExpired(rotation)) return false;
+        // A14-10: only a ready rotation whose pre-commit still matches is protected from guardian cancellation.
+        if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) return false;
+        return rotation.readyAt != 0 && block.timestamp >= rotation.readyAt;
     }
 
     function _routineGuardianSeatCanFinalize(bytes memory data) private view returns (bool) {
         Rotation storage rotation = _rotations[bytes32(_wordAt(data, 4))];
         if (!rotation.exists || rotation.executed || rotation.successor == address(0)) return false;
         if (rotation.slot != SLOT_GUARDIAN_SEAT) return false;
+        // A14-10: a routine seat rotation counts only once its delay has run and its pre-commit still matches.
+        if (block.timestamp < rotation.proposedAt + ROUTINE_ROTATION_DELAY) return false;
+        if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) return false;
         (, bool valid) = GuardianAuthorityClassifier.guardianSeatTransition(
             rotation.current, rotation.successor, guardianPermissions, _guardianRosterEntryCount
         );
@@ -1150,11 +1140,6 @@ interface IEmergencyHLBridgeCaps {
     function shrinkPerBlockDeployCap(uint256 cap) external;
     function shrinkPerDayDeployCap(uint256 cap) external;
     function tightenReturnCapitalCaps(uint16 perCallBps, uint16 perDayBps) external;
-}
-
-interface IEmergencyAllowlistCaps {
-    function revoke(address account) external;
-    function shrinkApprovalsPerDayCap(uint32 newCap) external;
 }
 
 interface IEmergencyUSDCTreasuryCaps {

@@ -13,10 +13,35 @@ import "./AllowlistGatedUpgradeable.sol";
 import "./FinalizeDelayProfile.sol";
 import "./interfaces/IAtRiskUSDProfitClaims.sol";
 import {IAllowlist} from "./interfaces/IAllowlist.sol";
-import {IUSDCTreasuryLossSettlement, IUSDCTreasuryYieldClaims} from "./interfaces/IUSDCTreasuryYieldClaims.sol";
+import {
+    IUSDCTreasuryAccountingModule,
+    IUSDCTreasuryLossSettlement,
+    IUSDCTreasuryYieldClaims
+} from "./interfaces/IUSDCTreasuryYieldClaims.sol";
 import "./interfaces/IVaultRegistry.sol";
 import {USDCTreasuryAccountingModule} from "./modules/USDCTreasuryAccountingModule.sol";
-import {USDCTreasuryProfitPolicyModule} from "./modules/USDCTreasuryProfitPolicyModule.sol";
+import {
+    IRISKUSDVaultNAV as IUSDCTreasuryNAVSource,
+    USDCTreasuryProfitPolicyModule
+} from "./modules/USDCTreasuryProfitPolicyModule.sol";
+
+/// @dev A14-02: the NAV attestation each vault's last recognition answered.
+library USDCTreasuryRecognitionStorage {
+    struct Layout {
+        mapping(uint256 => uint256) recognizedAttestation;
+    }
+
+    bytes32 private constant STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("openforage.storage.USDCTreasuryRecognition")) - 1)
+    ) & ~bytes32(uint256(0xff));
+
+    function layout() internal pure returns (Layout storage $) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly ("memory-safe") {
+            $.slot := slot
+        }
+    }
+}
 
 interface IUSDCTreasuryBlocklist {
     function isBlocked(address account) external view returns (bool);
@@ -35,6 +60,10 @@ interface IRISKUSDVaultLossSettlement {
     function lossPending() external view returns (bool);
     function forageGovernor() external view returns (address);
     function lastAttestationTimestamp() external view returns (uint256);
+}
+
+interface IUSDCTreasuryBridgeState {
+    function reconciledReturnLiquidity() external view returns (uint256);
 }
 
 interface IUSDCTreasuryTierVault is IAtRiskUSDProfitClaims {
@@ -123,9 +152,13 @@ contract USDCTreasury is
     error LossNonceMismatch(uint256 provided, uint256 expected);
     error LossVaultMismatch(uint256 provided, uint256 expected);
     error NoPendingLoss();
+    error RetainedCoverExceedsShortfall(uint256 requested, uint256 shortfall);
     error AttestedLossPending();
     error UnauthorizedLossCapShrinker(address caller);
     error VaultTopUpAmountMismatch(uint256 provided, uint256 pending);
+    error VaultTopUpPending(uint256 vaultId, uint256 pending);
+    error RecognizedProfitUnreturned(uint256 vaultId, uint256 unreturned);
+    error ReconciledReturnPending(uint256 waiting);
     error SettlementValueMismatch(address account, uint256 expected, uint256 actual);
     error TierVaultUnavailable(address tierVault);
     error ZeroSupplyTier(address tierVault, uint256 amount);
@@ -226,6 +259,9 @@ contract USDCTreasury is
     event AttestedLossSettled(uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount);
     event LossSettlementProgressed(
         uint256 indexed vaultId, uint256 indexed lossNonce, uint256 amount, uint256 remaining
+    );
+    event RetainedLossCoverFunded(
+        uint256 indexed lossNonce, address indexed funder, uint256 amount, uint256 remainingShortfall
     );
 
     USDCTreasuryProfitPolicyModule private immutable _profitPolicyModule;
@@ -363,8 +399,18 @@ contract USDCTreasury is
     function recognizePnL(uint256 vaultId, int256 amount) external freshOnly onlyAllowedCaller nonReentrant {
         if (msg.sender != pnlAttestor) revert UnauthorizedAttestor();
         if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
+        // A14-02: any recognition, positive, zero or negative, answers the current attestation and reopens admissions.
+        USDCTreasuryRecognitionStorage.layout().recognizedAttestation[vaultId] =
+            IUSDCTreasuryNAVSource(riskusdVault).lastAttestationTimestamp();
         if (amount >= 0) {
             uint256 profit = SignedMath.abs(amount);
+            // OPEN-173: cash returned for earlier claims is delivered before a new cohort is recognised;
+            // a zero answer creates no claims and stays allowed.
+            uint256 pendingTopUp = pendingVaultTopUp[vaultId];
+            if (profit != 0 && pendingTopUp != 0) revert VaultTopUpPending(vaultId, pendingTopUp);
+            // OPEN-289, OPEN-318: one recognition's profit comes back and is delivered before the next is recognised.
+            uint256 unreturned = unreturnedRecognizedProfit[vaultId];
+            if (profit != 0 && unreturned != 0) revert RecognizedProfitUnreturned(vaultId, unreturned);
             _delegateProfitPolicyModule(profit, unreturnedRecognizedProfit[vaultId], PNL_POLICY_RECOGNITION);
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
             _validateYieldClaimProjection(vaultId, config);
@@ -375,6 +421,8 @@ contract USDCTreasury is
             _validateYieldClaimProjection(vaultId, config);
         } else {
             uint256 loss = SignedMath.abs(amount);
+            // OPEN-390, OPEN-425: cash waiting in the bridge is returned before a loss is recognised, at any principal.
+            _requireNoReconciledReturnPending();
             _delegateProfitPolicyModule(loss, unreturnedRecognizedProfit[vaultId], PNL_POLICY_LOSS);
             if (_hasOpenAttestedLoss()) revert AttestedLossPending();
             VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
@@ -457,8 +505,35 @@ contract USDCTreasury is
         _usdc.forceApprove(riskusdVault, 0);
     }
 
+    /// @notice A14-02: tier admissions wait while a fresh NAV attestation shows profit not yet recognized.
+    function recognitionWindowOpen(uint256 vaultId) external view returns (bool) {
+        IUSDCTreasuryNAVSource vault = IUSDCTreasuryNAVSource(riskusdVault);
+        uint256 attestedAt = vault.lastAttestationTimestamp();
+        if (attestedAt == 0 || attestedAt > block.timestamp) return false;
+        if (block.timestamp - attestedAt > vault.attestationIntervalSeconds()) return false;
+        if (USDCTreasuryRecognitionStorage.layout().recognizedAttestation[vaultId] == attestedAt) return false;
+        uint256 nav = vault.adjustedCustodianNAV();
+        uint256 principal = vault.totalDeployed();
+        return nav > principal && nav - principal > unreturnedRecognizedProfit[vaultId];
+    }
+
     function returnPnLUSDC(uint256 vaultId, uint256 amount) external freshOnly onlyAllowedCaller nonReentrant {
         if (msg.sender != hlTradingBridge) revert UnauthorizedBridge();
+        _returnPnL(vaultId, amount, false);
+    }
+
+    /// @notice A14-15: turns surplus held at zero principal into a PnL return under the same policy and allocation.
+    function allocateZeroPrincipalHeldAsPnLReturn(uint256 vaultId, uint256 amount)
+        external
+        freshOnly
+        onlyAllowedCaller
+        onlyOwner
+        nonReentrant
+    {
+        _returnPnL(vaultId, amount, true);
+    }
+
+    function _returnPnL(uint256 vaultId, uint256 amount, bool fromHeldSurplus) private {
         if (amount == 0) revert ZeroAmount();
         if (!_profitReturnAccountingInitialized) revert PnLReturnAccountingUninitialized();
         if (recognizedProfit[vaultId] == 0) revert PnLNotRecognized(vaultId);
@@ -467,7 +542,13 @@ contract USDCTreasury is
         _delegateProfitPolicyModule(amount, 0, PNL_POLICY_RETURN);
         PnLReturnState memory state = _preflightPnLReturn(vaultId);
         unreturnedRecognizedProfit[vaultId] = unpaid - amount;
-        _collectPnLReturn(amount);
+        if (fromHeldSurplus) {
+            uint256 held = earmarkBalance[EARMARK_ZERO_PRINCIPAL_HELD];
+            if (amount > held) revert InsufficientEarmark();
+            earmarkBalance[EARMARK_ZERO_PRINCIPAL_HELD] = held - amount;
+        } else {
+            _collectPnLReturn(amount);
+        }
         USDCTreasuryAccountingModule.PnLReturnAllocation memory allocation =
             _calculatePnLReturnAllocation(vaultId, amount, state.outstandingClaim, state.existingPending);
         _commitPnLReturn(vaultId, amount, allocation);
@@ -524,13 +605,9 @@ contract USDCTreasury is
         emit PnLReturned(vaultId, amount);
     }
 
-    function deliverVaultTopUp(uint256 vaultId, uint256 amount)
-        external
-        freshOnly
-        onlyAllowedCaller
-        onlyOwner
-        nonReentrant
-    {
+    function deliverVaultTopUp(uint256 vaultId, uint256 amount) external freshOnly onlyAllowedCaller nonReentrant {
+        // OPEN-173: the PnL attestor may deliver too, so a top-up never waits on a governance proposal.
+        if (msg.sender != owner() && msg.sender != pnlAttestor) revert UnauthorizedAttestor();
         if (_hasOpenAttestedLoss()) revert AttestedLossPending();
         VaultConfig memory config = IVaultRegistry(vaultRegistry).getVault(vaultId);
         uint256[4] memory allocations = _prepareVaultTopUp(vaultId, amount, config);
@@ -593,6 +670,10 @@ contract USDCTreasury is
             _requireValueIncrease(tierVault, tierBalanceBefore, riskusd.balanceOf(tierVault), yieldAmount);
         }
         _requireBalanceDecrease(riskusd, address(this), treasuryRiskusdBefore, totalYield);
+    }
+
+    function fundRetainedLossCover(uint256 amount) external freshOnly onlyAllowedCaller onlyOwner nonReentrant {
+        _delegateAccountingModule(abi.encodeCall(IUSDCTreasuryAccountingModule.fundRetainedLossCover, (amount)));
     }
 
     function settleLoss(uint256 vaultId, uint256 lossNonce)
@@ -829,12 +910,23 @@ contract USDCTreasury is
         }
     }
 
+    function _requireNoReconciledReturnPending() private view {
+        address bridge = hlTradingBridge;
+        if (bridge.code.length == 0) return;
+        uint256 waiting = IUSDCTreasuryBridgeState(bridge).reconciledReturnLiquidity();
+        if (waiting != 0) revert ReconciledReturnPending(waiting);
+    }
+
     function _writeDownUnpaidClaims(uint256 vaultId, uint256 amount, VaultConfig memory config)
         private
         returns (uint256 writtenDown)
     {
         (uint256 outstanding, uint256[4] memory tierOutstanding) = _projectYieldClaims(vaultId, config);
-        writtenDown = amount < outstanding ? amount : outstanding;
+        // OPEN-141: the part of the claim already backed by returned cash (the pending vault top-up) is not exposed
+        // to a later loss, so that cash stays with the holders.
+        uint256 pending = pendingVaultTopUp[vaultId];
+        uint256 exposed = outstanding > pending ? outstanding - pending : 0;
+        writtenDown = amount < exposed ? amount : exposed;
         if (writtenDown == 0) return 0;
         uint256[4] memory allocations = _allocateCapped(writtenDown, tierOutstanding, outstanding);
         recognizedDepositorClaim[vaultId] -= writtenDown;
