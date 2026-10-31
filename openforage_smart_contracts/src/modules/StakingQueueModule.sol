@@ -1001,8 +1001,9 @@ abstract contract StakingQueueModuleStorage is AllowlistGatedUpgradeable {
         hasPendingWithdrawal = _readTierVaultBool(vaultAddr, tier, depositor, _SEL_HAS_PENDING);
         shares = _readTierVaultAccountValue(vaultAddr, tier, depositor, _SEL_LOCKUP_SHARES);
 
-        // OF-022: Only consider depositor as having a lockup if they actually hold shares
-        hasLockup = (isExpired || hasPendingWithdrawal) && shares > 0;
+        // OF-022: Only consider depositor as having a lockup if they actually hold shares; OPEN-473: shares waiting
+        // to withdraw count, so a position wholly in escrow is still renewed at expiry.
+        hasLockup = hasPendingWithdrawal || (isExpired && shares > 0);
     }
 
     function _readTierVaultBool(address vaultAddr, uint8 tier, address account, bytes4 selector)

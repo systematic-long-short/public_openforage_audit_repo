@@ -176,10 +176,12 @@ contract StakingQueueLockupModule is StakingQueueModuleStorage {
         if (msg.sender != address(this)) revert InternalOnly();
         _requireNotBlocked(depositor);
 
-        (bool hasLockup, bool isExpired, bool autoRenew, bool hasPendingWithdrawal, uint256 shares) =
+        (bool hasLockup, bool isExpired, bool autoRenew,, uint256 shares) =
             _getLockupInfo(tierVaultAddr, tier, depositor);
 
-        if (!hasLockup || !isExpired || (autoRenew && hasPendingWithdrawal)) return;
+        // OPEN-473, OPEN-232: an auto-renew position is renewed even while it waits to withdraw; the exit still runs
+        // in its window, and shares it returns stay under the new lock.
+        if (!hasLockup || !isExpired) return;
 
         if (autoRenew) {
             (bool success, bytes memory data) = tierVaultAddr.call(abi.encodeWithSelector(_SEL_RENEW_LOCKUP, depositor));

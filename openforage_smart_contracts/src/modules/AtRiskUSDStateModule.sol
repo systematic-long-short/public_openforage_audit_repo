@@ -225,6 +225,8 @@ contract AtRiskUSDStateModule is
     }
 
     function setAutoRenewDisabled(address account, bool disabled) external onlyDelegateCall {
+        // OPEN-473: a position cannot opt out while it waits to withdraw, or its escrow would escape the reversion.
+        if (disabled && _lockupPeriod > 0) _requireNoPendingWithdrawal(account);
         _autoRenewDisabled[account] = disabled;
         _syncAutoRenewDisabledTracking(account);
     }
@@ -491,6 +493,8 @@ contract AtRiskUSDStateModule is
         if (_lockupPeriod > 0 && block.timestamp < _lockExpiry[msg.sender]) {
             revert LockupNotExpired(_lockExpiry[msg.sender]);
         }
+        // OPEN-473: an expired opted-out position reverts to Tier 0 before it leaves, as its transfers already must.
+        if (_lockupPeriod > 0 && _autoRenewDisabled[msg.sender]) revert ExpiredAutoRenewDisabledLockup();
         _requireNoPendingWithdrawal(msg.sender);
         _requireNotBlocked(msg.sender);
         _requireWithdrawalApprovalDuration();

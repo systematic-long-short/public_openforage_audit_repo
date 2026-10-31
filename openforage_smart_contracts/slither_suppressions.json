@@ -1936,21 +1936,21 @@
     {
       "detector": "controlled-delegatecall",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "ad3f48c26860cfed3a35ead23849be492190ffcb0d0300b8dfd65e78fa6e7a0d",
+      "idDigest": "837b04d7780193454fb720f28c29df9ada0b452b168b3cc5714d3982c1e5c97d",
       "name": "_delegateProfitModule",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #2 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:YPS1mdlfb0FyxEBxZETptg3EWFcTH2nJCaUj6EmzJuY. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:oRRcz_92demrACYmeHKPwMqx7T_VJ4ZTz3DEA9ECuEc, detector controlled-delegatecall, site src/modules/AtRiskUSDStateModule.sol:_delegateProfitModule. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #2 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:YPS1mdlfb0FyxEBxZETptg3EWFcTH2nJCaUj6EmzJuY. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:oRRcz_92demrACYmeHKPwMqx7T_VJ4ZTz3DEA9ECuEc, detector controlled-delegatecall, site src/modules/AtRiskUSDStateModule.sol:_delegateProfitModule. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "controlled-delegatecall",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "677320e8e9eb7506c73af174497683bdd81ba5181ce58a025ed5b1899983fa57",
+      "idDigest": "f096e7f5574c70be34dbcbeed653f06638278b27e9f3b3eb78b0d37fc8097c89",
       "name": "_delegateProfitModuleUint",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #4 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:KNgoujY6QwIwfAyA7AtsSdyH1rHoCjd3NqVJZeYrTbY. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:TEfexDGsVsHURd4LGU1dI1l8R3wI6wf3zZPkLQ23YgQ, detector controlled-delegatecall, site src/modules/AtRiskUSDStateModule.sol:_delegateProfitModuleUint. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #4 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:KNgoujY6QwIwfAyA7AtsSdyH1rHoCjd3NqVJZeYrTbY. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:TEfexDGsVsHURd4LGU1dI1l8R3wI6wf3zZPkLQ23YgQ, detector controlled-delegatecall, site src/modules/AtRiskUSDStateModule.sol:_delegateProfitModuleUint. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -1986,11 +1986,11 @@
     {
       "detector": "uninitialized-state",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "f88c04aca4fbf2fc2128dca6d05ffd8c8ee41933a6515b08e64c8be7e94e9de1",
+      "idDigest": "fec1443a718b087045c7563e5a0fe8951d3c1828610404ef86322d4ffbd5905a",
       "name": "_lockupPeriod",
       "created": "2026-09-29",
       "expires": "2027-03-28",
-      "rationale": "C5 exact-source row sha256:ffb5f298:44cd750c:8dbebe92:f56d8b00:6cf0c009:84a677db:790a9e4f:ac742867: src/modules/AtRiskUSDStateModule.sol AtRiskUSDStateModule.<no-function>, Slither ID sha256:71e55f61:1accb945:df9a3215:da7f49bf:6034d530:8fc8c905:075b4497:ae28272d. Reuses JUSTIFIED pkt0621 atrisk.json row sha256:ffb5f298:44cd750c:8dbebe92:f56d8b00:6cf0c009:84a677db:790a9e4f:ac742867; C5 crosswalk confirms the same detector and normalized source. Full row rationale: pkt0621 atrisk.json triage artifact. Source-only; no runtime/live-proxy claim.",
+      "rationale": "C5 exact-source row sha256:ffb5f298:44cd750c:8dbebe92:f56d8b00:6cf0c009:84a677db:790a9e4f:ac742867: src/modules/AtRiskUSDStateModule.sol AtRiskUSDStateModule.<no-function>, Slither ID sha256:71e55f61:1accb945:df9a3215:da7f49bf:6034d530:8fc8c905:075b4497:ae28272d. Reuses JUSTIFIED pkt0621 atrisk.json row sha256:ffb5f298:44cd750c:8dbebe92:f56d8b00:6cf0c009:84a677db:790a9e4f:ac742867; C5 crosswalk confirms the same detector and normalized source. Full row rationale: pkt0621 atrisk.json triage artifact. Source-only; no runtime/live-proxy claim. Rebound again on 2026-10-31: round 8 (c10-473) added AtRiskUSDStateModule.setAutoRenewDisabled(address,bool) as a reader; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -2016,21 +2016,21 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "999223c5693c92199a1d6916b6cdbd182a7bf8d1abec6e2268f1a1c33655acb3",
+      "idDigest": "24d1c0a6ad16f1132469b5f26a4aae8521c0fbdf4f77d6c28ea5b331b68af495",
       "name": "_removeAutoRenewDisabledExpiry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #131 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:FEEqnJygAU6SqCSuhvd_aeGw89ZUqd5dK2-OiIfYA2c. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:bMr2N5L1cpy4UsBuOLpVoz_9rCaWHBXt8APlTFzu0Cc, detector incorrect-equality, site src/modules/AtRiskUSDStateModule.sol:_removeAutoRenewDisabledExpiry. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #131 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:FEEqnJygAU6SqCSuhvd_aeGw89ZUqd5dK2-OiIfYA2c. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:bMr2N5L1cpy4UsBuOLpVoz_9rCaWHBXt8APlTFzu0Cc, detector incorrect-equality, site src/modules/AtRiskUSDStateModule.sol:_removeAutoRenewDisabledExpiry. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "59cde028371f89b92261945e4e0d790a8a146c4c9de2d9a1c48a8a7e9a9c6b27",
+      "idDigest": "eb73d931b9d54bbb1838c4bb1566e444f36995efb62356a47618c6a3ea86200e",
       "name": "_removeAutoRenewDisabledExpiry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #115 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:kgd61PzpKrFJMbMvEic1ym1CyJeEkjuW-ijFRnOwuFg. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:imghtT2l3KcFVyApe3whAMhXT2H73ZTBlcHSN0iNy-8, detector incorrect-equality, site src/modules/AtRiskUSDStateModule.sol:_removeAutoRenewDisabledExpiry. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #115 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:kgd61PzpKrFJMbMvEic1ym1CyJeEkjuW-ijFRnOwuFg. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:imghtT2l3KcFVyApe3whAMhXT2H73ZTBlcHSN0iNy-8, detector incorrect-equality, site src/modules/AtRiskUSDStateModule.sol:_removeAutoRenewDisabledExpiry. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -2046,21 +2046,21 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "28d32721ae4bd3fc1d0e8f2f4e28eadeb59db90553e7fa50d111b5e9c1862d6d",
+      "idDigest": "645540029b0b1ba70b04fbbbed643e12ad6db4a8dce5ff61916faa7e6f535c6b",
       "name": "_updateWithLossCheck",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #200 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:bRK5PPHczCcN5gVizGY9dyR6pdS5XsdApwN9DqTFkdo. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:Be-AAyjTpUuJL6wMnjDl8sc1Iwg3Ut615r6iB9sguNk, detector reentrancy-no-eth, site src/modules/AtRiskUSDStateModule.sol:_updateWithLossCheck. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #200 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:bRK5PPHczCcN5gVizGY9dyR6pdS5XsdApwN9DqTFkdo. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:Be-AAyjTpUuJL6wMnjDl8sc1Iwg3Ut615r6iB9sguNk, detector reentrancy-no-eth, site src/modules/AtRiskUSDStateModule.sol:_updateWithLossCheck. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "divide-before-multiply",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "e78a746ff27c506cffe6931d95edd1c5024ec4935fecbeedfc1191cdf7c96f50",
+      "idDigest": "f76f07bf9e6512b14f4d4991ccecac0e22c9a05130423c6fd1608a96a0814782",
       "name": "_weeklyCohortStart",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22g static-triage row #117 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; current source identity SHA-256 base64url:ib4ZoD4TeqipgX8DyVgVf1AD4ZhXBzi9ftuPmIX4Apg. The cohort key rounds maturity down to the aligned weekly interval from the current window start. It rejects maturity before the baseline and uses checked arithmetic; the result is a calendar bucket, not a value used for price or balance equivalence. Exact current Slither row Slither-row-SHA-256-base64url:3SehwreUUwgX3ooVKxSGqe7fbbGpuvCNx65qi8jneLA, detector divide-before-multiply, site src/modules/AtRiskUSDStateModule.sol:_weeklyCohortStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC: C22g static-triage row #117 JUSTIFIED_FLOOR_WINDOW_OR_CALENDAR_ARITHMETIC; current source identity SHA-256 base64url:ib4ZoD4TeqipgX8DyVgVf1AD4ZhXBzi9ftuPmIX4Apg. The cohort key rounds maturity down to the aligned weekly interval from the current window start. It rejects maturity before the baseline and uses checked arithmetic; the result is a calendar bucket, not a value used for price or balance equivalence. Exact current Slither row Slither-row-SHA-256-base64url:3SehwreUUwgX3ooVKxSGqe7fbbGpuvCNx65qi8jneLA, detector divide-before-multiply, site src/modules/AtRiskUSDStateModule.sol:_weeklyCohortStart. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -2146,11 +2146,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "769f497367ac5dd952dfc25cb13d2fe099a31448b8fd77a20bb85c905998347c",
+      "idDigest": "dac7c7e6863a71eb485a474ab10a187997c9583135455f247defbcf6721e0bac",
       "name": "absorbLoss",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #186 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:4SZbIqvvjYFwIyvysmqmHbhGOZfLrvv41Wf3CBRAnHY. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:rbeo-TL4y7Yw-JRlHj3qRnsywJpgzbcCUo6cLBDJ01E, detector reentrancy-no-eth, site src/modules/AtRiskUSDStateModule.sol:absorbLoss. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK: C22f static-triage row #186 JUSTIFIED_GUARDED_HOST_OR_SETTLEMENT_LOCK; exact source identity SHA-256 base64url:4SZbIqvvjYFwIyvysmqmHbhGOZfLrvv41Wf3CBRAnHY. No Solidity source edit in this static evidence packet. The host entry path is protected by nonReentrant, or the loss settlement path sets its in-progress lock before external settlement and retains it across incomplete settlement. Exact row source sites and line spans are attached. Exact current Slither row Slither-row-SHA-256-base64url:rbeo-TL4y7Yw-JRlHj3qRnsywJpgzbcCUo6cLBDJ01E, detector reentrancy-no-eth, site src/modules/AtRiskUSDStateModule.sol:absorbLoss. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -2166,11 +2166,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "8e3a7fb4cc0f68b5418a66e1f0b33d02572a11286b3dbc36537b0c48481fc413",
+      "idDigest": "067b62aa573dae6787c69e468cc4a52da321ea5019d28a93b67980f68d349ff8",
       "name": "applyPendingYieldSource",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #195 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:VKpbMwJgpnCQguGrboMSGEBvYMH6b2kp9CPIMfeWKSc. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:P8CM8ySx_duF7EVYP-0H5D6es4DH8ampKE-oXKSbaKU, detector reentrancy-no-eth, site src/modules/AtRiskUSDStateModule.sol:applyPendingYieldSource. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim.",
+      "rationale": "Reviewed disposition MATCH_EXACT_SOURCE_IDENTITY: C22f static-triage row #195 MATCH_EXACT_SOURCE_IDENTITY; exact source identity SHA-256 base64url:VKpbMwJgpnCQguGrboMSGEBvYMH6b2kp9CPIMfeWKSc. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Exact current Slither row Slither-row-SHA-256-base64url:P8CM8ySx_duF7EVYP-0H5D6es4DH8ampKE-oXKSbaKU, detector reentrancy-no-eth, site src/modules/AtRiskUSDStateModule.sol:applyPendingYieldSource. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -2696,21 +2696,21 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "36913a6e039074bc72ce4826d7caf898769c01448062638ce211bf810f7e86ce",
+      "idDigest": "12937825eb613396ec8d99c6805f37d69aa0bc46c646e27be0a7a0d3d9fc92cc",
       "name": "_refreshEarliestAutoRenewDisabledExpiry",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed C22g exact row disposition MATCH_EXACT_SOURCE_IDENTITY, raw#130, identity SHA-256 base64url:UQUzCGZ2XPNi3J6BrSoXJNHqZKIN9JZ-YRa_YMTYYZQ. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Current source site src/modules/AtRiskUSDStateModule.sol:[945, 946, 947, 948, 949, 950, 951, 952, 953, 954, 955, 956]. Static-only evidence.",
+      "rationale": "Reviewed C22g exact row disposition MATCH_EXACT_SOURCE_IDENTITY, raw#130, identity SHA-256 base64url:UQUzCGZ2XPNi3J6BrSoXJNHqZKIN9JZ-YRa_YMTYYZQ. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Current source site src/modules/AtRiskUSDStateModule.sol:[945, 946, 947, 948, 949, 950, 951, 952, 953, 954, 955, 956]. Static-only evidence. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
       "detector": "incorrect-equality",
       "file": "src/modules/AtRiskUSDStateModule.sol",
-      "idDigest": "50a477253fc1965f792f3882d144387c36e6e080c4affda32315c0b73bde0cd2",
+      "idDigest": "eaf8caaf11fe451b2779be01bf7e238ce6ba2b3ecabb04cce657bad947b96c90",
       "name": "_syncAutoRenewDisabledTracking",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed C22g exact row disposition MATCH_EXACT_SOURCE_IDENTITY, raw#134, identity SHA-256 base64url:Nlce9fcnGrm8ynkZ6WPwSICr4RXVY8Cyhzhjn5A08fM. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Current source site src/modules/AtRiskUSDStateModule.sol:[824, 825, 826, 827, 828, 829, 830, 831, 832, 833, 834, 835, 836, 837, 838, 839, 840, 841, 842, 843, 844, 845, 846, 847]. Static-only evidence.",
+      "rationale": "Reviewed C22g exact row disposition MATCH_EXACT_SOURCE_IDENTITY, raw#134, identity SHA-256 base64url:Nlce9fcnGrm8ynkZ6WPwSICr4RXVY8Cyhzhjn5A08fM. No Solidity source edit in this static evidence packet. Exact source-element identity matches the C22c raw row; preserve the reviewed rationale unchanged and bind the current raw ID/lines. Current source site src/modules/AtRiskUSDStateModule.sol:[824, 825, 826, 827, 828, 829, 830, 831, 832, 833, 834, 835, 836, 837, 838, 839, 840, 841, 842, 843, 844, 845, 846, 847]. Static-only evidence. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved AtRiskUSDStateModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -3888,11 +3888,11 @@
     {
       "detector": "incorrect-equality",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "6b7b2262272f07cdd145a665c5ff79275001c5589349f7786c03614df4c0fed0",
+      "idDigest": "436488b03ba91d89dfca35051065bdd3c3999048319675119e82def69574b1c9",
       "name": "adminCancelQueue",
       "created": "2026-10-07",
       "expires": "2027-04-05",
-      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22f static-triage row #135 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; exact source identity SHA-256 base64url:Zzv52KIDTGw6wmfXbRfbAP7zTw-vXekhYlJrvi1bDa8. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:er1kirgBUGx5-nWqWYj6ZIflDo5pPv5kDQ6nTzcMi8Y, detector incorrect-equality, site src/modules/StakingQueueModule.sol:adminCancelQueue. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands.",
+      "rationale": "Reviewed disposition JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY: C22f static-triage row #135 JUSTIFIED_SENTINEL_QUEUE_OR_BOUNDARY_EQUALITY; exact source identity SHA-256 base64url:Zzv52KIDTGw6wmfXbRfbAP7zTw-vXekhYlJrvi1bDa8. No Solidity source edit in this static evidence packet. The equality is a zero/unset sentinel, exact queue state/counter condition, or a deliberate time-window boundary; it is not token-price or attacker-controlled approximate numeric comparison. Exact predicate source bytes are attached. Exact current Slither row Slither-row-SHA-256-base64url:er1kirgBUGx5-nWqWYj6ZIflDo5pPv5kDQ6nTzcMi8Y, detector incorrect-equality, site src/modules/StakingQueueModule.sol:adminCancelQueue. This source-bound suppression records static triage only; it makes no runtime, deployment, or Octane-closure claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved StakingQueueModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -4138,11 +4138,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "38861958ca3d14a6c569d7fc32b40f4d8c67aa706c55f1590d2e37389bd6485e",
+      "idDigest": "455701bef26a7a44c5e8ace9742ae55002377b1fd5d12d7654e0b12de2b505cd",
       "name": "processQueue",
       "created": "2026-09-29",
       "expires": "2027-03-28",
-      "rationale": "C5 exact-source row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697: src/modules/StakingQueueModule.sol StakingQueueModule.processQueue(uint8,uint256), Slither ID sha256:fb2e6b8f:1a14f545:4fd5d44a:42c7d63b:19ccefc0:26348515:c9ae46e0:82304ca9. Reuses JUSTIFIED queue.json row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697; C5 crosswalk confirms the same detector and normalized source. Full row rationale: queue.json triage artifact. Source-only; no runtime/live-proxy claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound by octane-golive on 2026-10-28 after the fifth queue catch-up call changed the reported call chain; the finding is otherwise unchanged, so the reviewed reason stands.",
+      "rationale": "C5 exact-source row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697: src/modules/StakingQueueModule.sol StakingQueueModule.processQueue(uint8,uint256), Slither ID sha256:fb2e6b8f:1a14f545:4fd5d44a:42c7d63b:19ccefc0:26348515:c9ae46e0:82304ca9. Reuses JUSTIFIED queue.json row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697; C5 crosswalk confirms the same detector and normalized source. Full row rationale: queue.json triage artifact. Source-only; no runtime/live-proxy claim. Rebound by octane-golive on 2026-10-28: its edit moved this finding without changing it, so the reviewed reason stands. Rebound by octane-golive on 2026-10-28 after the fifth queue catch-up call changed the reported call chain; the finding is otherwise unchanged, so the reviewed reason stands. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved StakingQueueModule.sol source lines; Slither lists the same calls and writes in another order, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -5324,11 +5324,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "39be25700125c38b393d704207ceb9b7294f15ca695c35c25e1480b6ea757b7d",
+      "idDigest": "0702574a66cb4070f4d079bac9e249c7b7068e7c48846cdd44b7ff1649f44f1a",
       "name": "_processDemotedStandardCandidate",
       "created": "2026-10-28",
       "expires": "2027-04-26",
-      "rationale": "The private helper is reachable only through _processStandardLane from processQueue; the host entry checks onlyFreshQueue, onlyAllowedCaller, onlyQueueProcessor, whenNotPaused and nonReentrant before delegatecall. The raw identity varies between the two independent C29 scans; this entry binds the stable source and trace-element identity. Same finding class and element as this reviewed row; octane-golive's module split or edit added this instance. Rebound by octane-golive on 2026-10-28 after the fifth queue catch-up call changed the reported call chain; the finding is otherwise unchanged, so the reviewed reason stands.",
+      "rationale": "The private helper is reachable only through _processStandardLane from processQueue; the host entry checks onlyFreshQueue, onlyAllowedCaller, onlyQueueProcessor, whenNotPaused and nonReentrant before delegatecall. The raw identity varies between the two independent C29 scans; this entry binds the stable source and trace-element identity. Same finding class and element as this reviewed row; octane-golive's module split or edit added this instance. Rebound by octane-golive on 2026-10-28 after the fifth queue catch-up call changed the reported call chain; the finding is otherwise unchanged, so the reviewed reason stands. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved StakingQueueModule.sol source lines; Slither lists the same calls and writes in another order, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
@@ -5344,11 +5344,11 @@
     {
       "detector": "reentrancy-no-eth",
       "file": "src/modules/StakingQueueModule.sol",
-      "idDigest": "4e69ae50b385a0f9bd5997d774504cc6d42fd441b703172429643d134970e921",
+      "idDigest": "a1ca6a56a736599a2e1b678c8a72e71c86aee575e917988630652a2f8068380c",
       "name": "processQueue",
       "created": "2026-10-28",
       "expires": "2027-04-26",
-      "rationale": "C5 exact-source row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697: src/modules/StakingQueueModule.sol StakingQueueModule.processQueue(uint8,uint256), Slither ID sha256:fb2e6b8f:1a14f545:4fd5d44a:42c7d63b:19ccefc0:26348515:c9ae46e0:82304ca9. Reuses JUSTIFIED queue.json row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697; C5 crosswalk confirms the same detector and normalized source. Full row rationale: queue.json triage artifact. Source-only; no runtime/live-proxy claim. Same finding class and element as this reviewed row; octane-golive's module split or edit added this instance.",
+      "rationale": "C5 exact-source row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697: src/modules/StakingQueueModule.sol StakingQueueModule.processQueue(uint8,uint256), Slither ID sha256:fb2e6b8f:1a14f545:4fd5d44a:42c7d63b:19ccefc0:26348515:c9ae46e0:82304ca9. Reuses JUSTIFIED queue.json row sha256:8bfd055e:7525ebb5:503120ec:0c1ad543:99e41b94:b45ae483:3c10e4d1:7e201697; C5 crosswalk confirms the same detector and normalized source. Full row rationale: queue.json triage artifact. Source-only; no runtime/live-proxy claim. Same finding class and element as this reviewed row; octane-golive's module split or edit added this instance. Rebound on 2026-10-31 after the round-8 (c10-473) patch moved StakingQueueModule.sol source lines; the finding is otherwise unchanged, so the reviewed reason stands.",
       "owner": "OpenForage security"
     },
     {
