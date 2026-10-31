@@ -926,7 +926,7 @@ contract USDCTreasury is
         // to a later loss, so that cash stays with the holders.
         uint256 pending = pendingVaultTopUp[vaultId];
         uint256 exposed = outstanding > pending ? outstanding - pending : 0;
-        writtenDown = amount < exposed ? amount : exposed;
+        writtenDown = _holderShareOfLoss(vaultId, exposed, amount);
         if (writtenDown == 0) return 0;
         uint256[4] memory allocations = _allocateCapped(writtenDown, tierOutstanding, outstanding);
         recognizedDepositorClaim[vaultId] -= writtenDown;
@@ -939,6 +939,17 @@ contract USDCTreasury is
             _unfundedTierYieldClaim[tierVault] -= allocation;
         }
         _reconcilePendingVaultTopUp(vaultId, outstanding - writtenDown);
+    }
+
+    /// @dev OPEN-345: the holders lose only their share of the profit that is lost: the claim they still hold on
+    /// unreturned profit, in proportion to the part of that profit lost. The rest of the loss comes out of the agent
+    /// and protocol shares through what returns.
+    function _holderShareOfLoss(uint256 vaultId, uint256 exposed, uint256 loss) private view returns (uint256 share) {
+        uint256 unreturned = unreturnedRecognizedProfit[vaultId];
+        if (unreturned == 0) return 0;
+        share = exposed * loss / unreturned;
+        if (share > exposed) share = exposed;
+        if (share > loss) share = loss;
     }
 
     function _reconcilePendingVaultTopUp(uint256 vaultId, uint256 outstanding) private {
