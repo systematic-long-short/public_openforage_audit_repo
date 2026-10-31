@@ -79,6 +79,7 @@ contract CompleteDeploy is DeployBroadcastBase {
     error ManifestChainMismatch(uint256 manifestChainId, uint256 chainId);
     error PreHandoffStepMissing(string step, address account);
     error HandoffIncomplete(string check, address account);
+    error AllowlistRegistrarSignerMismatch(address expected, address actual);
 
     bytes4 private constant NO_PENDING_CUSTODIAN_CONFIG = bytes4(keccak256("NoPendingCustodianConfig(bytes32)"));
 
@@ -147,6 +148,7 @@ contract CompleteDeploy is DeployBroadcastBase {
         if (registry.registrar() != deployedAllowlistRegistrar) {
             revert PreHandoffStepMissing("finalizeRegistrar", deployedAllowlistRegistrar);
         }
+        _requireForwarderReady(registry);
         if (!registry.isSystemRegistrar(deployedFORAGETreasury)) {
             revert PreHandoffStepMissing("finalizeSystemRegistrar", deployedFORAGETreasury);
         }
@@ -169,6 +171,16 @@ contract CompleteDeploy is DeployBroadcastBase {
         if (USDCTreasury(deployedUSDCTreasury).distributor() != distributor) {
             revert PreHandoffStepMissing("acceptDistributor", deployedUSDCTreasury);
         }
+    }
+
+    // The forwarder's signer is fixed at creation; a wrong one is cheap to replace only before the handoff.
+    function _requireForwarderReady(Allowlist registry) internal view {
+        AllowlistRegistrarForwarder forwarder = AllowlistRegistrarForwarder(deployedAllowlistRegistrar);
+        if (!registry.isSystemAccount(address(forwarder))) {
+            revert PreHandoffStepMissing("setSystemAccount", address(forwarder));
+        }
+        address signer = vm.envAddress("ALLOWLIST_REGISTRAR_SIGNER");
+        if (forwarder.signer() != signer) revert AllowlistRegistrarSignerMismatch(signer, forwarder.signer());
     }
 
     function _requireOperatorApproved(Allowlist registry, address account) internal view {

@@ -92,6 +92,7 @@ contract Deploy is Script {
     uint256 public constant LOCAL_CHAIN_ID = 31337;
     uint256 private constant DEPLOY_ROTATION_PAGE_LIMIT = 128;
     bytes4 private constant DEPLOY_NO_PENDING_VOTE_SYNC = bytes4(keccak256("NoPendingVoteEligibilitySync(address)"));
+    uint256 private constant DEPLOY_VOTE_SYNC_PROBE_GAS = 500_000;
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
     uint256 private constant _GUARDIAN_COUNT = 7;
     uint256 public constant MIN_DELAY = 0;
@@ -1245,9 +1246,11 @@ contract Deploy is Script {
 
     function _drainDeployVestingVoteSync(ForageToken forageToken) private {
         // A broadcast sends every call it makes, one that reverts inside try/catch too, so probe first with a
-        // static call: it fails either way, and with NoPendingVoteEligibilitySync only when nothing is pending.
-        (bool success, bytes memory reason) =
-            address(forageToken).staticcall(abi.encodeCall(ForageToken.syncVoteEligibility, (deployedVestingWallet)));
+        // static call: it fails either way, and with NoPendingVoteEligibilitySync only when nothing is pending. A
+        // pending sync fails at its first storage write, which spends all the gas the probe is given, so it has a cap.
+        (bool success, bytes memory reason) = address(forageToken).staticcall{gas: DEPLOY_VOTE_SYNC_PROBE_GAS}(
+            abi.encodeCall(ForageToken.syncVoteEligibility, (deployedVestingWallet))
+        );
         bytes4 selector;
         if (!success && reason.length >= 4) {
             assembly ("memory-safe") {
