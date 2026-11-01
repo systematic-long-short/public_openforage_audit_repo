@@ -12,6 +12,9 @@ import "./StakingQueueModule.sol";
 contract StakingQueueLockupModule is StakingQueueModuleStorage {
     using SafeERC20 for IERC20;
 
+    bytes4 private constant _SEL_CATCH_UP_PROFIT = bytes4(keccak256("catchUpUnpaidProfitEpochs(address)"));
+    uint256 private constant _MAX_PROFIT_CATCH_UP_CALLS = 64;
+
     function syncTierVaults() external onlyDelegateCall {
         VaultConfig memory config = _currentVaultConfig();
         bool differs;
@@ -121,8 +124,23 @@ contract StakingQueueLockupModule is StakingQueueModuleStorage {
         _assertCombinedAssetsNotDecreased(state.combinedAssetsBefore);
     }
 
+    /// @dev OPEN-541, OPEN-544: settles at most eight closed profit epochs per call until the account is caught up.
+    /// A failed or unfinished catch-up is left to the strict settle that follows, which the batch catches as before.
+    function _catchUpProfitEpochs(address tierVault, address account) private {
+        for (uint256 i; i < _MAX_PROFIT_CATCH_UP_CALLS;) {
+            (bool success, bytes memory data) = tierVault.call(abi.encodeWithSelector(_SEL_CATCH_UP_PROFIT, account));
+            if (!success || data.length < 32 || abi.decode(data, (bool))) return;
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     function _depositTierZeroReversion(address vaultZeroAddr, address depositor, uint256 riskusdAmount) private {
         _requireRecognitionWindowClosed(vaultZeroAddr);
+        // The Tier 0 mint to the queue and the transfer to the holder settle both strictly, so catch both up first.
+        _catchUpProfitEpochs(vaultZeroAddr, address(this));
+        _catchUpProfitEpochs(vaultZeroAddr, depositor);
         _riskusd.forceApprove(vaultZeroAddr, riskusdAmount);
         (bool success, bytes memory data) =
             vaultZeroAddr.call(abi.encodeWithSelector(_SEL_DEPOSIT, riskusdAmount, address(this)));
@@ -174,7 +192,6 @@ contract StakingQueueLockupModule is StakingQueueModuleStorage {
         onlyDelegateCall
     {
         if (msg.sender != address(this)) revert InternalOnly();
-        _requireNotBlocked(depositor);
 
         (bool hasLockup, bool isExpired, bool autoRenew,, uint256 shares) =
             _getLockupInfo(tierVaultAddr, tier, depositor);
@@ -191,7 +208,11 @@ contract StakingQueueLockupModule is StakingQueueModuleStorage {
 
             emit LockupRenewed(depositor, tier, newExpiry);
         } else {
+            // OPEN-561, OPEN-587: a renewal moves no tokens, so a blocked auto-renew position is renewed above;
+            // a blocked opted-out position waits here until its block ends, as the Blocklist freezes its tokens.
+            _requireNotBlocked(depositor);
             _requireLiveTierVault(vault0Addr, 0);
+            _catchUpProfitEpochs(tierVaultAddr, depositor);
             uint256 combinedAssetsBefore = _combinedTotalAssets();
             uint256 riskusdAmount;
             {

@@ -15,7 +15,10 @@ interface IDistributorTreasury {
 ///         accounts the deploy could not, grants the non-expiring operator approvals and
 ///         sets both treasuries' distributors. Every step is guarded by a current-state
 ///         read, printed as a checklist line, and idempotent on a second run. Off Arbitrum
-///         Sepolia and the local chain, DEPLOYMENT_MANIFEST_PATH must name the manifest.
+///         Sepolia and the local chain, DEPLOYMENT_MANIFEST_PATH must name the manifest. The
+///         owner signs with DEPLOYER_PRIVATE_KEY or, when it is unset, with the wallet forge
+///         was given, such as `--ledger --sender`. On Arbitrum One it runs after the finalize
+///         delay and before CompleteDeploy hands the stack to governance (OPEN-455, OPEN-572).
 contract RegisterAllowlist is Script {
     error AllowlistNotDeployed(address target);
     error RegistrarFinalizeWaiting(bytes4 selector);
@@ -40,15 +43,19 @@ contract RegisterAllowlist is Script {
         address allowlist = _deployedAddress(manifest, ".allowlist");
         address forageTreasury = _deployedAddress(manifest, ".forageTreasury");
         address usdcTreasury = _deployedAddress(manifest, ".usdcTreasury");
+        address registrar = _deployedAddress(manifest, ".allowlistRegistrar");
 
-        uint256 ownerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address keeper = vm.envAddress("KEEPER_ADDRESS");
+        uint256 ownerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
         address distributor = vm.envAddress("DISTRIBUTOR_ADDRESS");
         address custodianExecutor = vm.envAddress("CUSTODIAN_EXECUTOR");
         address launchVotingDelegate = vm.envAddress("LAUNCH_VOTING_DELEGATE");
 
-        vm.startBroadcast(ownerKey);
-        _finalizeRegistrar(allowlist, keeper);
+        if (ownerKey == 0) {
+            vm.startBroadcast();
+        } else {
+            vm.startBroadcast(ownerKey);
+        }
+        _finalizeRegistrar(allowlist, registrar);
         _finalizeSystemRegistrar(allowlist, forageTreasury);
         _registerSystemAccount(allowlist, distributor);
         _registerSystemAccount(allowlist, launchVotingDelegate);
@@ -81,8 +88,8 @@ contract RegisterAllowlist is Script {
         if (target.code.length == 0) revert AllowlistNotDeployed(target);
     }
 
-    function _finalizeRegistrar(address allowlist, address keeper) internal {
-        if (Allowlist(allowlist).registrar() == keeper) {
+    function _finalizeRegistrar(address allowlist, address registrar) internal {
+        if (Allowlist(allowlist).registrar() == registrar) {
             console.log("SKIP finalizeRegistrar");
             ++skipCount;
             return;

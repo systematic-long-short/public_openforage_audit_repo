@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 
 import "../src/Allowlist.sol";
+import "../src/AllowlistRegistrarForwarder.sol";
 import "../src/Blocklist.sol";
 import "../src/CustodianRegistry.sol";
 import "../src/DelegatingVestingWallet.sol";
@@ -33,6 +34,7 @@ import {IAllowlistSettable} from "./interfaces/IAllowlistSettable.sol";
 
 interface IForageGovernorWiredTarget {
     function FINALIZE_DELAY() external view returns (uint256);
+    function forageGovernor() external view returns (address);
     function setForageGovernor(address forageGovernor_) external;
     function finalizeForageGovernor() external;
 }
@@ -73,6 +75,7 @@ contract Deploy is Script {
     error InvalidGuardianWallet(address wallet);
     error DuplicateGuardianWallet(address wallet);
     error PnLAttestorMustBeDistinct(address pnlAttestor, address keeper, address executor);
+    error AllowlistRegistrarSignerMustBeDistinct(address signer);
     error GovernanceProposerIsGuardian(address proposer);
     error CanonicalGuardRegistryMismatch(address guardRegistry, address predictedRegistry, address deployedRegistry);
     error LinkedLibraryInitCodeMismatch(address libraryAddress, bytes32 expectedHash, bytes32 actualHash);
@@ -89,6 +92,7 @@ contract Deploy is Script {
     uint256 public constant LOCAL_CHAIN_ID = 31337;
     uint256 private constant DEPLOY_ROTATION_PAGE_LIMIT = 128;
     bytes4 private constant DEPLOY_NO_PENDING_VOTE_SYNC = bytes4(keccak256("NoPendingVoteEligibilitySync(address)"));
+    uint256 private constant DEPLOY_VOTE_SYNC_PROBE_GAS = 500_000;
     uint256 public constant ARBITRUM_SEPOLIA_CHAIN_ID = 421614;
     uint256 private constant _GUARDIAN_COUNT = 7;
     uint256 public constant MIN_DELAY = 0;
@@ -125,7 +129,7 @@ contract Deploy is Script {
         (uint256(0x4226d3b575eae8b2) << 192) | (uint256(0x36bed5546142331d) << 128)
             | (uint256(0xcac6f4904aa9929a) << 64) | uint256(0x6d3772c57c44e570)
     );
-    uint256 private constant CUSTODIAN_REGISTRY_NONCE_OFFSET = 9;
+    uint256 private constant CUSTODIAN_REGISTRY_NONCE_OFFSET = 7;
     uint256 private constant FORAGE_GOVERNOR_GUARD_NONCE = 1;
 
     uint256 public constant GUARDIAN_PERMISSION_PAUSE = 1 << 0;
@@ -139,6 +143,7 @@ contract Deploy is Script {
 
     address public deployedTimelock;
     address public deployedAllowlist;
+    address public deployedAllowlistRegistrar;
     address public deployedBlocklist;
     address public deployedCustodianRegistry;
     address public deployedVestingWallet;
@@ -187,6 +192,7 @@ contract Deploy is Script {
     address public cfgProtocolBackup;
     address public cfgLaunchVotingDelegate;
     address public cfgKeeper;
+    address public cfgAllowlistRegistrarSigner;
     address public cfgCustodianExecutor;
     address public cfgPnLAttestor;
     address public cfgColdAccount;
@@ -195,6 +201,9 @@ contract Deploy is Script {
     uint64 public cfgWithdrawalChainSelector;
     bool public cfgRequireExplicitGuardians;
     address private _reservedProposalGuardian;
+    // Set by every broadcast entry point: a broadcast cannot warp, so finalizes that need a delay wait for
+    // CompleteDeploy (script/DeployMainnetBroadcast.s.sol). Packed after the field above, moving no slot.
+    bool public cfgBroadcast;
     address public implStakingQueueLockupModule;
 
     event AllowlistDeployed(address allowlist);
@@ -253,6 +262,7 @@ contract Deploy is Script {
         uint256 deployerKey = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
         address deployer = deployerKey == 0 ? msg.sender : vm.addr(deployerKey);
         cfgRequireExplicitGuardians = true;
+        cfgBroadcast = true;
         _requireExplicitGuardianConfig();
         DeployConfig memory cfg = DeployConfig({
             usdc: vm.envAddress("USDC_ADDRESS"),
@@ -264,6 +274,7 @@ contract Deploy is Script {
             protocolBackup: vm.envAddress("PROTOCOL_BACKUP"),
             launchVotingDelegate: vm.envAddress("LAUNCH_VOTING_DELEGATE"),
             keeper: vm.envAddress("KEEPER_ADDRESS"),
+            allowlistRegistrarSigner: vm.envAddress("ALLOWLIST_REGISTRAR_SIGNER"),
             pnlAttestor: vm.envAddress("PNL_ATTESTOR"),
             custodianExecutor: vm.envAddress("CUSTODIAN_EXECUTOR"),
             coldAccount: vm.envAddress("COLD_ACCOUNT_ADDRESS"),
@@ -344,6 +355,7 @@ contract Deploy is Script {
                 protocolBackup: protocolBackup,
                 launchVotingDelegate: launchVotingDelegate,
                 keeper: vm.envAddress("KEEPER_ADDRESS"),
+                allowlistRegistrarSigner: vm.envAddress("ALLOWLIST_REGISTRAR_SIGNER"),
                 pnlAttestor: vm.envAddress("PNL_ATTESTOR"),
                 custodianExecutor: vm.envAddress("CUSTODIAN_EXECUTOR"),
                 coldAccount: msg.sender,
@@ -432,6 +444,7 @@ contract Deploy is Script {
         address protocolBackup;
         address launchVotingDelegate;
         address keeper;
+        address allowlistRegistrarSigner;
         address pnlAttestor;
         address custodianExecutor;
         address coldAccount;
@@ -445,12 +458,14 @@ contract Deploy is Script {
         address[] memory pauseGuardians = _guardianAddresses(cfg.deployer);
         address[] memory cancelGuardians = _guardianCancelAddresses(cfg.deployer);
         _requireDistinctGuardianWallets(pauseGuardians, cancelGuardians);
+        _requireDedicatedAllowlistRegistrarSigner(cfg, pauseGuardians, cancelGuardians);
         _reservedProposalGuardian = _configuredProposalGuardian(pauseGuardians);
         _recordConfig(cfg);
         _deployLinkedLibraries();
         _deployTimelock(cfg.deployer);
-        _deployImplementations(createSender);
+        _deployImplementations();
         _deployAllowlist(cfg);
+        _deployForageGovernorImplementation(createSender);
         PredictedAddresses memory predicted = _predictAddresses(createSender);
         _deployTokenAndTreasuries(cfg, predicted);
         _deployGovernanceAndRegistry(cfg, predicted);
@@ -489,6 +504,7 @@ contract Deploy is Script {
         cfgProtocolBackup = cfg.protocolBackup;
         cfgLaunchVotingDelegate = cfg.launchVotingDelegate;
         cfgKeeper = cfg.keeper;
+        cfgAllowlistRegistrarSigner = cfg.allowlistRegistrarSigner;
         cfgPnLAttestor = cfg.pnlAttestor;
         cfgCustodianExecutor = cfg.custodianExecutor;
         cfgColdAccount = cfg.coldAccount;
@@ -506,8 +522,32 @@ contract Deploy is Script {
         }
     }
 
+    function _requireDedicatedAllowlistRegistrarSigner(
+        DeployConfig memory cfg,
+        address[] memory pauseGuardians,
+        address[] memory cancelGuardians
+    ) private pure {
+        address registrarSigner = cfg.allowlistRegistrarSigner;
+        address[] memory roles = new address[](6);
+        roles[0] = cfg.keeper;
+        roles[1] = cfg.pnlAttestor;
+        roles[2] = cfg.custodianExecutor;
+        roles[3] = cfg.deployer;
+        roles[4] = cfg.launchVotingDelegate;
+        roles[5] = cfg.beneficiary;
+        if (
+            registrarSigner == address(0) || _containsAddress(roles, registrarSigner)
+                || _containsAddress(pauseGuardians, registrarSigner) || _containsAddress(cancelGuardians, registrarSigner)
+        ) {
+            revert AllowlistRegistrarSignerMustBeDistinct(registrarSigner);
+        }
+    }
+
     function _vestingStartTimestamp() internal view returns (uint64) {
         uint256 start = vm.envOr("VESTING_START_TIMESTAMP", block.timestamp + 1);
+        // A broadcast's transactions land after the simulated block, and the vesting wallet refuses a start
+        // already past when it is created, so a broadcast takes an explicit start.
+        if (cfgBroadcast) start = vm.envUint("VESTING_START_TIMESTAMP");
         require(start > block.timestamp, "vesting start must be future");
         return uint64(start);
     }
@@ -587,7 +627,7 @@ contract Deploy is Script {
         deployedTimelock = address(new TimelockController(_minDelay(), proposers, executors, deployer));
     }
 
-    function _deployImplementations(address createSender) internal {
+    function _deployImplementations() internal {
         implAllowlist = address(new Allowlist());
         implBlocklist = address(new Blocklist());
         implCustodianRegistry = address(new CustodianRegistry());
@@ -607,8 +647,14 @@ contract Deploy is Script {
         implUSDCTreasuryAccountingModule = address(new USDCTreasuryAccountingModule());
         implUSDCTreasury = address(new USDCTreasury());
         implHLTradingBridgeReturnCapsModule = address(new HLTradingBridgeReturnCapsModule());
-        implForageGovernor = address(new ForageGovernor(_predictedCustodianRegistry(createSender)));
         implHLTradingBridge = address(new HLTradingBridge());
+    }
+
+    /// @dev The one implementation whose constructor needs a predicted address is created after the Allowlist's
+    ///      approval calls, just before the predicted creates. A deployer key spends a nonce on every
+    ///      transaction and a contract only on creates, so only creates lie between here and the registry.
+    function _deployForageGovernorImplementation(address createSender) internal {
+        implForageGovernor = address(new ForageGovernor(_predictedCustodianRegistry(createSender)));
     }
 
     function _predictedCustodianRegistry(address createSender) private view returns (address) {
@@ -998,7 +1044,10 @@ contract Deploy is Script {
         registry.setSystemAccount(cfg.launchVotingDelegate, true);
         registry.setSystemAccount(cfg.deployer, true);
 
-        registry.proposeRegistrar(cfg.keeper);
+        deployedAllowlistRegistrar =
+            address(new AllowlistRegistrarForwarder(deployedAllowlist, cfg.allowlistRegistrarSigner));
+        registry.setSystemAccount(deployedAllowlistRegistrar, true);
+        registry.proposeRegistrar(deployedAllowlistRegistrar);
         registry.proposeSystemRegistrar(deployedFORAGETreasury, true);
 
         for (uint256 i; i < targets.length;) {
@@ -1144,16 +1193,7 @@ contract Deploy is Script {
     }
 
     function _wireForageGovernorPauseControls() internal {
-        address[7] memory targets = [
-            deployedRiskusd,
-            deployedRiskusdVault,
-            deployedStakingQueue,
-            deployedAtRiskTier0,
-            deployedAtRiskTier1,
-            deployedAtRiskTier2,
-            deployedAtRiskTier3
-        ];
-
+        address[7] memory targets = _forageGovernorPauseTargets();
         uint256 readyAt = block.timestamp;
         for (uint256 i; i < targets.length;) {
             IForageGovernorWiredTarget target = IForageGovernorWiredTarget(targets[i]);
@@ -1167,16 +1207,36 @@ contract Deploy is Script {
             }
         }
 
+        // A broadcast cannot wait out the delay; CompleteDeploy finalizes these once it has passed.
+        if (cfgBroadcast) return;
         if (block.timestamp < readyAt) {
             vm.warp(readyAt);
         }
 
+        _finalizeForageGovernorPauseControls();
+    }
+
+    function _finalizeForageGovernorPauseControls() internal {
+        address[7] memory targets = _forageGovernorPauseTargets();
         for (uint256 i; i < targets.length;) {
-            IForageGovernorWiredTarget(targets[i]).finalizeForageGovernor();
+            IForageGovernorWiredTarget target = IForageGovernorWiredTarget(targets[i]);
+            if (target.forageGovernor() != deployedForageGovernor) target.finalizeForageGovernor();
             unchecked {
                 ++i;
             }
         }
+    }
+
+    function _forageGovernorPauseTargets() internal view returns (address[7] memory) {
+        return [
+            deployedRiskusd,
+            deployedRiskusdVault,
+            deployedStakingQueue,
+            deployedAtRiskTier0,
+            deployedAtRiskTier1,
+            deployedAtRiskTier2,
+            deployedAtRiskTier3
+        ];
     }
 
     function _deployRotationNeedsWork(ForageTokenRotationStatus memory status) private pure returns (bool) {
@@ -1185,20 +1245,20 @@ contract Deploy is Script {
     }
 
     function _drainDeployVestingVoteSync(ForageToken forageToken) private {
-        try forageToken.syncVoteEligibility(deployedVestingWallet) {}
-        catch (bytes memory reason) {
-            bytes4 selector;
-            if (reason.length >= 4) {
-                assembly ("memory-safe") {
-                    selector := mload(add(reason, 32))
-                }
-            }
-            if (selector != DEPLOY_NO_PENDING_VOTE_SYNC) {
-                assembly ("memory-safe") {
-                    revert(add(reason, 32), mload(reason))
-                }
+        // A broadcast sends every call it makes, one that reverts inside try/catch too, so probe first with a
+        // static call: it fails either way, and with NoPendingVoteEligibilitySync only when nothing is pending. A
+        // pending sync fails at its first storage write, which spends all the gas the probe is given, so it has a cap.
+        (bool success, bytes memory reason) = address(forageToken).staticcall{gas: DEPLOY_VOTE_SYNC_PROBE_GAS}(
+            abi.encodeCall(ForageToken.syncVoteEligibility, (deployedVestingWallet))
+        );
+        bytes4 selector;
+        if (!success && reason.length >= 4) {
+            assembly ("memory-safe") {
+                selector := mload(add(reason, 32))
             }
         }
+        if (selector == DEPLOY_NO_PENDING_VOTE_SYNC) return;
+        forageToken.syncVoteEligibility(deployedVestingWallet);
     }
 
     function _registerPausableTarget(address target) internal {
@@ -1365,6 +1425,7 @@ contract Deploy is Script {
         console.log("implStakingQueueLockupModule:", implStakingQueueLockupModule);
         console.log("implUSDCTreasuryAccountingModule:", implUSDCTreasuryAccountingModule);
         console.log("implHLTradingBridgeReturnCapsModule:", implHLTradingBridgeReturnCapsModule);
+        console.log("allowlistRegistrar:", deployedAllowlistRegistrar);
 
         if (bytes(manifestPath).length == 0) return;
 
@@ -1372,6 +1433,8 @@ contract Deploy is Script {
         vm.serializeUint(root, "chainId", block.chainid);
         vm.serializeAddress(root, "usdc", cfgUsdc);
         vm.serializeAddress(root, "allowlist", deployedAllowlist);
+        vm.serializeAddress(root, "allowlistRegistrar", deployedAllowlistRegistrar);
+        vm.serializeAddress(root, "allowlistRegistrarSigner", cfgAllowlistRegistrarSigner);
         vm.serializeAddress(root, "blocklist", deployedBlocklist);
         vm.serializeAddress(root, "custodianRegistry", deployedCustodianRegistry);
         vm.serializeAddress(root, "riskusd", deployedRiskusd);

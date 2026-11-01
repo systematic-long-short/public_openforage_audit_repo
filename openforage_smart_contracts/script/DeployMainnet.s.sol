@@ -11,7 +11,8 @@ interface IOwnable2StepTarget {
 }
 
 /// @title DeployMainnet
-/// @notice No-broadcast Arbitrum One dry-run path with production governance timings.
+/// @notice No-broadcast Arbitrum One dry-run path with production governance timings. The broadcast path,
+///         which shares this code, is in DeployMainnetBroadcast.s.sol.
 contract DeployMainnet is Deploy {
     error WrongMainnetDryRunChain(uint256 chainId);
     error UnexpectedSequencerUptimeFeed(address expected, address actual);
@@ -25,7 +26,7 @@ contract DeployMainnet is Deploy {
     uint256 public initialHyperLiquidConfigProposedAt;
     uint256 public initialHyperLiquidConfigFinalizedAt;
 
-    function run() public override {
+    function run() public virtual override {
         runDryRunWithPlaceholders();
     }
 
@@ -56,6 +57,7 @@ contract DeployMainnet is Deploy {
                 protocolBackup: protocolBackup,
                 launchVotingDelegate: launchVotingDelegate,
                 keeper: vm.envAddress("KEEPER_ADDRESS"),
+                allowlistRegistrarSigner: vm.envAddress("ALLOWLIST_REGISTRAR_SIGNER"),
                 pnlAttestor: vm.envAddress("PNL_ATTESTOR"),
                 custodianExecutor: vm.envAddress("CUSTODIAN_EXECUTOR"),
                 coldAccount: vm.envAddress("COLD_ACCOUNT_ADDRESS"),
@@ -83,6 +85,7 @@ contract DeployMainnet is Deploy {
                 protocolBackup: _placeholder(5),
                 launchVotingDelegate: _placeholder(6),
                 keeper: _placeholder(7),
+                allowlistRegistrarSigner: _placeholder(11),
                 pnlAttestor: _placeholder(10),
                 custodianExecutor: _placeholder(8),
                 coldAccount: _placeholder(9),
@@ -96,7 +99,7 @@ contract DeployMainnet is Deploy {
         _handoffToProductionGovernance();
     }
 
-    function _minDelay() internal pure override returns (uint256) {
+    function _minDelay() internal pure virtual override returns (uint256) {
         return PRODUCTION_MIN_DELAY;
     }
 
@@ -108,12 +111,12 @@ contract DeployMainnet is Deploy {
         return uint32(PRODUCTION_VOTING_PERIOD);
     }
 
-    function _timelockOperationDelay() internal pure override returns (uint256) {
+    function _timelockOperationDelay() internal pure virtual override returns (uint256) {
         return PRODUCTION_MIN_DELAY;
     }
 
     function _afterInitialCustodianConfigProposed() internal override {
-        _finalizeInitialHyperLiquidCustodianConfig();
+        if (!cfgBroadcast) _finalizeInitialHyperLiquidCustodianConfig();
     }
 
     function _requireMainnetDryRunChain() internal view {
@@ -133,7 +136,7 @@ contract DeployMainnet is Deploy {
         uint256 readyAt = proposedAt + registry.FINALIZE_DELAY() + 1;
         uint256 expiresAt = proposedAt + registry.PROPOSAL_EXPIRY();
         initialHyperLiquidConfigPreFinalizeTimestamp = block.timestamp;
-        if (block.timestamp < readyAt) {
+        if (block.timestamp < readyAt && !cfgBroadcast) {
             vm.warp(readyAt);
         }
         require(block.timestamp <= expiresAt, "initial custodian config expired");
@@ -143,6 +146,10 @@ contract DeployMainnet is Deploy {
     }
 
     function _afterRiskusdMinterProposed() internal override {
+        if (!cfgBroadcast) _finalizeRiskusdMinter();
+    }
+
+    function _finalizeRiskusdMinter() internal {
         RISKUSD riskusd = RISKUSD(deployedRiskusd);
         if (riskusd.minter() == deployedRiskusdVault) {
             require(riskusd.pendingMinter() == address(0), "riskusd pending minter remains");
@@ -150,7 +157,7 @@ contract DeployMainnet is Deploy {
         }
 
         require(riskusd.pendingMinter() == deployedRiskusdVault, "riskusd vault minter not pending");
-        vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
+        if (!cfgBroadcast) vm.warp(block.timestamp + riskusd.FINALIZE_DELAY() + 1);
         riskusd.finalizeMinter();
         require(riskusd.minter() == deployedRiskusdVault, "riskusd vault minter not finalized");
         require(riskusd.pendingMinter() == address(0), "riskusd pending minter remains");
@@ -158,22 +165,39 @@ contract DeployMainnet is Deploy {
 
     function _handoffToProductionGovernance() internal {
         _finalizeAllowlistRegistrars();
-        _transferOwnershipThroughTimelock(deployedBlocklist);
-        _transferOwnershipThroughTimelock(deployedFORAGETreasury);
-        _transferOwnershipThroughTimelock(deployedForageToken);
-        _transferOwnershipThroughTimelock(deployedRiskusd);
-        _transferOwnershipThroughTimelock(deployedRiskusdVault);
-        _transferOwnershipThroughTimelock(deployedVaultRegistry);
-        _transferOwnershipThroughTimelock(deployedAtRiskTier0);
-        _transferOwnershipThroughTimelock(deployedAtRiskTier1);
-        _transferOwnershipThroughTimelock(deployedAtRiskTier2);
-        _transferOwnershipThroughTimelock(deployedAtRiskTier3);
-        _transferOwnershipThroughTimelock(deployedStakingQueue);
-        _transferOwnershipThroughTimelock(deployedUSDCTreasury);
-        _transferOwnershipThroughTimelock(deployedHLTradingBridge);
+        _transferProductionOwnerships();
         Allowlist(deployedAllowlist).setSystemAccount(address(this), false);
         _transferOwnershipThroughTimelock(deployedAllowlist);
         _revokeDeployerTimelockRoles();
+    }
+
+    /// @notice Every contract the deployer owns until the handoff except the Allowlist, which moves last.
+    function _productionOwnedContracts() internal view returns (address[13] memory) {
+        return [
+            deployedBlocklist,
+            deployedFORAGETreasury,
+            deployedForageToken,
+            deployedRiskusd,
+            deployedRiskusdVault,
+            deployedVaultRegistry,
+            deployedAtRiskTier0,
+            deployedAtRiskTier1,
+            deployedAtRiskTier2,
+            deployedAtRiskTier3,
+            deployedStakingQueue,
+            deployedUSDCTreasury,
+            deployedHLTradingBridge
+        ];
+    }
+
+    function _transferProductionOwnerships() internal {
+        address[13] memory targets = _productionOwnedContracts();
+        for (uint256 i; i < targets.length;) {
+            _transferOwnershipThroughTimelock(targets[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// @notice OPEN-337: the deployer finalises the Allowlist's registrar and system registrar while it still owns
@@ -184,17 +208,18 @@ contract DeployMainnet is Deploy {
         try registry.finalizeRegistrar() {
             registry.finalizeSystemRegistrar();
         } catch {
-            registry.proposeRegistrar(cfgKeeper);
+            registry.proposeRegistrar(deployedAllowlistRegistrar);
             registry.proposeSystemRegistrar(deployedFORAGETreasury, true);
             vm.warp(block.timestamp + registry.FINALIZE_DELAY() + 1);
             registry.finalizeRegistrar();
             registry.finalizeSystemRegistrar();
         }
-        require(registry.registrar() == cfgKeeper, "allowlist registrar not finalized");
+        require(registry.registrar() == deployedAllowlistRegistrar, "allowlist registrar not finalized");
         require(registry.isSystemRegistrar(deployedFORAGETreasury), "allowlist system registrar not finalized");
     }
 
     function _transferOwnershipThroughTimelock(address target) internal {
+        if (IOwnable2StepTarget(target).owner() == deployedTimelock) return;
         IOwnable2StepTarget(target).transferOwnership(deployedTimelock);
         _timelockCall(target, abi.encodeCall(IOwnable2StepTarget.acceptOwnership, ()));
     }
