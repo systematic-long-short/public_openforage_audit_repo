@@ -372,7 +372,7 @@
       <div class="meta-row"><strong>Drafted</strong><span>2026-06-05</span></div>
       <div class="meta-row"><strong>Audience</strong><span>Executive / internal</span></div>
       <div class="meta-row"><strong>Scope</strong><span>14 target contracts — all on Arbitrum (0 HyperEVM)</span></div>
-      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div><div class="meta-row"><strong>Corrected</strong><span>2026-10-29 — outflow caps, payout wallets and blocked-tier behaviour now match the code; 2026-10-31 — mint and deploy caps now match the code (last scan before deployment)</span></div>
+      <div class="meta-row"><strong>Stage</strong><span>IMPLEMENTED — repo + Arbitrum Sepolia; mainnet pending</span></div><div class="meta-row"><strong>Corrected</strong><span>2026-10-29 — outflow caps, payout wallets and blocked-tier behaviour now match the code; 2026-10-31 — mint and deploy caps now match the code; 2026-11-01 — both kinds of loss now match the code (last scan before deployment)</span></div>
       <div class="meta-row"><strong>Companion</strong><span>smart_contract_architecture.html (historical as-is baseline)</span></div>
     </aside>
   </section>
@@ -415,7 +415,7 @@
           in an <strong>8-day public waiting room</strong> before it can take effect.</li>
         <li><strong>The tier idea.</strong> Unchanged. Four tiers; longer lock-up = bigger
           share of the profit; losses are shared <strong>pro-rata across all four tiers</strong>,
-          the same percentage from each.</li>
+          the same percentage from each (§5 names the two kinds of loss).</li>
         <li><strong>What changes (HyperLiquid).</strong> Trading no longer runs through an
           on-chain account on a second blockchain. Capital sits in a single <strong>cold
           custody account</strong>, a separate <strong>fund-less trading key</strong> places
@@ -603,7 +603,9 @@
           tier shares up or down; no cash moves). Separately, when actual USDC is returned it
           earmarks it — depositor/vault, agents, the protocol, and the Foundation's cut of the
           protocol share — and a generic disburse pays each earmark to its allowed destination.
-          Losses are shared pro-rata across the tiers, then a retained buffer; folding in the former
+          A custody loss is shared pro-rata across the tiers, then a retained buffer; a loss on
+          recognised profit that has not come back is shared in proportion between the holders, the
+          agents and the protocol (§5). Folding in the former
           funding treasury, it pays the operators ("agents") within strict caps.</p>
         <div class="why-line"><span class="glabel">Why it matters</span>It is the
           engine of who-gets-paid and who-takes-the-hit, now in one place.</div>
@@ -727,8 +729,11 @@
         profit or loss as <em>accounting</em> — <strong>no USDC moves</strong>. A profit marks the
         tier shares up immediately and records the split: depositors and agents keep their tier
         shares of profit (always 70% together), leaving a flat <strong>30% protocol share</strong>,
-        of which the Foundation takes <strong>50%</strong> (15% of profit), and the protocol retains the other 50%. A loss marks the tier shares
-        down pro-rata across all tiers, then the retained buffer absorbs any remainder.</li>
+        of which the Foundation takes <strong>50%</strong> (15% of profit), and the protocol retains the other 50%. A custody loss — a NAV report below
+        the principal deployed — marks the tier shares down pro-rata across all tiers, then the retained
+        buffer absorbs any remainder. A loss on recognised profit that has not come back lowers the
+        holders' unpaid profit only by their share of the profit lost; the agents and the protocol bear
+        the rest (§5).</li>
       <li><strong>7 · Return &amp; route (cash).</strong> Periodically the custodian sends real USDC
         back. <strong>Principal</strong> comes back through <code>returnPrincipalUSDC</code> straight
         to the Vault, refreshing the cash available to redeem. <strong>Profit</strong> comes back
@@ -762,7 +767,8 @@
       profit</strong> — and the protocol retains the other 50% (also 15% of profit); 50% is the
       hard cap and can never be raised higher. Losses, by contrast,
       are <strong>not</strong> tranched — they are shared <strong>pro-rata across all four tiers at
-      once</strong>, so every tier takes the same percentage hit. A longer lock-up buys a
+      once</strong>, so every tier takes the same percentage hit (the note below names the two kinds of
+      loss). A longer lock-up buys a
       bigger slice of the upside; it gives no extra protection on the downside.
     </p>
 
@@ -785,12 +791,23 @@
     </table>
 
     <div class="note" style="margin-top:16px">
-      <p><strong>How a loss is shared.</strong> If the desk loses money, the USDCTreasury
-      reduces all four tiers at once, in proportion to how much each holds — so every
-      tier takes the <strong>same percentage</strong> hit. There is no first-loss tier and no
-      loss queue. Only if a loss is large enough to use up the tiers' capital does the
-      protocol's own retained buffer absorb the remainder. (This is exactly today's
-      behaviour, now living in USDCTreasury instead of the former ProtocolTreasury.)</p>
+      <p><strong>How a loss is shared.</strong> There are two kinds of loss. Neither has a
+      first-loss tier or a loss queue.</p>
+      <p><strong>A custody loss</strong> is capital lost on the trading floor: the keeper's NAV
+      report shows less than the principal deployed. The USDCTreasury reduces all four tiers at
+      once, in proportion to how much each holds — so every tier takes the <strong>same
+      percentage</strong> hit. Only if a loss is large enough to use up the tiers' capital does the
+      protocol's own retained buffer absorb the remainder. (This is exactly today's behaviour, now
+      living in USDCTreasury instead of the former ProtocolTreasury.)</p>
+      <p><strong>A loss on recognised profit that has not come back</strong> is profit already
+      marked up at step 6 (§4) that is lost before its cash returns. The USDCTreasury records it as
+      a negative recognition, which can never exceed the recognised profit that is still out and
+      that the latest NAV no longer shows. The holders bear only their share: their unpaid profit
+      not yet backed by returned cash falls by the fraction of that profit lost, and every tier's
+      unpaid profit falls by the same fraction. No tier's principal is touched. The agents and the
+      protocol bear the rest, because their cuts are paid out of what comes back. Holders, agents
+      and the protocol each lose the same fraction of their share of the profit still out. (Since
+      the 31 October 2026 update; <code>USDCTreasury._holderShareOfLoss</code>.)</p>
     </div>
     <p class="small" style="margin-top:14px">
       The percentages above are the launch configuration set when the contracts are
@@ -1236,8 +1253,9 @@
         <p>One contract — the <strong>money router</strong> — for <strong>all protocol USDC</strong>,
           with two clearly separated jobs. <em>Accounting:</em> on each NAV attestation it
           recognises profit or loss with no cash moving — marking the tier shares up or down, and
-          spreading a loss pro-rata across the tiers (the same percentage from each), then a
-          retained buffer. <em>Cash:</em> principal returned from trading goes straight to the
+          spreading a custody loss pro-rata across the tiers (the same percentage from each), then a
+          retained buffer; a loss on recognised profit that has not come back is shared in proportion
+          between the holders, the agents and the protocol (§5). <em>Cash:</em> principal returned from trading goes straight to the
           Vault to refresh redemption liquidity, while returned profit is earmarked four ways —
           depositor/vault, agents, the Foundation's cut of the protocol share, and the
           protocol-retained remainder — and a generic <code>disburse</code> pays each earmark to
@@ -1483,7 +1501,7 @@
         <tr><td><strong>4-of-7 (guardian threshold)</strong></td><td>An emergency control requiring four of seven guardians to act together — used to cancel a malicious proposal, <em>accelerate</em> a vote-approved emergency change (such as a custody rotation, to a pre-committed address) to a 10-minute floor, or rotate a compromised guardian seat. A control on the guardian role, not a custody wallet: guardians accelerate governance, they never replace it.</td></tr>
         <tr><td><strong>Custodian</strong></td><td>The trusted destination the Vault deploys capital to — in the target, the slimmed HLTradingBridge contract on Arbitrum, which tracks the off-chain account.</td></tr>
         <tr><td><strong>Upgradeable (UUPS)</strong></td><td>A pattern that lets a contract's logic be improved later — under OpenForage, only via the vote-plus-timelock path.</td></tr>
-        <tr><td><strong>Crystallise (PnL accounting)</strong></td><td>Recognising a period's profit or loss as internal accounting on the USDCTreasury when the keeper attests NAV — marking the tier shares up or down and recording the agent / protocol / Foundation amounts. No USDC moves at this step.</td></tr>
+        <tr><td><strong>Crystallise (PnL accounting)</strong></td><td>Recognising a period's profit or loss as internal accounting on the USDCTreasury when the keeper attests NAV — marking the tier shares up or down and recording the agent / protocol / Foundation amounts. A loss on recognised profit that has not come back lowers the holders' unpaid profit only by their share of it (§5). No USDC moves at this step.</td></tr>
         <tr><td><strong>Earmark</strong></td><td>A per-purpose balance of USDC the treasury has actually received and reserved for one destination (vault top-up, agents, protocol, Foundation). A disbursement can never exceed the earmark's balance.</td></tr>
         <tr><td><strong>returnPrincipalUSDC / returnPnLUSDC</strong></td><td>The two functions the custodian uses to send USDC back to the treasury: principal goes 100% to the Vault (refreshing redemption liquidity); realised profit is split into the four earmarks. Principal is never split to agents, protocol, or Foundation.</td></tr>
         <tr><td><strong>disburse (purpose-keyed)</strong></td><td>The generic treasury function that pays an earmark out to its allowed destination — the Vault, any agent wallet, or the configured protocol / Foundation primary or backup wallet (not checked against the Allowlist) — never exceeding the earmark balance.</td></tr>
@@ -1625,7 +1643,8 @@
       <ul>
         <li><strong>Accept a stake</strong> of RISKUSD and issue tier shares <span class="who">— via the staking queue.</span></li>
         <li><strong>Accrue profit</strong>, raising every share's value <span class="who">— paid in by the treasury; never decreases a share.</span></li>
-        <li><strong>Absorb a loss</strong>, lowering every share's value pro-rata <span class="who">— the treasury, equal % across all four tiers.</span></li>
+        <li><strong>Absorb a custody loss</strong>, lowering every share's value pro-rata <span class="who">— the treasury, equal % across all four tiers.</span></li>
+        <li><strong>Write down unpaid profit</strong> by the holders' share of a loss on recognised profit that has not come back <span class="who">— the treasury; the same fraction in every tier, never the principal (§5).</span></li>
         <li><strong>Release a withdrawal</strong> after the lock-up and a cooldown, within a weekly cap <span class="who">— the depositor; it burns the leaver's own shares and never lowers the backing-per-share of the holders who stay (the payout is capped at the share value snapshotted when the withdrawal was requested, so a leaver takes no profit accrued during the cooldown — it stays with the stayers).</span></li>
         <li><strong>Lock exits while a loss settles</strong> <span class="who">— so no one races out ahead of a loss being shared.</span></li>
         <li><strong>Renew or revert a matured lock-up</strong> — renew the tier by default, or revert an opted-out position to Tier 0 <span class="who">— driven by the staking queue's permissionless expiry pass.</span></li>
@@ -1761,9 +1780,11 @@
       <p><strong>① Accounting — on each NAV attestation, no USDC moves.</strong> When the keeper reports value,
         the treasury recognises the period's profit or loss as pure accounting. A profit <strong>marks the four
         tier shares up immediately</strong> (this is the depositor's claim) and records the agent, protocol, and
-        Foundation amounts; a loss <strong>marks the tier shares down pro-rata — the same percentage from each</strong>
+        Foundation amounts; a custody loss <strong>marks the tier shares down pro-rata — the same percentage from each</strong>
         — and only if a loss is large enough to exhaust the tiers does the retained buffer absorb the remainder.
-        No dollars are transferred in this step.</p>
+        A loss on recognised profit that has not come back lowers the holders' unpaid profit only by their
+        share of the profit lost, and the agents' and the protocol's cuts of what comes back fall by theirs
+        (§5). No dollars are transferred in this step.</p>
       <p><strong>② Cash — when the desk actually returns USDC.</strong> Returned capital arrives by two
         functions. <code>returnPrincipalUSDC</code> sends principal <strong>straight to the Vault</strong>,
         refreshing the cash available for redemptions — it is never split to agents, protocol, or Foundation.
@@ -1802,12 +1823,12 @@
 
       <h4>What it can do</h4>
       <ul>
-        <li><strong>Crystallise PnL on attestation</strong> — mark the tier shares up (profit) or down (loss), and record the agent / protocol / Foundation amounts <span class="who">— no USDC moves; driven by the keeper / bridge that reports the NAV.</span></li>
+        <li><strong>Crystallise PnL on attestation</strong> — mark the tier shares up (profit), or lower the holders' unpaid profit by their share of a loss on profit not yet returned, and record the agent / protocol / Foundation amounts <span class="who">— no USDC moves; driven by the keeper / bridge that reports the NAV.</span></li>
         <li><strong>Take a principal return</strong> via <code>returnPrincipalUSDC</code>, routed 100% to the Vault <span class="who">— the custodian; refreshes redemption liquidity, never split.</span></li>
         <li><strong>Take a profit return</strong> via <code>returnPnLUSDC</code> and earmark it four ways (vault top-up / agent / protocol / Foundation) <span class="who">— the custodian; earmarks hold only returned cash.</span></li>
         <li><strong>Disburse an earmark</strong> by purpose — vault top-up, agent pay, protocol spend, Foundation — never exceeding its balance <span class="who">— an authorised caller; blocklist + caps gate every send.</span></li>
         <li><strong>Survive a blocked recipient</strong> — a payout to a blocked wallet is refused (an agent batch that contains one is refused whole and resent without it), and the protocol and Foundation payouts fall back to the backup; a blocked tier contract or RISKUSDVault stalls top-up delivery and loss settlement for every tier until governance unblocks it <span class="who">— the payer; governance unblocks a contract.</span></li>
-        <li><strong>Absorb a loss</strong> pro-rata across the four tiers, then from the retained buffer <span class="who">— the keeper / bridge.</span></li>
+        <li><strong>Absorb a custody loss</strong> pro-rata across the four tiers, then from the retained buffer <span class="who">— the keeper / bridge.</span></li>
         <li><strong>Adjust the splits and caps, and rotate the Foundation primary wallet under a 2-day delay</strong> <span class="who">— owner / governance; a guardian can shrink the loss-rate cap. The Treasury cannot be paused.</span></li>
       </ul>
 
@@ -1820,7 +1841,8 @@
         <tr><td>Protocol-retained</td><td class="val">the other 50%</td><td>the other half of the protocol share (15% of profit)</td></tr>
         <tr><td>Return functions</td><td class="val">2</td><td><code>returnPrincipalUSDC</code> → Vault (100%); <code>returnPnLUSDC</code> → the four earmark balances</td></tr>
         <tr><td>Disburse destinations</td><td class="val">by purpose</td><td>vault top-up → RISKUSDVault; agent → any wallet; protocol / Foundation → configured primary + pre-set backup (not checked against the Allowlist)</td></tr>
-        <tr><td>Loss sharing</td><td class="val">equal % across all 4</td><td>then the retained buffer absorbs anything beyond the tiers</td></tr>
+        <tr><td>Custody-loss sharing</td><td class="val">equal % across all 4</td><td>then the retained buffer absorbs anything beyond the tiers</td></tr>
+        <tr><td>Loss on unreturned profit</td><td class="val">in proportion</td><td>the holders' unpaid profit falls by their share of the profit lost; the agents' and the protocol's cuts of what comes back fall by theirs</td></tr>
         <tr><td>Loss-rate cap</td><td class="val">10% / day</td><td>of tier assets — bounds how fast a loss can be applied</td></tr>
         <tr><td>Per-block profit ceiling</td><td class="val">none</td><td>there is no per-block settlement ceiling; the bridge clamps a reported gain to ≤ 10% per interval, and profit cash comes back under the bridge's return caps</td></tr>
         <tr><td>Retained-balance withdrawal</td><td class="val">≤ $1M / day</td><td>per fixed one-day window (a new window opens with the first payout after the last one ends); paid by the owner to the protocol primary, or to its backup when the primary is blocked</td></tr>
