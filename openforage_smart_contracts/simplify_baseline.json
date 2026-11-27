@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "openforage_sentinel": "OPENFORAGE_SIMPLIFY_REGRESSION_BASELINE_R37",
+  "contracts": [
+    {
+      "file": "src/RISKUSDVault.sol",
+      "contract": "RISKUSDVault",
+      "bytecodeBytes": 21663,
+      "selectorCount": 105,
+      "selectorSetHash": "4b41d092d8205e8cadf960b7bbb05b0a4e58447aa8ef0b4f4b63de55b8bbc937",
+      "assertSolvencyOrRevertCount": 108
+    },
+    {
+      "file": "src/atRISKUSD.sol",
+      "contract": "atRISKUSD",
+      "bytecodeBytes": 18429,
+      "selectorCount": 82,
+      "selectorSetHash": "ba3ced527ffd7649c3f17290efd910c72dece183da55f7b60dbb8adcb4b1f0c2",
+      "assertSolvencyOrRevertCount": 60
+    },
+    {
+      "file": "src/ProtocolTreasury.sol",
+      "contract": "ProtocolTreasury",
+      "bytecodeBytes": 21138,
+      "selectorCount": 93,
+      "selectorSetHash": "5dda2f21ee647ddb2bd503a572398766d4eb2beda621f8cb2988ddc1cb7a4d5e",
+      "assertSolvencyOrRevertCount": 87
+    },
+    {
+      "file": "src/FundingTreasury.sol",
+      "contract": "FundingTreasury",
+      "bytecodeBytes": 8388,
+      "selectorCount": 41,
+      "selectorSetHash": "26b84c1a2ac0664cbfc73cb64d8c03ef20fa9b169718c9f738bccb7a331820e1",
+      "assertSolvencyOrRevertCount": 32
+    },
+    {
+      "file": "src/RewardPool.sol",
+      "contract": "RewardPool",
+      "bytecodeBytes": 10215,
+      "selectorCount": 50,
+      "selectorSetHash": "e082645cf02aec8d9de501da04aa356bed30a1c38b741456249b7d70201bc1dd",
+      "assertSolvencyOrRevertCount": 40
+    },
+    {
+      "file": "src/DepositorPool.sol",
+      "contract": "DepositorPool",
+      "bytecodeBytes": 10213,
+      "selectorCount": 50,
+      "selectorSetHash": "e082645cf02aec8d9de501da04aa356bed30a1c38b741456249b7d70201bc1dd",
+      "assertSolvencyOrRevertCount": 40
+    },
+    {
+      "file": "src/Partnerships.sol",
+      "contract": "Partnerships",
+      "bytecodeBytes": 8934,
+      "selectorCount": 41,
+      "selectorSetHash": "a52c912d10dacba8d4c3a772f6dfdf92108167a758ae853f001d35e01d883136",
+      "assertSolvencyOrRevertCount": 33
+    },
+    {
+      "file": "src/StakingQueue.sol",
+      "contract": "StakingQueue",
+      "bytecodeBytes": 28467,
+      "selectorCount": 82,
+      "selectorSetHash": "6063b177e3c6000e0f9e9bfd883debbcdde0bc737d3011d7e7e2390b22904748",
+      "assertSolvencyOrRevertCount": 82
+    },
+    {
+      "file": "src/hyperliquid/HLTradingBridge.sol",
+      "contract": "HLTradingBridge",
+      "bytecodeBytes": 19773,
+      "selectorCount": 100,
+      "selectorSetHash": "d94e8900cb85f6d9282965bb55ff9e51427a83e9332e4151a5e3bf99e47c6bec",
+      "assertSolvencyOrRevertCount": 91
+    },
+    {
+      "file": "src/hyperliquid/ExecutorProxy.sol",
+      "contract": "ExecutorProxy",
+      "bytecodeBytes": 5651,
+      "selectorCount": 19,
+      "selectorSetHash": "5a736b4ca6ad963f9d19ded46e66ea37bab0878f44d2c5d83962b0c865d03436",
+      "assertSolvencyOrRevertCount": 8
+    },
+    {
+      "file": "src/GuardianModule.sol",
+      "contract": "GuardianModule",
+      "bytecodeBytes": 13123,
+      "selectorCount": 32,
+      "selectorSetHash": "f95fd6a4035d312196e6f7d643d1da1244787f2dc0a6b836dd59e2410357c197",
+      "assertSolvencyOrRevertCount": 48
+    },
+    {
+      "file": "src/CustodianRegistry.sol",
+      "contract": "CustodianRegistry",
+      "bytecodeBytes": 15022,
+      "selectorCount": 54,
+      "selectorSetHash": "9f67a3fbc3f0f2cc9983d91f6a4d4f4bb013fc0077a7754ef8dddf70f39300ba",
+      "assertSolvencyOrRevertCount": 50
+    },
+    {
+      "file": "src/VaultRegistry.sol",
+      "contract": "VaultRegistry",
+      "bytecodeBytes": 13517,
+      "selectorCount": 37,
+      "selectorSetHash": "b07186c929466a171ef976d9cfe727ae3180db1c4a2fb8667c511c3ad2f61d9e",
+      "assertSolvencyOrRevertCount": 52
+    }
+  ]
+}

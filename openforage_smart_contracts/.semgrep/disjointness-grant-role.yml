@@ -1,0 +1,40 @@
+## Public production rule: do not grant governance proposer role to a guardian.
+## Apply the check to public Solidity source and deployment code.
+rules:
+  - id: disjointness-no-proposer-role-to-guardian
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "src/**/*.sol"
+        - "script/**/*.sol"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $TL.grantRole(PROPOSER_ROLE, $ADDR);
+          - pattern: |
+              $TL.grantRole(keccak256("PROPOSER_ROLE"), $ADDR);
+          - pattern: |
+              $TL.grantRole(keccak256('PROPOSER_ROLE'), $ADDR);
+          - pattern: |
+              TimelockController($TL).grantRole(PROPOSER_ROLE, $ADDR);
+      - pattern-not-inside: |
+          function _wireTargetStack(DeployConfig memory cfg) internal {
+            ...
+            if (GuardianModule($GM).isGuardian($ADDR)) {
+              ...
+            }
+            ...
+            TimelockController(payable(deployedTimelock)).grantRole(PROPOSER_ROLE, $ADDR);
+            ...
+          }
+    message: |
+      C6 / D-31 disjointness violation: the Timelock proposer grant address
+      must not be a configured GuardianModule member. The checked deployment
+      flow tests the same address at the actual grant site and fails before
+      granting PROPOSER_ROLE when that address is a guardian.
+    metadata:
+      category: security
+      technology: [solidity]
+      owasp: A01:2021 - Broken Access Control
+      confidence: HIGH

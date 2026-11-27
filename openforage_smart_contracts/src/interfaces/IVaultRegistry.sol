@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @notice OF-006: Shared VaultConfig struct and IVaultRegistry interface.
+/// Imported by VaultRegistry (canonical definition) and retained consumers to
+/// eliminate inline struct duplication.
+
+/// @dev Vault status enum matching VaultRegistry.VaultStatus.
+enum VaultStatus {
+    Active,
+    Paused,
+    WindingDown
+}
+
+/// @dev VaultConfig struct — single source of truth for vault configuration layout.
+struct VaultConfig {
+    uint256 vaultId;
+    string name;
+    string abbreviation;
+    address[4] tierVaults;
+    address stakingQueue;
+    uint256 capacityCap;
+    uint256[4] lockupDurations;
+    uint16[4] yieldSplitsBps;
+    uint16[4] fundingBps;
+    VaultStatus status;
+}
+
+/// @dev Minimal read-only interface for VaultRegistry consumers.
+interface IVaultRegistry {
+    error VaultRegistryFreshDeploymentRequired(uint8 layoutVersion);
+
+    function getVault(uint256 vaultId) external view returns (VaultConfig memory);
+    function getVaultByAbbreviation(string calldata abbreviation) external view returns (uint256);
+    function isDepositOpen(uint256 vaultId) external view returns (bool);
+    function tierAssetsAtEpochStart(uint256 vaultId) external view returns (uint256);
+    function getAllVaults() external view returns (uint256[] memory);
+    function getVaultsPage(uint256 offset, uint256 limit)
+        external
+        view
+        returns (uint256[] memory ids, uint256 nextOffset, uint256 total);
+    function activeRegisteredTierAssets() external view returns (uint256);
+    function onTierVaultAssetsChanged() external;
+    /// @dev OF-16-002: Notify VaultRegistry that a loss has been resolved for cooldown tracking.
+    function notifyLossResolved() external;
+}

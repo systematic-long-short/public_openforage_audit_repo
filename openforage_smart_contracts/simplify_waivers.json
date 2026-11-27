@@ -1,0 +1,262 @@
+{
+  "openforage_sentinel": "OPENFORAGE_SIMPLIFY_WAIVERS_R37",
+  "schema_version": 1,
+  "waivers": [
+    {
+      "file": "src/hyperliquid/HLTradingBridge.sol",
+      "contract": "HLTradingBridge",
+      "allowSelectorCount": 111,
+      "allowSelectorSetHash": "c73f1f38451f14612e2b0a57291c8d03c5cf86fb297a6f3629073a7460dfd1b3",
+      "allowSelectorAdditions": [
+        "blocklist():d64e5396",
+        "ccipReceive((bytes32,uint64,bytes,bytes,(address,uint256)[])):85572ffb",
+        "ccipRouter():0de22984",
+        "hyperEvmSourceChainSelector():5acfc4db",
+        "initialize((address,address,address,address,address,address,address,address,uint64,bytes32,uint256)):a1754d13",
+        "lastRawAttestedNAV():a4a2e499",
+        "migrateCcipConfig(address,uint64,bytes32):76399608",
+        "normalizeManualCustodianNAV(uint256,uint256,uint256):32529a95",
+        "setBlocklist(address):aef18ae7",
+        "settleLoss(uint256):bcc5e2f6",
+        "supportsInterface(bytes4):01ffc9a7",
+        "tierShareActionsPaused():8dfd7867",
+        "unsettledPositiveYield():c711f747"
+      ],
+      "allowBytecodeGrowthBytes": 5105,
+      "reason": "OF-DID-2026-04-26-02 security remediation ignores NAV accounting while principal returns are in flight, enforces a post-resolution attestation grace barrier, T-R4-blocklist-impl adds address-only block checks, T-SC-loss-settlement adds nonce-bound atomic settleLoss(uint256) for attested loss settlement, T-FINAL-AUDIT disables renounceOwnership, Cantina remediation exposes manual NAV normalization plus tier-share settlement-pending views, and T-CCIP-only-migration replaces the legacy cross-chain receive surface with Chainlink CCIP router/source/sender validation plus a one-time reinitializer for pre-CCIP proxy config migration. T-FIX-final-run-regressions scales Hyperliquid yield settlement by ProtocolTreasury.foundationAllocationBps() before tier/funding allocation so real ProtocolTreasury Foundation top-line routing remains valid. Octane pending-deploy remediation records non-loss in-transit custodian NAV when deploying to Hyperliquid so pre-credit NAV ambiguity cannot trigger vault loss-pending state, and the Phase 2 pattern-audit fix requires full ProtocolTreasury loss absorption before finalizing bridge-managed loss settlement. Cantina follow-up audit loop separates raw attested NAV from display-capped NAV for pending-deploy credit checks, records pending-deploy low NAV as vault-level loss fail-closed, enforces nonce-watermark replay protection for deferred attestations, and refreshes the exact deployed-bytecode allowance for the checked remediation source."
+    },
+    {
+      "file": "src/hyperliquid/ExecutorProxy.sol",
+      "contract": "ExecutorProxy",
+      "allowSelectorCount": 37,
+      "allowSelectorSetHash": "894e3ee621116215441cd36e03e91d6c2ee35ef92862404dbdff9d40a4936dfc",
+      "allowSelectorAdditions": [
+        "ALLOWED_SELECTORS():f7061760",
+        "FINALIZE_DELAY():7346d44c",
+        "PROPOSAL_EXPIRY():8a14e3d0",
+        "UPGRADE_INTERFACE_VERSION():ad3cb1cc",
+        "_decodeCcipSender(bytes):3e47d518",
+        "_decodePayload(bytes):188d580c",
+        "acceptFreezeGuardian():9cb4a75a",
+        "acceptHLTradingVaultOwnership():e044fa84",
+        "acceptOwnership():79ba5097",
+        "allowedShimSelector(bytes4):5000f6a2",
+        "arbitrumGovernanceSender():f1d846b7",
+        "arbitrumSourceChainSelector():5ea5c078",
+        "ccipReceive((bytes32,uint64,bytes,bytes,(address,uint256)[])):85572ffb",
+        "ccipRouter():0de22984",
+        "clearPendingFreezeGuardian():9f600c9a",
+        "finalizeFreezeGuardian():8b647487",
+        "freezeExecutor():9fe4ae5a",
+        "freezeGuardian():38de830a",
+        "frozen():054f7d9c",
+        "governanceCommandEpoch():9ac3c00a",
+        "hlTradingVault():242dd8d6",
+        "initialize(address,address,address,uint64,address):8432d6b6",
+        "lastGovernanceCommandNonce():5c3c8e91",
+        "migrateCcipConfig(address,uint64,address):a2bfe64d",
+        "owner():8da5cb5b",
+        "pendingFreezeGuardian():ffda9f5b",
+        "pendingFreezeGuardianProposedAt():034ed961",
+        "pendingOwner():e30c3978",
+        "proposeFreezeGuardian(address):8c923e44",
+        "proxiableUUID():52d1902d",
+        "renounceOwnership():715018a6",
+        "setAllowedShimSelector(bytes4,bool):dc36ac9c",
+        "supportsInterface(bytes4):01ffc9a7",
+        "transferHLTradingVaultOwnership(address):e98ca08e",
+        "transferOwnership(address):f2fde38b",
+        "unfreezeExecutor():303349c1",
+        "upgradeToAndCall(address,bytes):4f1ef286"
+      ],
+      "allowBytecodeGrowthBytes": 4330,
+      "reason": "T-FINAL-AUDIT disables renounceOwnership so deployed executor ownership cannot be accidentally or maliciously burned, and T-CCIP-only-migration replaces the legacy cross-chain receive surface with Chainlink CCIP router/source/sender validation plus a one-time reinitializer for pre-CCIP proxy config migration. T-FINAL-run refreshes stale guard metadata to the already checked-in ExecutorProxy source, including HLTradingVault ownership-transfer views and CCIP decode helpers, without changing Hyperliquid source code. CF-5 intentionally adds the ExecutorProxy local freeze workflow, staged freezeGuardian rotation, frozen/shim getters, and freeze/unfreeze/allowlist controls. T-AUDIT-run-loop refreshes the exact current ExecutorProxy deployed-bytecode allowance after full Foundry regression reported the waiver 14 bytes below the checked-in source artifact. Cantina/V12 remediation exposes governance command nonce and epoch views for replay-resistant CCIP governance command processing; the security-audit convergence pass enforces gap-free ordered governance command nonces so out-of-order CCIP delivery cannot skip an earlier command, and records authenticated in-order vault-call failures with GovernanceCommandFailed while consuming the nonce so a failing earlier command cannot deadlock a later emergency command."
+    },
+    {
+      "file": "src/RISKUSDVault.sol",
+      "contract": "RISKUSDVault",
+      "allowSelectorCount": 132,
+      "allowSelectorSetHash": "8528ce2883f5f4dee3435cdc8ea79ccccb3cf3adedf886858f9d3087bc6ff511",
+      "allowSelectorAdditions": [
+        "TOKEN_RESCUE_DELAY():2c77d7a1",
+        "acceptManualAttestationReporter():826309a3",
+        "blocklist():d64e5396",
+        "dailyMintCapBps():4c4dbdf4",
+        "dailyMintRemaining():0cc1dcf3",
+        "executeTokenRescue(address):477cf757",
+        "finalizeAttestedLoss(uint256,uint256,uint256):a4e31bed",
+        "latestLossNonce():6cb6408d",
+        "manualAttestationReporter():7c50878c",
+        "proposeTokenRescue(address,uint256,address):1fa3c376",
+        "recordCustodianNAV(uint256,uint256,uint256):e79b9c1f",
+        "recordManualCustodianNAV(uint256,uint256,uint256):a88f6809",
+        "setDailyMintCapBps(uint256):f57e9254",
+        "setBlocklist(address):aef18ae7",
+        "settledLossNonce():827e68c9"
+      ],
+      "allowBytecodeGrowthBytes": 5615,
+      "reason": "T-R4-I4 backing/share monotonicity guard, T-R4-exitcaps-impl stranded-token rescue staging, CF-1 removal of the legacy direct-rescue threshold selector, T-R4-blocklist-impl address-only block checks, and T-SC-loss-settlement/T-SC-rate-limits add nonce-bound NAV-attested loss finalization, two-step manual attestation reporter rotation, and daily mint cap enforcement. Cantina follow-up audit loop enforces strictly increasing nonzero loss nonces so same-nonce manual or bridge reports cannot overwrite existing vault loss state, exposes the settled-loss nonce for cross-contract loss-settlement verification, and refreshes the exact bytecode allowance for the checked source."
+    },
+    {
+      "file": "src/atRISKUSD.sol",
+      "contract": "atRISKUSD",
+      "allowSelectorCount": 96,
+      "allowSelectorSetHash": "51c167889f8ca475e8c5eff3e82416d582a59f622a726ea4282042627f37356a",
+      "allowSelectorAdditions": [
+        "DEFAULT_WEEKLY_WITHDRAWAL_CAP_BPS():2941535f",
+        "WEEKLY_WITHDRAWAL_WINDOW():1519a17d",
+        "blocklist():d64e5396",
+        "hasExpiredAutoRenewDisabledLockup():9e618cb3",
+        "initializeV3(string):48df1cbd",
+        "pendingWithdrawalActive(address):5204a70f",
+        "pendingWithdrawalAmount(address):deaf30b2",
+        "pendingWithdrawalCooldownEnd(address):92b4e809",
+        "pendingWithdrawalWeeklyCap(address):7fe9be73",
+        "setWeeklyWithdrawalCapBps(uint256):28882404",
+        "setBlocklist(address):aef18ae7",
+        "shrinkWeeklyWithdrawalCapBps(uint256):9280648c",
+        "weeklyWithdrawalCapBps():ce38df23",
+        "weeklyWithdrawalRemaining():bc188d8f"
+      ],
+      "allowBytecodeGrowthBytes": 5647,
+      "reason": "T-R4-I4 backing/share monotonicity guard, T-R4-exitcaps-impl weekly withdrawal cap, T-R4-blocklist-impl address-only block checks, CTO follow-up zero-bps rejection, T-FINAL-AUDIT weekly-cap refund accounting, V12/Cantina direct-exit loss-freeze remediation, CF-2 ERC4626 Withdraw event emission for redeemForUpgrade/redeemForReversion, CF-Hybrid-1 named pending-withdrawal getters, and CF-3 per-tier ERC20 metadata reinitializer add mandatory exit-rate, cap administration, blocked-account enforcement, incident-response footgun prevention, non-griefable cancellation behavior, direct withdraw/redeem freeze gating, indexer-visible tier-transition redemption events, position-independent pending-withdrawal client views, and upgrade-safe wallet-visible tier abbreviations. Octane exit-cap remediation keeps requested withdrawals counted against the weekly cap after execution while only refunding any unspent reserved amount. Cantina/V12 PnL routing remediation exposes expired auto-renew-disabled lockup state so protocol yield skips non-claim-bearing expired opt-out positions; the security-audit convergence pass adds expiry-count min-heap tracking so the earliest expired opt-out position is recomputed when the previous earliest holder exits or changes expiry, keeps a holder tracked after post-expiry auto-renew re-enable until actual renewal or exit so re-enable cannot restore PnL eligibility without renewing the lock, blocks expired tracked holders from transferring shares to a fresh account to clear the exclusion before renewal or exit, and counts pending cooldown shares as still exclusion-bearing until cancellation or actual withdrawal execution."
+    },
+    {
+      "file": "src/StakingQueue.sol",
+      "contract": "StakingQueue",
+      "allowSelectorCount": 84,
+      "allowSelectorSetHash": "6044cbd601f3cd2730aa09e5ef84c0ac7f3755fda39a10efc9e9b28a085db577",
+      "allowSelectorAdditions": [
+        "MAX_FIXED_FORAGE_PRICE_USD():251d52fb",
+        "blocklist():d64e5396",
+        "setBlocklist(address):aef18ae7"
+      ],
+      "allowBytecodeGrowthBytes": 2629,
+      "reason": "T-R4-I4 combined backing/share guard, audit-remediation combined tier-asset conservation for yielded reversion, T-R4-blocklist-impl address-only block checks, CTO follow-up blocked queue-entry skip/recovery handling, and T-SC-rate-limits removal of automatic tier-cap widening preserve explicit cap governance and queue-liveness behavior. Octane remediation exposes the fixed FORAGE price bound and computes queued deposit minimum shares from previewDeposit to avoid false failures after legitimate loss-induced exchange-rate changes."
+    },
+    {
+      "file": "src/ProtocolTreasury.sol",
+      "contract": "ProtocolTreasury",
+      "allowSelectorCount": 93,
+      "allowSelectorSetHash": "160c66ad7df7f17adde148a7ec33c504738b48a8b5e9c527f86663c1d8a961f9",
+      "allowSelectorAdditions": [
+        "DEFAULT_FOUNDATION_ALLOCATION_BPS():a0af459b",
+        "DEFAULT_LOSS_RATE_CAP_BPS():0831103d",
+        "LOSS_RATE_WINDOW():bacdefee",
+        "MAX_FOUNDATION_ALLOCATION_BPS():ebf9df71",
+        "TREASURY_BUCKET_PROTOCOL_RETAINED():a108c2ce",
+        "blocklist():d64e5396",
+        "foundationAllocationBps():974b1d4c",
+        "foundationWallet():6b7ae8dc",
+        "initializeFoundationRouting(address):4f2b1148",
+        "lossRateCapBps():84de8c21",
+        "lossRateWindowUsed():f17eab25",
+        "perVaultFoundationRouted(uint256):30800897",
+        "perVaultProtocolRetained(uint256):90cede3a",
+        "protocolRetainedBalance():9101eeba",
+        "quotePnLAllocation(uint256,uint256,uint256,uint256):f2538f97",
+        "setFoundationAllocationBps(uint16):1dbb130f",
+        "setFoundationWallet(address):015493b4",
+        "setLossRateCapBps(uint256):16609765",
+        "setBlocklist(address):aef18ae7",
+        "shrinkLossRateCapBps(uint256):8b47363a",
+        "totalFoundationRouted():b5536eb7",
+        "totalProtocolRetained():a0a0c121",
+        "totalProtocolRetainedWithdrawn():7bbf86d1",
+        "withdrawProtocolRetainedFunds(address,uint256):bfdf8d21"
+      ],
+      "allowBytecodeGrowthBytes": 3221,
+      "allowAssertSolvencyOrRevertDrop": 4,
+      "reason": "T-R4-exitcaps-impl, T-R4-blocklist-impl, CTO follow-up zero-bps rejection, T-SC-rate-limits daily reportLoss cap, and paused-withdrawal blocking add mandatory rolling reportLoss rate-cap enforcement, prepared-loss override checks, cap administration views, blocked-account enforcement, and incident-response footgun prevention. T-IMPL-protocol-treasury-routing intentionally removes direct DevCo/OpCo annual-budget and legacy governance-retained public selectors, then adds top-line Foundation routing and protocol-retained views/withdrawals, including the renamed protocol-retained withdrawal throttle bucket selector. Cantina/V12 remediation adds quotePnLAllocation for caller-side exact split construction, skips non-claim-bearing cooldown/expired opt-out tiers, supports protocol-retained loss cover, and refreshes the exact bytecode allowance for the checked source."
+    },
+    {
+      "file": "src/FundingTreasury.sol",
+      "contract": "FundingTreasury",
+      "allowSelectorCount": 49,
+      "allowSelectorSetHash": "47c2f89e89f46f5271a350c9df235f6fd0aad3f94268fe5d3ac9071f700643c5",
+      "allowSelectorAdditions": [
+        "DEFAULT_DISTRIBUTION_CAP_BPS():17f1c29e",
+        "OWNER_WITHDRAWAL_DELAY():01908e6b",
+        "OWNER_WITHDRAWAL_DIRECT_LIMIT_BPS():61566d66",
+        "blocklist():d64e5396",
+        "effectiveMaxPeriodDistribution():d71d1e26",
+        "effectiveMaxSingleDistribution():f1790d53",
+        "executeOwnerWithdrawal():ca811225",
+        "proposeOwnerWithdrawal(address,uint256):20564adc",
+        "setBlocklist(address):aef18ae7"
+      ],
+      "allowBytecodeGrowthBytes": 2076,
+      "reason": "T-R4-exitcaps-impl, T-R4-blocklist-impl, T-SC-rate-limits, and T-FINAL-AUDIT cumulative owner direct-withdrawal budgeting add mandatory owner large-withdrawal staging, blocked-account enforcement, effective default distribution caps, paused emergency-withdrawal blocking, and non-bypassable direct-withdrawal accounting. Cantina/V12 shared-outflow remediation applies the max-single distribution cap to batch totals and refreshes the exact bytecode allowance for the checked source."
+    },
+    {
+      "file": "src/RewardPool.sol",
+      "contract": "RewardPool",
+      "allowSelectorCount": 54,
+      "allowSelectorSetHash": "dfb49583168633dfd1f716f3b2a04b8ea9cf67fab3fecf86f68838f6a1c4aea2",
+      "allowSelectorAdditions": [
+        "blocklist():d64e5396",
+        "maxRoundAmount():d538db34",
+        "setMaxRoundAmount(uint256):a59fe149",
+        "setBlocklist(address):aef18ae7"
+      ],
+      "allowBytecodeGrowthBytes": 1320,
+      "reason": "T-R4-blocklist-impl adds address-only block checks, T-SC-rate-limits adds per-round airdrop caps tied to the quarterly outflow window for reward value movement, and V12/Cantina shared-outflow remediation separates beneficiary claim checks from admin sweep/withdraw period accounting."
+    },
+    {
+      "file": "src/DepositorPool.sol",
+      "contract": "DepositorPool",
+      "allowSelectorCount": 52,
+      "allowSelectorSetHash": "29c2a0602c50e52dcd11b7c81f78ea23a3e167927926e0a5d3184f57d4a48499",
+      "allowSelectorAdditions": [
+        "blocklist():d64e5396",
+        "setBlocklist(address):aef18ae7"
+      ],
+      "allowBytecodeGrowthBytes": 876,
+      "reason": "T-R4-blocklist-impl adds address-only block checks for depositor claim, sweep, and withdrawal value movement, and V12/Cantina shared-outflow remediation separates beneficiary claim checks from admin sweep/withdraw period accounting."
+    },
+    {
+      "file": "src/Partnerships.sol",
+      "contract": "Partnerships",
+      "allowSelectorCount": 43,
+      "allowSelectorSetHash": "7db2555901e68af88de5bef261d02948e18745838828d992f91f6e54754f24b0",
+      "allowSelectorAdditions": [
+        "blocklist():d64e5396",
+        "setBlocklist(address):aef18ae7"
+      ],
+      "allowBytecodeGrowthBytes": 767,
+      "reason": "T-R4-blocklist-impl adds address-only block checks for partnership distributions, batch recipients, and withdrawals."
+    },
+    {
+      "file": "src/VaultRegistry.sol",
+      "contract": "VaultRegistry",
+      "allowSelectorCount": 38,
+      "allowSelectorSetHash": "0b2b6c4fae464b3bc3c89f760109ee4fcd21bd3dfe0dae1f9005776793fc14b4",
+      "allowSelectorAdditions": [
+        "LOSS_COOLDOWN_BLOCKS():54c2be42"
+      ],
+      "allowBytecodeGrowthBytes": 1000,
+      "reason": "T-SC-loss-settlement replaces the one-hour loss-resolution cooldown with a block-based same-block guard, preserving exact current selector and bytecode drift for the final audit baseline."
+    },
+    {
+      "file": "src/GuardianModule.sol",
+      "contract": "GuardianModule",
+      "allowBytecodeGrowthBytes": 3329,
+      "allowAssertSolvencyOrRevertDrop": 1,
+      "reason": "T-R4-exitcaps-impl extends emergency routing for shrink-only exit-rate and loss-rate cap controls, T-FINAL-AUDIT blocks cancel-guardian cancellation of governor guardian-module replacement proposals, V12/Cantina anti-entrenchment remediation extends cancellation guards to downstream guardian-module rotations plus relay/timelock scheduling paths, security-audit remediation replaces external self-call decoders with internal bounded ABI readers plus whitelisted-downstream validation so unrelated relay/schedule and self-reporting lookalike proposals remain cancellable without adding public selectors, and Cantina/V12 guardian-spam remediation allows guardian-proposed proposal cancellation while preserving protected-mutation cancellation guards.",
+      "allowSelectorCount": 32,
+      "allowSelectorSetHash": "f95fd6a4035d312196e6f7d643d1da1244787f2dc0a6b836dd59e2410357c197",
+      "allowSelectorAdditions": []
+    },
+    {
+      "file": "src/CustodianRegistry.sol",
+      "contract": "CustodianRegistry",
+      "allowBytecodeGrowthBytes": 868,
+      "reason": "Existing Octane remediation bytecode drift is preserved explicitly so the simplify guard continues to fail on unreviewed future growth. Cantina/V12 remediation rejects zero NAV baselines and adds explicit emergency return accounting while registry-wide pause is active.",
+      "allowSelectorCount": 55,
+      "allowSelectorSetHash": "96c14e4d78a03c60490526316a9af35bce4e0fd699b8d56e0af96510faf50b7d",
+      "allowSelectorAdditions": [
+        "recordEmergencyReturn(bytes32,uint256):05ff9232"
+      ]
+    }
+  ]
+}

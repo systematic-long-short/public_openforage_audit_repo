@@ -1,0 +1,15 @@
+# Foundry build artifacts
+cache/
+out/
+
+# Foundry broadcast artifacts (E2E Anvil run history; addresses are recreated each run)
+broadcast/
+
+# Foundry lock file
+foundry.lock
+
+# Echidna generated fuzz corpus
+echidna-corpus/
+
+# Crytic/Echidna compilation cache
+crytic-export/
