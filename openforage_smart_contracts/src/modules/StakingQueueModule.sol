@@ -248,7 +248,7 @@ abstract contract StakingQueueModuleStorage is AllowlistGatedUpgradeable {
     uint256 public constant ARBITRUM_ONE_CHAIN_ID = 42_161;
     uint256 public constant SEQUENCER_UPTIME_GRACE_PERIOD = 1 hours;
     uint256 internal constant QUEUE_ENTRY_TTL = 3 days;
-    /// @dev A14-09 (DEC-octane-golive-2): 100 RISKUSD per entry and 8 open entries per depositor.
+    /// @dev A14-09 (DEC-5271): 100 RISKUSD per entry and 8 open entries per depositor.
     uint256 internal constant MIN_QUEUE_ENTRY_RISKUSD = 100e6;
     uint256 internal constant MAX_OPEN_QUEUE_ENTRIES = 8;
     uint256 internal constant RAY = 1e27;

@@ -390,8 +390,10 @@ library GuardianAuthorityClassifier {
         }
         if (selector == _UPGRADE_TO_AND_CALL) return _isCanonicalUpgradeToAndCall(data);
         if (selector == _PROPOSE_TIMELOCK) return _isCanonicalAddressCall(data);
-        return selector == _UPDATE_GOVERNOR || selector == _SET_ALLOWLIST || selector == _SET_PAUSABLE_TARGET
-            || selector == _ACCEPT_TIMELOCK;
+        if (selector == _SET_PAUSABLE_TARGET) {
+            return (guardianPermissions[context.guardian] & (_PAUSE_PERMISSION | _EMERGENCY_PERMISSION)) != 0;
+        }
+        return selector == _UPDATE_GOVERNOR || selector == _SET_ALLOWLIST || selector == _ACCEPT_TIMELOCK;
     }
 
     function _isSelfTargetingGuardianSeatSetup(

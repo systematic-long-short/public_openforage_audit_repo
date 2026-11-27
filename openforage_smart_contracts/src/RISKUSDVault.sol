@@ -47,6 +47,8 @@ library RISKUSDVaultRedemptionBufferStorage {
         uint256 dailyWindowStart;
         uint256 dailyMintAmount;
         uint256 freshDeploymentVersion;
+        uint256 prevWeeklyMintAmount;
+        uint256 prevDailyMintAmount;
     }
 
     bytes32 private constant STORAGE_SLOT = keccak256(
@@ -58,6 +60,106 @@ library RISKUSDVaultRedemptionBufferStorage {
         assembly ("memory-safe") {
             $.slot := slot
         }
+    }
+
+    function rollWeekly(Layout storage $, uint256 activeStart, uint256 window) internal {
+        uint256 storedStart = $.weeklyWindowStart;
+        if (storedStart == activeStart) return;
+        if (
+            storedStart != UNINITIALIZED_WINDOW_START && activeStart > storedStart
+                && activeStart - storedStart == window
+        ) {
+            $.prevWeeklyMintAmount = $.weeklyMintAmount;
+        } else {
+            $.prevWeeklyMintAmount = 0;
+        }
+        $.weeklyWindowStart = activeStart;
+        $.weeklyMintAmount = 0;
+    }
+
+    function rollDaily(Layout storage $, uint256 activeStart, uint256 window) internal {
+        uint256 storedStart = $.dailyWindowStart;
+        if (storedStart == activeStart) return;
+        if (
+            storedStart != UNINITIALIZED_WINDOW_START && activeStart > storedStart
+                && activeStart - storedStart == window
+        ) {
+            $.prevDailyMintAmount = $.dailyMintAmount;
+        } else {
+            $.prevDailyMintAmount = 0;
+        }
+        $.dailyWindowStart = activeStart;
+        $.dailyMintAmount = 0;
+    }
+
+    function consumeWeekly(Layout storage $, uint256 amount)
+        internal
+        returns (uint256 totalConsumed, uint256 currentConsumed)
+    {
+        uint256 current = $.weeklyMintAmount;
+        currentConsumed = amount < current ? amount : current;
+        $.weeklyMintAmount = current - currentConsumed;
+        uint256 remaining = amount - currentConsumed;
+        uint256 prev = $.prevWeeklyMintAmount;
+        uint256 prevConsumed = remaining < prev ? remaining : prev;
+        $.prevWeeklyMintAmount = prev - prevConsumed;
+        totalConsumed = currentConsumed + prevConsumed;
+    }
+
+    function consumeDaily(Layout storage $, uint256 amount)
+        internal
+        returns (uint256 totalConsumed, uint256 currentConsumed)
+    {
+        uint256 current = $.dailyMintAmount;
+        currentConsumed = amount < current ? amount : current;
+        $.dailyMintAmount = current - currentConsumed;
+        uint256 remaining = amount - currentConsumed;
+        uint256 prev = $.prevDailyMintAmount;
+        uint256 prevConsumed = remaining < prev ? remaining : prev;
+        $.prevDailyMintAmount = prev - prevConsumed;
+        totalConsumed = currentConsumed + prevConsumed;
+    }
+
+    function consumeWeeklyTotal(Layout storage $, uint256 amount) internal returns (uint256 totalConsumed) {
+        uint256 current = $.weeklyMintAmount;
+        uint256 currentConsumed = amount < current ? amount : current;
+        $.weeklyMintAmount = current - currentConsumed;
+        uint256 remaining = amount - currentConsumed;
+        uint256 prev = $.prevWeeklyMintAmount;
+        uint256 prevConsumed = remaining < prev ? remaining : prev;
+        $.prevWeeklyMintAmount = prev - prevConsumed;
+        totalConsumed = currentConsumed + prevConsumed;
+    }
+
+    function consumeDailyTotal(Layout storage $, uint256 amount) internal returns (uint256 totalConsumed) {
+        uint256 current = $.dailyMintAmount;
+        uint256 currentConsumed = amount < current ? amount : current;
+        $.dailyMintAmount = current - currentConsumed;
+        uint256 remaining = amount - currentConsumed;
+        uint256 prev = $.prevDailyMintAmount;
+        uint256 prevConsumed = remaining < prev ? remaining : prev;
+        $.prevDailyMintAmount = prev - prevConsumed;
+        totalConsumed = currentConsumed + prevConsumed;
+    }
+
+    function consumeWeeklyLoss(Layout storage $, uint256 amount) internal {
+        uint256 current = $.weeklyMintAmount;
+        uint256 currentConsumed = amount < current ? amount : current;
+        $.weeklyMintAmount = current - currentConsumed;
+        uint256 remaining = amount - currentConsumed;
+        uint256 prev = $.prevWeeklyMintAmount;
+        uint256 prevConsumed = remaining < prev ? remaining : prev;
+        $.prevWeeklyMintAmount = prev - prevConsumed;
+    }
+
+    function consumeDailyLoss(Layout storage $, uint256 amount) internal {
+        uint256 current = $.dailyMintAmount;
+        uint256 currentConsumed = amount < current ? amount : current;
+        $.dailyMintAmount = current - currentConsumed;
+        uint256 remaining = amount - currentConsumed;
+        uint256 prev = $.prevDailyMintAmount;
+        uint256 prevConsumed = remaining < prev ? remaining : prev;
+        $.prevDailyMintAmount = prev - prevConsumed;
     }
 }
 
@@ -459,9 +561,10 @@ contract RISKUSDVault is
         _syncDailyMintWindow(riskusdSupplyBefore);
 
         _seedRedemptionCapBases(riskusdSupplyBefore);
-        uint256 weeklyMintConsumed = _consumeWeeklyRedemptionMint(riskusdAmount);
-        uint256 dailyMintConsumed = _consumeDailyRedemptionMint(riskusdAmount);
-        // A14-H2: same-window mints offset the charge, so a mint-and-redeem round trip consumes no redemption room.
+        (uint256 weeklyMintConsumed, uint256 weeklyCurrentMintConsumed) = _consumeWeeklyRedemptionMint(riskusdAmount);
+        (uint256 dailyMintConsumed, uint256 dailyCurrentMintConsumed) = _consumeDailyRedemptionMint(riskusdAmount);
+        // A14-H2: current-window and carried-over prior-window mints offset the charge, preventing both
+        // same-window cycling and cross-window rollover cap exhaustion.
         uint256 weeklyCapCharge = riskusdAmount - weeklyMintConsumed;
         uint256 dailyCapCharge = riskusdAmount - dailyMintConsumed;
         _enforceWeeklyCap(weeklyCapCharge, weeklyMintConsumed);
@@ -480,9 +583,9 @@ contract RISKUSDVault is
         _dailyRedemptionUsed += dailyCapCharge;
         _reduceWeeklyRedemptionBasis(weeklyCapCharge);
         _reduceDailyRedemptionBasis(dailyCapCharge);
-        // A15-H1: the same-window mint that offsets this redemption also returns its mint room, so a round trip
-        // moves neither the redemption caps nor the mint caps.
-        _releaseMintRoom(weeklyMintConsumed, dailyMintConsumed);
+        // A15-H1: only current-window mints release current-window mint cap room; carried-over prior-window
+        // mints offset redemption charges without inflating current mint caps.
+        _releaseMintRoom(weeklyCurrentMintConsumed, dailyCurrentMintConsumed);
 
         // Pull RISKUSD from redeemer and burn
         IERC20(address(_riskusd)).safeTransferFrom(msg.sender, address(this), riskusdAmount);
@@ -1114,9 +1217,11 @@ contract RISKUSDVault is
     function effectiveWeeklyRedemptionCap() public view returns (uint256) {
         uint256 effectiveSupply;
         if (block.timestamp >= _weeklyRedemptionWindowStart + WEEKLY_WINDOW) {
-            effectiveSupply = _lastActiveSupply > 0
+            uint256 supplyWithoutCurrentWindowMint =
+                _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
+            effectiveSupply = (_lastActiveSupply > 0 && _lastActiveSupply < supplyWithoutCurrentWindowMint)
                 ? _lastActiveSupply
-                : _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
+                : supplyWithoutCurrentWindowMint;
         } else if (_windowStartSupply == 0 && _weeklyRedemptionUsed == 0) {
             effectiveSupply = _supplyWithoutCurrentWindowMint(_riskusd.totalSupply(), 0, _weeklyRedemptionMintAmount());
         } else {
@@ -1349,14 +1454,22 @@ contract RISKUSDVault is
 
     function _weeklyRedemptionMintAmount() private view returns (uint256) {
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 storedStart = buffers.weeklyWindowStart;
+        if (storedStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START) return 0;
         uint256 activeStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
-        return buffers.weeklyWindowStart == activeStart ? buffers.weeklyMintAmount : 0;
+        if (storedStart == activeStart) return buffers.weeklyMintAmount + buffers.prevWeeklyMintAmount;
+        if (activeStart > storedStart && activeStart - storedStart == WEEKLY_WINDOW) return buffers.weeklyMintAmount;
+        return 0;
     }
 
     function _dailyRedemptionMintAmount() private view returns (uint256) {
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
+        uint256 storedStart = buffers.dailyWindowStart;
+        if (storedStart == RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START) return 0;
         uint256 activeStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
-        return buffers.dailyWindowStart == activeStart ? buffers.dailyMintAmount : 0;
+        if (storedStart == activeStart) return buffers.dailyMintAmount + buffers.prevDailyMintAmount;
+        if (activeStart > storedStart && activeStart - storedStart == DAILY_WINDOW) return buffers.dailyMintAmount;
+        return 0;
     }
 
     function _recordRedemptionMint(uint256 amount) internal {
@@ -1370,17 +1483,11 @@ contract RISKUSDVault is
             return;
         }
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
-        if (buffers.weeklyWindowStart != weeklyStart) {
-            buffers.weeklyWindowStart = weeklyStart;
-            buffers.weeklyMintAmount = 0;
-        }
+        RISKUSDVaultRedemptionBufferStorage.rollWeekly(buffers, weeklyStart, WEEKLY_WINDOW);
         buffers.weeklyMintAmount += amount;
 
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
-        if (buffers.dailyWindowStart != dailyStart) {
-            buffers.dailyWindowStart = dailyStart;
-            buffers.dailyMintAmount = 0;
-        }
+        RISKUSDVaultRedemptionBufferStorage.rollDaily(buffers, dailyStart, DAILY_WINDOW);
         buffers.dailyMintAmount += amount;
     }
 
@@ -1402,32 +1509,32 @@ contract RISKUSDVault is
         _lastActiveSupply = supply;
         buffers.weeklyWindowStart = block.timestamp;
         buffers.dailyWindowStart = block.timestamp;
+        buffers.prevWeeklyMintAmount = 0;
+        buffers.prevDailyMintAmount = 0;
     }
 
-    function _consumeWeeklyRedemptionMint(uint256 amount) internal returns (uint256 consumedMintAmount) {
-        if (!_redemptionMintTrackingEnabled()) return 0;
+    function _consumeWeeklyRedemptionMint(uint256 amount)
+        internal
+        returns (uint256 consumedMintAmount, uint256 consumedCurrentMintAmount)
+    {
+        if (!_redemptionMintTrackingEnabled()) return (0, 0);
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
-        if (buffers.weeklyWindowStart != weeklyStart) {
-            buffers.weeklyWindowStart = weeklyStart;
-            buffers.weeklyMintAmount = 0;
-        }
-        consumedMintAmount = _min(amount, buffers.weeklyMintAmount);
-        buffers.weeklyMintAmount -= consumedMintAmount;
+        RISKUSDVaultRedemptionBufferStorage.rollWeekly(buffers, weeklyStart, WEEKLY_WINDOW);
+        return RISKUSDVaultRedemptionBufferStorage.consumeWeekly(buffers, amount);
     }
 
-    function _consumeDailyRedemptionMint(uint256 amount) internal returns (uint256 consumedMintAmount) {
-        if (!_redemptionMintTrackingEnabled()) return 0;
+    function _consumeDailyRedemptionMint(uint256 amount)
+        internal
+        returns (uint256 consumedMintAmount, uint256 consumedCurrentMintAmount)
+    {
+        if (!_redemptionMintTrackingEnabled()) return (0, 0);
 
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
-        if (buffers.dailyWindowStart != dailyStart) {
-            buffers.dailyWindowStart = dailyStart;
-            buffers.dailyMintAmount = 0;
-        }
-        consumedMintAmount = _min(amount, buffers.dailyMintAmount);
-        buffers.dailyMintAmount -= consumedMintAmount;
+        RISKUSDVaultRedemptionBufferStorage.rollDaily(buffers, dailyStart, DAILY_WINDOW);
+        return RISKUSDVaultRedemptionBufferStorage.consumeDaily(buffers, amount);
     }
 
     function _consumeLossRedemptionMint(uint256 amount) internal {
@@ -1441,20 +1548,12 @@ contract RISKUSDVault is
             return;
         }
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
-        if (buffers.weeklyWindowStart != weeklyStart) {
-            buffers.weeklyWindowStart = weeklyStart;
-            buffers.weeklyMintAmount = 0;
-        }
-        uint256 weeklyOffset = _min(amount, buffers.weeklyMintAmount);
-        buffers.weeklyMintAmount -= weeklyOffset;
+        RISKUSDVaultRedemptionBufferStorage.rollWeekly(buffers, weeklyStart, WEEKLY_WINDOW);
+        RISKUSDVaultRedemptionBufferStorage.consumeWeeklyLoss(buffers, amount);
 
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
-        if (buffers.dailyWindowStart != dailyStart) {
-            buffers.dailyWindowStart = dailyStart;
-            buffers.dailyMintAmount = 0;
-        }
-        uint256 dailyOffset = _min(amount, buffers.dailyMintAmount);
-        buffers.dailyMintAmount -= dailyOffset;
+        RISKUSDVaultRedemptionBufferStorage.rollDaily(buffers, dailyStart, DAILY_WINDOW);
+        RISKUSDVaultRedemptionBufferStorage.consumeDailyLoss(buffers, amount);
     }
 
     function _resetRedemptionCapsForEmptySupply() private {
@@ -1468,8 +1567,10 @@ contract RISKUSDVault is
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         buffers.weeklyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
         buffers.weeklyMintAmount = 0;
+        buffers.prevWeeklyMintAmount = 0;
         buffers.dailyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
         buffers.dailyMintAmount = 0;
+        buffers.prevDailyMintAmount = 0;
     }
 
     function _enforceWeeklyCap(uint256 riskusdAmount, uint256 consumedMintAmount) internal {
@@ -1484,8 +1585,10 @@ contract RISKUSDVault is
             // OF-M02: Advance by elapsed periods (handles multi-week gaps)
             uint256 elapsed = (block.timestamp - _weeklyRedemptionWindowStart) / WEEKLY_WINDOW;
             _weeklyRedemptionWindowStart += elapsed * WEEKLY_WINDOW;
-            // OF-L21: Use last active-window supply to prevent cap inflation via temporary deposits
-            _windowStartSupply = _lastActiveSupply > 0 ? _lastActiveSupply : supplyWithoutCurrentWindowMint;
+            // OF-L21: Clamp last active-window supply to seasoned supply to prevent cap inflation.
+            _windowStartSupply = (_lastActiveSupply > 0 && _lastActiveSupply < supplyWithoutCurrentWindowMint)
+                ? _lastActiveSupply
+                : supplyWithoutCurrentWindowMint;
             // OF-007: Reset _lastActiveSupply for new window to prevent permanent cap ratchet-down
             _lastActiveSupply = cachedTotalSupply;
         } else if (_windowStartSupply == 0 && _weeklyRedemptionUsed == 0) {

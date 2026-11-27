@@ -1146,21 +1146,13 @@ contract RISKUSDVaultModule is
             return (amount, amount);
         }
         uint256 weeklyStart = _redemptionWindowStart(_weeklyRedemptionWindowStart, WEEKLY_WINDOW);
-        if (buffers.weeklyWindowStart != weeklyStart) {
-            buffers.weeklyWindowStart = weeklyStart;
-            buffers.weeklyMintAmount = 0;
-        }
-        uint256 weeklyOffset = amount < buffers.weeklyMintAmount ? amount : buffers.weeklyMintAmount;
-        buffers.weeklyMintAmount -= weeklyOffset;
+        RISKUSDVaultRedemptionBufferStorage.rollWeekly(buffers, weeklyStart, WEEKLY_WINDOW);
+        uint256 weeklyOffset = RISKUSDVaultRedemptionBufferStorage.consumeWeeklyTotal(buffers, amount);
         weeklyBasisDebit = amount - weeklyOffset;
 
         uint256 dailyStart = _redemptionWindowStart(_dailyRedemptionWindowStart, DAILY_WINDOW);
-        if (buffers.dailyWindowStart != dailyStart) {
-            buffers.dailyWindowStart = dailyStart;
-            buffers.dailyMintAmount = 0;
-        }
-        uint256 dailyOffset = amount < buffers.dailyMintAmount ? amount : buffers.dailyMintAmount;
-        buffers.dailyMintAmount -= dailyOffset;
+        RISKUSDVaultRedemptionBufferStorage.rollDaily(buffers, dailyStart, DAILY_WINDOW);
+        uint256 dailyOffset = RISKUSDVaultRedemptionBufferStorage.consumeDailyTotal(buffers, amount);
         dailyBasisDebit = amount - dailyOffset;
     }
 
@@ -1175,8 +1167,10 @@ contract RISKUSDVaultModule is
         RISKUSDVaultRedemptionBufferStorage.Layout storage buffers = RISKUSDVaultRedemptionBufferStorage.layout();
         buffers.weeklyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
         buffers.weeklyMintAmount = 0;
+        buffers.prevWeeklyMintAmount = 0;
         buffers.dailyWindowStart = RISKUSDVaultRedemptionBufferStorage.UNINITIALIZED_WINDOW_START;
         buffers.dailyMintAmount = 0;
+        buffers.prevDailyMintAmount = 0;
     }
 
     function _redemptionWindowStart(uint256 storedStart, uint256 window) internal view returns (uint256) {

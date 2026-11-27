@@ -994,6 +994,7 @@ contract GuardianModule is Initializable, UUPSUpgradeable, FinalizeDelayProfile,
     function _rotationCanExecuteAgain(bytes memory data) private view returns (bool) {
         Rotation storage rotation = _rotations[bytes32(_wordAt(data, 4))];
         if (!rotation.exists || rotation.successor == address(0)) return false;
+        if (rotation.slot != SLOT_GUARDIAN_SEAT) return false;
         if (rotation.executed || _acceleratedRotationExpired(rotation)) return false;
         // A14-10: only a ready rotation whose pre-commit still matches is protected from guardian cancellation.
         if (preCommittedSuccessor[rotation.slot][rotation.current] != rotation.successor) return false;

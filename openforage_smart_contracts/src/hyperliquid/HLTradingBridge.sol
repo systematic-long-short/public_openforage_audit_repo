@@ -221,7 +221,7 @@ contract HLTradingBridgeCapitalModule is HLTradingBridgeStorage, FinalizeDelayPr
         if (principal == 0 && lastNonzeroPrincipalBasis != 0) {
             IHLTradingBridgeCapitalNAVPort vault = IHLTradingBridgeCapitalNAVPort(state.riskusdVault());
             uint256 latestLossNonce = vault.latestLossNonce();
-            if (latestLossNonce != 0 && latestLossNonce == vault.settledLossNonce()) {
+            if (latestLossNonce == vault.settledLossNonce()) {
                 principalCapBasis = lastNonzeroPrincipalBasis;
             }
         }
@@ -1071,8 +1071,6 @@ contract HLTradingBridge is
 
         bytes32 openIntentId = _openWithdrawalIntentId;
         if (openIntentId != bytes32(0)) revert WithdrawalIntentPending(openIntentId);
-        uint256 unassigned = _unreconciledBalance(IERC20(usdc).balanceOf(address(this)));
-        if (unassigned != 0) _reconcileUnassignedWithdrawalArrival(unassigned);
         uint256 nonce = _nextWithdrawalIntentNonce();
         intentId = keccak256(
             abi.encode(address(this), msg.sender, amount, recipient, sourceAccount, chainSelector, block.number, nonce)

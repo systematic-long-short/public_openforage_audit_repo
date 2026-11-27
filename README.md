@@ -1,21 +1,48 @@
-# OpenForage public contract review
-This repository is a selective source snapshot for independent review. It is not a deployment repository or a copy of the private monorepo.
-## 2026-10-28 pre-scan source update
-Before the contracts are deployed, this update fixes every Analysis 14 finding that the 2026-10-11 update left unchanged, declared a limit, or retained as intended, and every issue that OpenForage's own whole-tree review after Analysis 14 left open. It records OpenForage's own source review, not an Octane result. No Octane analysis has run on this tree or on the 2026-10-11 update, and no future scan is promised or authorized. See the [2026-10-28 pre-scan review](documentation/smart_contract_audits/2026-10-28-pre-scan-review.md) for each change, its check, its public source lines, and the remaining bounds. The [Analysis 14 dispositions](documentation/smart_contract_audits/2026-10-11-analysis-14-dispositions.md) and the [2026-10-11 post-scan update](documentation/smart_contract_audits/2026-10-11-post-scan-update.md) remain the record of the previous round.
-## Snapshot scope
-76 files are byte-equal to OpenForage's private source for this update: 42 Solidity source, interface, library, and module files; 22 ABI files; 8 deployment-script, interface, and checker files; the Slither settings and suppression policy; `remappings.txt`; and `foundry.lock`. The 2026-10-28 update added `src/modules/StakingQueueLockupModule.sol`; the round-10 update adds `src/AllowlistRegistrarForwarder.sol`, its ABI, and `script/DeployMainnetBroadcast.s.sol`, the Arbitrum One deployment in two broadcasts from the deployer's own wallet. Twelve tool and settings files differ from the private tree; the pre-scan review lists each difference. Both linked-library addresses match in both profiles and the deployment script. Both root dependency Gitlinks and all nine recursive pins remain unchanged. Vendor source stays behind those pins. Private audit records, run logs, packet text, deployment state, credentials, and non-allowlisted scripts and tooling are excluded.
-No first-party contract test path is copied.
-## Analyses 9–14 status
-The Analysis 9–13 disposition pages retain each finding and related case with its latest completed critique verdict, source lines, and bounded reason. The [Analysis 14 dispositions](documentation/smart_contract_audits/2026-10-11-analysis-14-dispositions.md) add the 17 visible findings and the three separately listed findings Octane marked Automatically Acknowledged, and the [2026-10-28 pre-scan review](documentation/smart_contract_audits/2026-10-28-pre-scan-review.md) records the source fix of every one of them still open. Source review does not change an Octane status or mark a finding resolved. The 155 Analysis 1–8 identities remain unchanged in [`the historical record`](documentation/smart_contract_audits/2026-06-17-external-audit/OctaneAnalysis7Remediation.md). Warning 28 retains its dated missing-capture gap.
-The linked disposition pages state the bounded outcomes and remaining limits for earlier findings, including cash-backed withdrawal pricing, fresh-only deployment, and source-only gas bounds. The 2026-10-28 update removes the 40-epoch catch-up revert, the small-basis rounding edge, and the queue and guardian limits recorded for Analysis 14, and corrects three stale sentences in earlier pages; the weekly-exit reservation rule stands. No legacy-proxy, deployment, or current Octane closure is claimed.
-The post-scan and pre-scan pages report the static evidence and its limits. They do not claim a fresh full `audit-static` pass.
-## Policy boundaries
-Only fresh deployments are supported. New code must refuse pre-fresh state before changing it. No legacy migration engine is supported. In the Blocklist, the legacy importer and interval-translation path are removed; fresh initialization sets the layout version and every state-changing entrypoint checks it before effects. The historical checkpoint lookup uses `wasBlockedAt`; the retained pre-checkpoint mapping is inert and remains only for layout. An independent source review accepts this Blocklist repair within a source-only bound; it proves no old-proxy or deployed-state behavior. The first upgrade still uses the authorizer in the implementation already installed. These rules do not prove every deployed proxy or upgrade path.
-Profit belongs to the holders at recognition. Unpaid profit stays a separate claim and is paid only when cash arrives. Withdrawals use cash-backed share value and available cash; they promise no payment date. A reported custodian loss belongs to holders at report time. Transfers and exits that could avoid that loss stay frozen through settlement.
-The distributor is the trusted payer, not the recipient. Payment grants no system-account status or restricted-call permission.
-Since the 2026-10-28 update, a tier deposit waits while a fresh profit attestation is not yet recognised, and any recognition, including zero, reopens admissions. Each queue entry is at least 100 RISKUSD, and a depositor holds at most 8 open entries. A holder whose allowlist approval lapsed may cancel its own queue entry and collect funded profit to an allowlisted recipient. Neither Treasury is guardian-pausable; both are on the guardian emergency target list so the reserved guardian can tighten their caps, and a pause call on either fails. Since the 2026-10-30 update, a new positive profit recognition waits until earlier recognised profit has come back and been delivered, and a loss is not recognised while reconciled cash waits in the bridge. With no principal deployed, returned profit is not held back by NAV headroom, and the zero-principal sweep refuses cash that recognised profit still claims and waits until the latest fresh NAV report has been answered. Since the 2026-10-31 update, an expired opted-out tier position reverts to Tier 0 before it can withdraw, no position can opt out while a withdrawal is pending, and expiry processing renews an auto-renew position even while it waits to withdraw, so shares the exit returns stay under the new lock. The token's Allowlist is not changed while a vote-sync task is queued. Since the 2026-10-31 round-9 update, a loss on recognised profit that has not come back reduces the holders' unpaid claim only by their share of the profit lost, so holders, agents and the protocol each bear their share of it. Since the 2026-10-31 round-10 update, expiry processing moves an expired opted-out position to Tier 0 even when the holder's Allowlist approval has lapsed, after catching the holder and the queue up on closed profit epochs; it renews a blocked holder's auto-renew position, while a blocked opted-out position waits until its block ends. The Allowlist registrar is `AllowlistRegistrarForwarder`, a contract with its own signer key, not the keeper. A Blocklist block stops an account's FORAGE reward claims; a round that expires during the block is not reopened, and an unblocked account's entitlement may be published again in a later round. The Allowlist gates entry and exit: deposits, queue joins, withdrawals, redemptions and the profit recipient; tier shares and RISKUSD move between any accounts that are not blocked, except that tier shares cannot move into an opted-out account whose lock has expired.
-## Build and verification limits
-Forge 1.3.5 and Solc 0.8.24 compiled 140 public source inputs in each offline profile with the test tree skipped. Default had zero compiler errors and its size check exited 1 on ten EIP-170 overages: atRISKUSD initcode 49,533 bytes (381 over); ForageGovernor runtime 28,053 bytes (3,477 over) and initcode 49,546 bytes (394 over); ForageGovernorTimelockMigrationGuard runtime 24,790 bytes (214 over); ForageToken runtime 24,757 bytes (181 over); ForageTokenStateModule runtime 25,169 bytes (593 over); GuardianModule runtime 24,672 bytes (96 over); HLTradingBridge runtime 25,157 bytes (581 over); RISKUSDVaultModule runtime 24,978 bytes (402 over); StakingQueue runtime 27,992 bytes (3,416 over); USDCTreasury runtime 26,554 bytes (1,978 over). Default is not the deployed build. Deploy exited 0 and all 44 first-party runtime/initcode artifacts fit; ForageToken has the tightest runtime margin at 434 bytes. Every size equals OpenForage's private build of the same source.
+# OpenForage Smart Contracts
+
+This repository contains the OpenForage smart contract source code, ABIs, deployment scripts, and static-analysis configuration for independent security review. It contains smart contracts only and is not a copy of the private monorepo.
+
+## Repository Layout
+
+- `openforage_smart_contracts/src/` — 42 Solidity source, interface, library, and module files (Solc `0.8.24`).
+- `openforage_smart_contracts/abi/` — 22 contract ABI files (21 compiler-matched to `src/`; `FoundationTreasury.json` is retained as a source-less historical artifact).
+- `openforage_smart_contracts/script/` — 5 Solidity deployment/setup scripts and interfaces (`Deploy.s.sol`, `DeployMainnet.s.sol`, `DeployMainnetBroadcast.s.sol`, `RegisterAllowlist.s.sol`, `interfaces/IAllowlistSettable.sol`), `deploy_target_sc_gap.sh`, and 5 static-check helper scripts.
+- `openforage_smart_contracts/lib/` — pinned Git submodule dependencies (`openzeppelin-contracts-upgradeable`, `chainlink-ccip`).
+- `openforage_smart_contracts/foundry.toml`, `foundry.lock`, `remappings.txt`, `Makefile`, `slither.config.json`, `slither_suppressions.json`, `.semgrep/` — compiler profiles and static-analysis configuration.
+
+No first-party contract test directory is included in this repository.
+
+## Linked Libraries (CREATE2)
+
+Both `[profile.default]` and `[profile.deploy]` link the two external libraries at their deterministic CREATE2 addresses (verified in `script/Deploy.s.sol`):
+
+- `ForageGovernorTimelockMigrationGuard`: `0x46d318eb6a8c2635599e5b61e07a81c15a11381e`
+- `GuardianAuthorityClassifier`: `0x6399CCAE7229A7dFa193401984BED90086471BAe`
+
+## Core Design Boundaries
+
+- **Fresh deployments only.** Upgradeable contracts enforce fresh-deployment initialization invariants and refuse uninitialized or legacy state before mutating storage.
+- **Cash-backed withdrawals and rate caps.** Central vault deposits and redemptions enforce daily and weekly supply-based rate caps; current-window and one-window carried-over mints offset redemption cap charges without inflating current-window mint room. Tiered `atRISKUSD` withdrawals use a 7-day request/claim cycle subject to weekly tier exit caps and cash availability; no fixed payout date is promised.
+- **Profit and custody-loss accounting.** Recognized profit belongs to holders at recognition time, while unpaid profit remains a separate claim funded only as cash arrives. Reported custodian losses are borne by holders at report time, and transfers/exits that could avoid a pending loss remain frozen through settlement.
+- **Access control and governance.** The Allowlist gates entry/exit actions (deposits, queue joins, withdrawals, redemptions, and profit recipients), managed through `AllowlistRegistrarForwarder`. Governance actions flow through `ForageGovernor` and `TimelockController`, guarded by `ForageGovernorTimelockGuard` and `GuardianModule`.
+
+## Build and Static Checks
+
+Initialize submodules and build using Solc `0.8.24`:
+
+```bash
+git submodule update --init --recursive
+cd openforage_smart_contracts
+FOUNDRY_PROFILE=deploy forge build --sizes --skip 'test/**'
+make no-tests audit-i15 audit-legacy
+```
+
+`FOUNDRY_PROFILE=deploy` (`via_ir = true`, `optimizer_runs = 0`, `revert_strings = "strip"`, `bytecode_hash = "none"`) is the production build profile. `FOUNDRY_PROFILE=default` is not deployed and exceeds EIP-170/EIP-3860 on several contracts.
+
+## Contract Bytecode Sizes (Solc 0.8.24)
+
+All 45 first-party Deploy runtime and initcode artifacts fit within EIP-170 (24,576 B) and EIP-3860 (49,152 B). `ForageToken` has the tightest Deploy runtime margin at +434 bytes.
+
 | Contract or library | Default runtime / initcode (margin) | Deploy runtime / initcode (margin) |
 |---|---:|---:|
 | Allowlist | 15,058 / 15,314 (+9,518 / +33,838) | 13,303 / 13,513 (+11,273 / +35,639) |
@@ -40,27 +67,34 @@ Forge 1.3.5 and Solc 0.8.24 compiled 140 public source inputs in each offline pr
 | FORAGETreasury | 24,295 / 27,665 (+281 / +21,487) | 20,054 / 22,729 (+4,522 / +26,423) |
 | FORAGETreasuryModule | 2,930 / 2,981 (+21,646 / +46,171) | 2,261 / 2,308 (+22,315 / +46,844) |
 | GovernancePayloadBudget | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-| GuardianAuthorityClassifier | 12,784 / 12,837 (+11,792 / +36,315) | 10,807 / 10,840 (+13,769 / +38,312) |
+| GuardianAuthorityClassifier | 12,817 / 12,870 (+11,759 / +36,282) | 10,851 / 10,884 (+13,725 / +38,268) |
 | GuardianEmergencyPrincipalLane | 2,656 / 2,987 (+21,920 / +46,165) | 2,385 / 2,671 (+22,191 / +46,481) |
-| GuardianModule | 24,672 / 24,928 (-96 / +24,224) | 20,094 / 20,308 (+4,482 / +28,844) |
-| HLTradingBridge | 25,157 / 34,871 (-581 / +14,281) | 23,679 / 32,176 (+897 / +16,976) |
-| HLTradingBridgeCapitalModule | 9,225 / 9,325 (+15,351 / +39,827) | 8,049 / 8,145 (+16,527 / +41,007) |
+| GuardianModule | 24,701 / 24,957 (-125 / +24,195) | 20,116 / 20,330 (+4,460 / +28,822) |
+| HLTradingBridge | 25,089 / 34,791 (-513 / +14,361) | 23,575 / 32,038 (+1,001 / +17,114) |
+| HLTradingBridgeCapitalModule | 9,213 / 9,313 (+15,363 / +39,839) | 8,015 / 8,111 (+16,561 / +41,041) |
 | HLTradingBridgeCapitalStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsHostStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | HLTradingBridgeReturnCapsModule | 1,930 / 1,973 (+22,646 / +47,179) | 1,583 / 1,622 (+22,993 / +47,530) |
 | HLTradingBridgeReturnCapsModuleStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | RISKUSD | 12,324 / 12,616 (+12,252 / +36,536) | 10,418 / 10,663 (+14,158 / +38,489) |
-| RISKUSDVault | 22,607 / 22,899 (+1,969 / +26,253) | 19,147 / 19,397 (+5,429 / +29,755) |
-| RISKUSDVaultModule | 24,978 / 25,443 (-402 / +23,709) | 20,951 / 21,404 (+3,625 / +27,748) |
+| RISKUSDVault | 23,161 / 23,453 (+1,415 / +25,699) | 19,706 / 19,956 (+4,870 / +29,196) |
+| RISKUSDVaultModule | 25,304 / 25,769 (-728 / +23,383) | 21,247 / 21,700 (+3,329 / +27,452) |
 | RISKUSDVaultRedemptionBufferStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | StakingQueue | 27,992 / 28,284 (-3,416 / +20,868) | 23,964 / 24,214 (+612 / +24,938) |
 | StakingQueueLockupModule | 12,711 / 12,797 (+11,865 / +36,355) | 11,291 / 11,373 (+13,285 / +37,779) |
 | StakingQueueModule | 19,018 / 19,278 (+5,558 / +29,874) | 19,088 / 19,321 (+5,488 / +29,831) |
 | USDCTreasury | 26,554 / 31,232 (-1,978 / +17,920) | 23,957 / 27,835 (+619 / +21,317) |
 | USDCTreasuryAccountingModule | 14,631 / 14,717 (+9,945 / +34,435) | 12,403 / 12,485 (+12,173 / +36,667) |
+| USDCTreasuryPnLCashOutStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | USDCTreasuryProfitPolicyModule | 4,259 / 4,303 (+20,317 / +44,849) | 3,486 / 3,525 (+21,090 / +45,627) |
 | USDCTreasuryRecognitionStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
 | VaultRegistry | 21,894 / 22,150 (+2,682 / +27,002) | 19,373 / 19,587 (+5,203 / +29,565) |
 | VaultRegistryTierAssetEpochStorage | 85 / 135 (+24,491 / +49,017) | 16 / 44 (+24,560 / +49,108) |
-All 22 ABI files match the mapped source; 21 equal the compiler's ABI and `FoundationTreasury.json` remains source-less. OpenForage's private storage-layout checker, run on the same source, reports 26 matching rows and the same seven inherited divergences, and that the new lockup module's layout equals the core module's. The checker is absent from the public tree, so no public-tree storage run is claimed.
-On this tree, Slither 0.11.6 reports 539 results on the Deploy build; the public suppression validator matches 537 by exact identity, and two `StakingQueueModule` findings whose identity changes from run to run pass or fail by run (the pre-scan review explains why). Semgrep 1.177.0 with the public rules reports 86 matches, four more than before, all on entry points opened on purpose. `make no-tests`, `make audit-i15`, and `make audit-legacy` pass. `make audit-static` and `make audit-simplify` do not: the public source manifest predates this update, and the simplify checker names a retired contract. Earlier limits recorded in the 2026-10-11 post-scan update, including its analyzer tables and the two failed Windows CLI rows, are unchanged by this update. No first-party contract test, runtime, deployed-state, chain, or Octane result is claimed.
+
+## Static Verification Notes
+
+- `make no-tests`, `make audit-i15`, and `make audit-legacy` pass.
+- All 21 source-backed ABIs in `abi/` match compiler output (`FoundationTreasury.json` remains source-less).
+- Slither `0.11.6` reports 540 findings matched against 540 entries in `slither_suppressions.json` (2 `StakingQueueModule` `reentrancy-no-eth` findings have run-to-run hash-order nondeterminism in Slither ID generation).
+- Semgrep against `.semgrep/openforage.yml` and `.semgrep/disjointness-grant-role.yml` reports 86 matches (unchanged from prior baseline).
+- `make audit-static` and `make audit-simplify` do not pass as-is because `.semgrep/source-manifest.json` and `simplify_baseline.json` predate later contract rounds.

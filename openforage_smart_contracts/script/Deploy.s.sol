@@ -119,15 +119,15 @@ contract Deploy is Script {
     );
     bytes32 private constant AUTHORITY_CLASSIFIER_SALT =
         keccak256("openforage:octane-remediation:GuardianAuthorityClassifier:v1");
-    address private constant AUTHORITY_CLASSIFIER_ADDRESS = 0xc0ddDAF64759A4C6EC95869B928fB133d4fD300C;
+    address private constant AUTHORITY_CLASSIFIER_ADDRESS = 0x6399CCAE7229A7dFa193401984BED90086471BAe;
     bytes32 private constant AUTHORITY_CLASSIFIER_INIT_CODE_HASH = bytes32(
-        (uint256(0xb12113b1af28e8be) << 192) | (uint256(0x21c784aa91e405db) << 128)
-            | (uint256(0x63968a4d4431946d) << 64) | uint256(0xed4c98c6ee501dff)
+        (uint256(0x8b25698caf844f1f) << 192) | (uint256(0x870ffc5bbef931c5) << 128)
+            | (uint256(0x207f927d9c5d7eb3) << 64) | uint256(0xdafaf53eed1b77ac)
     );
-    uint256 private constant AUTHORITY_CLASSIFIER_RUNTIME_LENGTH = 10_807;
+    uint256 private constant AUTHORITY_CLASSIFIER_RUNTIME_LENGTH = 10_851;
     bytes32 private constant AUTHORITY_CLASSIFIER_RUNTIME_HASH = bytes32(
-        (uint256(0x4226d3b575eae8b2) << 192) | (uint256(0x36bed5546142331d) << 128)
-            | (uint256(0xcac6f4904aa9929a) << 64) | uint256(0x6d3772c57c44e570)
+        (uint256(0x8e20dd4fa13e6335) << 192) | (uint256(0x2350eb56fec7c282) << 128)
+            | (uint256(0x7abfe9c5ed125c1d) << 64) | uint256(0x848853c7a4eca957)
     );
     uint256 private constant CUSTODIAN_REGISTRY_NONCE_OFFSET = 7;
     uint256 private constant FORAGE_GOVERNOR_GUARD_NONCE = 1;
